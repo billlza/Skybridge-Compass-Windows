@@ -1,0 +1,2016 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!--
+    SkyBridge Compass — English (en-US) UI strings.
+    Default/fallback language (see <DefaultLanguage>en-US</DefaultLanguage> in the .csproj).
+
+    Keep every key mirrored 1:1 across Strings/en-US, Strings/zh-Hans and Strings/ja so a
+    missing key always falls back to en-US, never to an empty string.
+
+    Property-identifier convention: "<Uid>.<Property>" sets that property on the XAML element
+    carrying x:Uid="<Uid>". For a TextBlock the property is "Text". The standard WinUI/UWP
+    resw schema below (resheader block + the data/value element pairs) is what
+    MakePri/MSBuild indexes into the app's resources.pri for both packaged AND unpackaged.
+  -->
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+
+  <!-- ============================ USB Management (pilot) ============================ -->
+  <data name="UsbManagementTitle.Text" xml:space="preserve">
+    <value>USB Management</value>
+    <comment>USB page header title. Mac key: usb.management.title.</comment>
+  </data>
+  <data name="UsbConnectedDevices.Text" xml:space="preserve">
+    <value>Connected Devices</value>
+    <comment>Section header over the connected-USB-device list.</comment>
+  </data>
+  <data name="UsbEmptyTitle.Text" xml:space="preserve">
+    <value>No USB Devices Found</value>
+    <comment>Shown when zero USB devices are enumerated. Mac key: usb.empty.title.</comment>
+  </data>
+  <data name="UsbEmptySubtitle.Text" xml:space="preserve">
+    <value>Connect a device and refresh, or check cables and ports.</value>
+    <comment>Guidance under the empty-state title. Mac key: usb.empty.subtitle.</comment>
+  </data>
+
+  <!-- ============================ Sidebar / brand ============================ -->
+  <data name="AppSidebarBrandName.Text" xml:space="preserve">
+    <value>SkyBridge Compass</value>
+    <comment>Sidebar header app name. Must equal the Mac "app.name" string exactly.</comment>
+  </data>
+  <data name="AppSidebarBrandTagline.Text" xml:space="preserve">
+    <value>Next-Gen Cross-Platform Connection Experience</value>
+    <comment>Sidebar tagline. Must equal the Mac "app.slogan" string exactly.</comment>
+  </data>
+  <data name="AppWindowTitle" xml:space="preserve">
+    <value>SkyBridge Compass</value>
+    <comment>Main window title, shown in the taskbar and Alt-Tab. Mac uses WindowGroup(app.name), so this must equal AppSidebarBrandName.Text.</comment>
+  </data>
+
+  <!-- ============================ Top bar ============================ -->
+  <data name="TopBarDiagnosticsFpsLabel.Text" xml:space="preserve">
+    <value>FPS</value>
+    <comment>Top-bar diagnostics pill static label (acronym, kept as-is across locales).</comment>
+  </data>
+
+  <!-- ============================ Dashboard — weather hero ============================ -->
+  <data name="DashboardWeatherLoadingTitle.Text" xml:space="preserve">
+    <value>Fetching weather…</value>
+    <comment>Weather hero loading-state title.</comment>
+  </data>
+  <data name="DashboardWeatherLoadingHint.Text" xml:space="preserve">
+    <value>First load may take a few seconds</value>
+    <comment>Weather hero loading-state hint.</comment>
+  </data>
+  <data name="DashboardWeatherErrorTitle.Text" xml:space="preserve">
+    <value>Failed to load weather</value>
+    <comment>Weather hero error-state title.</comment>
+  </data>
+  <data name="DashboardWeatherRetryButton.Text" xml:space="preserve">
+    <value>Retry</value>
+    <comment>Weather hero Retry button. Mac notifications.action.retry.</comment>
+  </data>
+
+  <!-- ============================ Dashboard — 2x2 summary panels ============================ -->
+  <data name="DashboardDeviceDiscoveryPanelTitle.Text" xml:space="preserve">
+    <value>Device Discovery</value>
+    <comment>Dashboard Device-Discovery summary panel title (also DD page panel). Mac sidebar.deviceDiscovery.</comment>
+  </data>
+  <data name="DashboardDeviceDiscoveryEmptyTitle.Text" xml:space="preserve">
+    <value>No Devices Found</value>
+    <comment>Dashboard discovery summary empty-state title. Mac discovery.noDevices.title.</comment>
+  </data>
+  <data name="DashboardDeviceDiscoveryEmptySubtitle.Text" xml:space="preserve">
+    <value>Open Device Discovery to start scanning</value>
+    <comment>Dashboard discovery summary empty-state subtitle.</comment>
+  </data>
+  <data name="DashboardRemoteSessionsPanelTitle.Text" xml:space="preserve">
+    <value>Remote Sessions</value>
+    <comment>Dashboard Remote-Sessions summary panel title. Mac dashboard.remoteSessions.</comment>
+  </data>
+  <data name="DashboardRemoteSessionsEmptyTitle.Text" xml:space="preserve">
+    <value>No Active Sessions</value>
+    <comment>Dashboard remote-sessions empty-state title. Mac session.noActive.</comment>
+  </data>
+  <data name="DashboardRemoteSessionsEmptySubtitle.Text" xml:space="preserve">
+    <value>Connect from Remote Desktop to start a session</value>
+    <comment>Dashboard remote-sessions empty-state subtitle.</comment>
+  </data>
+  <data name="DashboardQuickActionsPanelTitle.Text" xml:space="preserve">
+    <value>Quick Actions</value>
+    <comment>Dashboard Quick-Actions panel title. Mac dashboard.quickActions.</comment>
+  </data>
+  <data name="DashboardSystemPerformancePanelTitle.Text" xml:space="preserve">
+    <value>System Performance</value>
+    <comment>Dashboard System-Performance panel title. Mac dashboard.systemPerformance.</comment>
+  </data>
+  <data name="DashboardSystemPerformanceEmptyTitle.Text" xml:space="preserve">
+    <value>No Data</value>
+    <comment>Dashboard system-performance empty-state title. Mac monitor.noData.</comment>
+  </data>
+  <data name="DashboardSystemPerformanceEmptySubtitle.Text" xml:space="preserve">
+    <value>Open System Monitor to collect performance data</value>
+    <comment>Dashboard system-performance empty-state subtitle.</comment>
+  </data>
+
+  <!-- ============================ File Transfer ============================ -->
+  <data name="FileTransferPageTitle.Text" xml:space="preserve">
+    <value>File Transfer</value>
+    <comment>File Transfer page header title. Mac sidebar.fileTransfer.</comment>
+  </data>
+  <data name="FileTransferConnectionStatusHeader.Text" xml:space="preserve">
+    <value>Connection Status</value>
+    <comment>Left-sidebar card header. Mac fileTransfer.connectionStatus.</comment>
+  </data>
+  <data name="FileTransferQuickActionsHeader.Text" xml:space="preserve">
+    <value>Quick Actions</value>
+    <comment>Left-sidebar card header. Mac fileTransfer.quickActions.</comment>
+  </data>
+  <data name="FileTransferQuickActionsHint.Text" xml:space="preserve">
+    <value>Select files or a folder to send. Connect a device to approve incoming files. Folders transfer as ZIP files.</value>
+    <comment>Quick Actions explanatory subtitle (Windows-specific honesty note).</comment>
+  </data>
+  <data name="FileTransferRecentTransfersHeader.Text" xml:space="preserve">
+    <value>Recent Transfers</value>
+    <comment>Left-sidebar card header. Mac fileTransfer.recentTransfers.</comment>
+  </data>
+  <data name="FileTransferRecentEmpty.Text" xml:space="preserve">
+    <value>No recent transfers yet</value>
+    <comment>Recent Transfers empty state. Mac fileTransfer.recent.empty.</comment>
+  </data>
+  <data name="FileTransferDropZoneTitle.Text" xml:space="preserve">
+    <value>Drop files to transfer</value>
+    <comment>Drop-zone title. Mac fileTransfer.drop.title.</comment>
+  </data>
+  <data name="FileTransferDropZoneSubtitle.Text" xml:space="preserve">
+    <value>Drop up to 64 files or one folder, then choose a device. Folders transfer as ZIP files.</value>
+    <comment>Drop-zone honest subtitle (Windows-specific).</comment>
+  </data>
+  <data name="FileTransferQrPreviewTitle.Text" xml:space="preserve">
+    <value>File Transfer QR</value>
+    <comment>QR preview card title (gated). Mac qrcode.title.</comment>
+  </data>
+  <data name="FileTransferQueueHeader.Text" xml:space="preserve">
+    <value>Transfer Queue</value>
+    <comment>Right-pane section header. Mac activeTransfersSection / fileTransfer.activeTransfers.</comment>
+  </data>
+  <data name="FileTransferQueueEmpty.Text" xml:space="preserve">
+    <value>Queue is empty. Stage files or a folder from Quick Actions to populate it.</value>
+    <comment>Transfer Queue empty hint.</comment>
+  </data>
+  <data name="FileTransferHistoryHeader.Text" xml:space="preserve">
+    <value>Transfer History</value>
+    <comment>Right-pane section header. Mac fileTransfer.history.title.</comment>
+  </data>
+  <data name="FileTransferHistoryEmpty.Text" xml:space="preserve">
+    <value>No completed transfers yet.</value>
+    <comment>Transfer History empty state (gated). Mac fileTransfer.history.emptyTitle.</comment>
+  </data>
+  <data name="FileTransferSecurityHeader.Text" xml:space="preserve">
+    <value>File Transfer Security</value>
+    <comment>Right-pane facts card header.</comment>
+  </data>
+
+  <!-- ============================ Remote Desktop ============================ -->
+  <data name="RemoteDesktopHeaderTitle.Text" xml:space="preserve">
+    <value>Remote Desktop</value>
+    <comment>Page header title. Mac sidebar.remoteDesktop. GATE-CRITICAL ordering — keep before header/actions/Active Sessions.</comment>
+  </data>
+  <data name="RemoteDesktopModeAuto.Text" xml:space="preserve">
+    <value>Auto</value>
+    <comment>Connection-mode segmented tab. Mac remote.connectionMode.auto.</comment>
+  </data>
+  <data name="RemoteDesktopModeNear.Text" xml:space="preserve">
+    <value>Near</value>
+    <comment>Connection-mode tab. Mac remote.connectionMode.near.</comment>
+  </data>
+  <data name="RemoteDesktopModeFar.Text" xml:space="preserve">
+    <value>Far</value>
+    <comment>Connection-mode tab. Mac remote.connectionMode.far.</comment>
+  </data>
+  <data name="RemoteDesktopActiveSessionsHeader.Text" xml:space="preserve">
+    <value>Active Sessions</value>
+    <comment>Sidebar section header. Mac remote.activeSessions. GATE-CRITICAL: must stay after RemoteDesktopActions.</comment>
+  </data>
+  <data name="RemoteDesktopEmptyTitle.Text" xml:space="preserve">
+    <value>No active sessions</value>
+    <comment>Sidebar empty-state title. Mac session.noActive.</comment>
+  </data>
+  <data name="RemoteDesktopEmptySubtitle.Text" xml:space="preserve">
+    <value>Trusted sessions appear here once verified</value>
+    <comment>Sidebar empty-state subtitle.</comment>
+  </data>
+  <data name="RemoteDesktopRecentConnectionsHeader.Text" xml:space="preserve">
+    <value>Recent Connections</value>
+    <comment>Sidebar section header. Mac remote.recentConnections.</comment>
+  </data>
+  <data name="RemoteDesktopRecentConnectionsNote.Text" xml:space="preserve">
+    <value>Recent peers reconnect only after a verified peer key is provided.</value>
+    <comment>Honest note under Recent Connections.</comment>
+  </data>
+  <data name="RemoteDesktopTrustedSessionsCardTitle.Text" xml:space="preserve">
+    <value>Trusted Active Sessions</value>
+    <comment>Right-pane card title.</comment>
+  </data>
+  <data name="RemoteDesktopTrustedSessionsTrailingEmpty.Text" xml:space="preserve">
+    <value>No active session</value>
+    <comment>Trailing badge when session count == 0. Mac session.noActive.</comment>
+  </data>
+  <data name="RemoteDesktopTrustedSessionsBody.Text" xml:space="preserve">
+    <value>Trusted peers will appear here once a verified remote session is established.</value>
+    <comment>Right-pane card descriptive body.</comment>
+  </data>
+  <data name="RemoteDesktopPreviewCardTitle.Text" xml:space="preserve">
+    <value>Preview</value>
+    <comment>Preview card title. Mac action.preview.</comment>
+  </data>
+  <data name="RemoteDesktopPreviewTrailingIdle.Text" xml:space="preserve">
+    <value>Idle</value>
+    <comment>Preview card trailing status badge. Mac status.idle.</comment>
+  </data>
+  <data name="RemoteDesktopPreviewEmptyTitle.Text" xml:space="preserve">
+    <value>Select a session to start Remote Desktop</value>
+    <comment>Preview idle-state title. Mac remote.empty.title.</comment>
+  </data>
+  <data name="RemoteDesktopPreviewEmptySubtitle.Text" xml:space="preserve">
+    <value>Connect from Device Discovery for a one-tap session. Manual RDP/VNC/SSH is an advanced path.</value>
+    <comment>Preview idle-state subtitle. Mac remote.empty.subtitle.</comment>
+  </data>
+  <data name="RemoteDesktopQualityHeader.Text" xml:space="preserve">
+    <value>Quality</value>
+    <comment>Section header above bitrate/framerate combos.</comment>
+  </data>
+
+  <!-- ============================ Session Controls (app-wide) ============================ -->
+  <data name="SessionControlsTitle.Text" xml:space="preserve">
+    <value>Session Controls</value>
+    <comment>App-wide session-controls panel title.</comment>
+  </data>
+  <data name="SessionControlsBitrateLabel.Text" xml:space="preserve">
+    <value>Bitrate</value>
+    <comment>Session-controls Bitrate combo label.</comment>
+  </data>
+  <data name="SessionControlsFramerateLabel.Text" xml:space="preserve">
+    <value>Framerate</value>
+    <comment>Session-controls Framerate combo label.</comment>
+  </data>
+
+  <!-- ============================ System Monitor ============================ -->
+  <data name="SystemMonitorTitle.Text" xml:space="preserve">
+    <value>System Monitor</value>
+    <comment>System Monitor page header. Mac monitor.title / sidebar.systemMonitor.</comment>
+  </data>
+  <data name="SystemMonitorOverviewHeading.Text" xml:space="preserve">
+    <value>Overview</value>
+    <comment>Card 1 section heading. Mac monitor.overview.</comment>
+  </data>
+  <data name="SystemMonitorIndicatorsHeading.Text" xml:space="preserve">
+    <value>Indicators</value>
+    <comment>Indicators section heading.</comment>
+  </data>
+  <data name="SystemMonitorDetailedMonitoringHeading.Text" xml:space="preserve">
+    <value>Detailed Monitoring</value>
+    <comment>Card 2 section heading.</comment>
+  </data>
+
+  <!-- ===== System Monitor — data-bound indicator/metric Labels, States & captions =====
+       Localized at the BINDING layer by LabelKeyToLocalizedConverter; the canonical English
+       literals stay in SystemMonitorWorkspaceClient (gate-asserted). No ".Text" suffix: these
+       are looked up by raw key from the converter (same convention as Status.*). -->
+  <data name="SysMonLabel.Health" xml:space="preserve">
+    <value>Health</value>
+    <comment>Indicator pill label "Health".</comment>
+  </data>
+  <data name="SysMonLabel.Monitoring" xml:space="preserve">
+    <value>Monitoring</value>
+    <comment>Indicator pill label "Monitoring".</comment>
+  </data>
+  <data name="SysMonLabel.Advanced" xml:space="preserve">
+    <value>Advanced</value>
+    <comment>Indicator pill label "Advanced".</comment>
+  </data>
+  <data name="SysMonLabel.Thermal" xml:space="preserve">
+    <value>Thermal</value>
+    <comment>Indicator pill label "Thermal".</comment>
+  </data>
+  <data name="SysMonLabel.Load" xml:space="preserve">
+    <value>Load</value>
+    <comment>Indicator pill label "Load".</comment>
+  </data>
+  <data name="SysMonLabel.CPU" xml:space="preserve">
+    <value>CPU</value>
+    <comment>Metric tile label "CPU".</comment>
+  </data>
+  <data name="SysMonLabel.Memory" xml:space="preserve">
+    <value>Memory</value>
+    <comment>Metric tile label "Memory".</comment>
+  </data>
+  <data name="SysMonLabel.Disk" xml:space="preserve">
+    <value>Disk</value>
+    <comment>Metric tile label "Disk".</comment>
+  </data>
+  <data name="SysMonLabel.Network" xml:space="preserve">
+    <value>Network</value>
+    <comment>Metric tile label "Network".</comment>
+  </data>
+  <data name="SysMonState.Healthy" xml:space="preserve">
+    <value>Healthy</value>
+    <comment>Indicator state "Healthy".</comment>
+  </data>
+  <data name="SysMonState.Caution" xml:space="preserve">
+    <value>Caution</value>
+    <comment>Indicator state "Caution".</comment>
+  </data>
+  <data name="SysMonState.NetworkOffline" xml:space="preserve">
+    <value>Network offline</value>
+    <comment>Indicator state "Network offline".</comment>
+  </data>
+  <data name="SysMonState.Active" xml:space="preserve">
+    <value>Active</value>
+    <comment>Indicator state "Active" (monitoring running).</comment>
+  </data>
+  <data name="SysMonState.Idle" xml:space="preserve">
+    <value>Idle</value>
+    <comment>Indicator state "Idle" (monitoring stopped).</comment>
+  </data>
+  <data name="SysMonState.ReadOnly" xml:space="preserve">
+    <value>Read-only</value>
+    <comment>Indicator state "Read-only" (advanced diagnostics enabled).</comment>
+  </data>
+  <data name="SysMonState.Off" xml:space="preserve">
+    <value>Off</value>
+    <comment>Indicator state "Off" (advanced diagnostics disabled).</comment>
+  </data>
+  <data name="SysMonState.Unknown" xml:space="preserve">
+    <value>Unknown</value>
+    <comment>Indicator state "Unknown" (thermal — no Windows provider yet).</comment>
+  </data>
+  <data name="SysMonState.Nominal" xml:space="preserve">
+    <value>Nominal</value>
+    <comment>Indicator state "Nominal" (load).</comment>
+  </data>
+  <data name="SysMonCaption.Processor" xml:space="preserve">
+    <value>Processor</value>
+    <comment>CPU metric-tile sub-caption.</comment>
+  </data>
+  <data name="SysMonCaption.WorkingSet" xml:space="preserve">
+    <value>Working set</value>
+    <comment>Memory metric-tile sub-caption.</comment>
+  </data>
+  <data name="SysMonCaption.Storage" xml:space="preserve">
+    <value>Storage</value>
+    <comment>Disk metric-tile sub-caption.</comment>
+  </data>
+  <data name="SysMonCaption.Adapters" xml:space="preserve">
+    <value>Adapters</value>
+    <comment>Network metric-tile sub-caption.</comment>
+  </data>
+
+  <!-- ============================ Top bar — status-pill tooltips ============================ -->
+  <data name="TopBarNetworkSpeedPill.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Network throughput (down / up), sampled every ~2s</value>
+    <comment>Top-bar net-speed pill hover tooltip.</comment>
+  </data>
+  <data name="TopBarNetworkLatencyPill.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>HTTPS response time to Microsoft (www.microsoft.com), refreshed every 15 seconds. This is not the latency of a remote session.</value>
+    <comment>Top-bar latency pill hover tooltip.</comment>
+  </data>
+  <data name="TopBarIpLocationPill.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Public IP location from IPWhois (ipwho.is), refreshed every 5 minutes. Proxy status describes this lookup route.</value>
+    <comment>Top-bar IP/proxy pill hover tooltip.</comment>
+  </data>
+  <data name="TopBarDiagnosticsPill.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>FPS / Diagnostics</value>
+    <comment>Top-bar diagnostics pill hover tooltip.</comment>
+  </data>
+
+  <!-- ============================ Dashboard — weather hero controls ============================ -->
+  <data name="DashboardWeatherRefreshButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Refresh weather</value>
+    <comment>Weather hero refresh button tooltip.</comment>
+  </data>
+  <data name="DashboardWeatherRefreshButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Refresh weather</value>
+    <comment>Weather hero refresh button accessible name.</comment>
+  </data>
+  <data name="DashboardWeatherRetryButtonRoot.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Retry</value>
+    <comment>Weather hero retry button accessible name. Mac notifications.action.retry.</comment>
+  </data>
+
+  <!-- ============================ Device Discovery — manual / cross-network ============================ -->
+  <data name="DiscoveryCompatibilityModeCheckBox.Content" xml:space="preserve">
+    <value>Compatibility Mode</value>
+    <comment>Toggle to broaden discovery to more device types. Mac discovery.compatibilityMode.</comment>
+  </data>
+  <data name="DiscoverySearchBox.PlaceholderText" xml:space="preserve">
+    <value>Search devices</value>
+    <comment>Discovered-device filter placeholder.</comment>
+  </data>
+  <data name="ManualConnectionHostLabel.Text" xml:space="preserve">
+    <value>Manual Host / IP</value>
+    <comment>Manual-connect host field label. Mac manualConnect.title / discovery.manualConnect.</comment>
+  </data>
+  <data name="ManualConnectionHostBox.PlaceholderText" xml:space="preserve">
+    <value>IP Address</value>
+    <comment>Manual-connect host field placeholder. Mac manualConnect.ipAddress.</comment>
+  </data>
+  <data name="ManualConnectionPortLabel.Text" xml:space="preserve">
+    <value>Port</value>
+    <comment>Manual-connect port field label. Mac manualConnect.port.</comment>
+  </data>
+  <data name="ManualConnectionCodeLabel.Text" xml:space="preserve">
+    <value>Code</value>
+    <comment>Manual-connect pairing-code field label. Mac discovery.manualConnect.code.</comment>
+  </data>
+  <data name="ManualConnectionCodeBox.PlaceholderText" xml:space="preserve">
+    <value>Optional code</value>
+    <comment>Manual-connect pairing-code placeholder (optional).</comment>
+  </data>
+  <data name="DynamicEncryptedQrCodeHeader.Text" xml:space="preserve">
+    <value>Dynamic Encrypted QR Code</value>
+    <comment>Cross-network QR section header. Mac discovery.qrCode.title.</comment>
+  </data>
+  <data name="SmartConnectionCodeHeader.Text" xml:space="preserve">
+    <value>Smart Connection Code</value>
+    <comment>Cross-network short-code section header. Mac connection.smartCode.title.</comment>
+  </data>
+  <data name="DiscoveryServiceLabel.Text" xml:space="preserve">
+    <value>Service</value>
+    <comment>DNS-SD service-type field label.</comment>
+  </data>
+  <data name="DiscoveryTxtRecordLabel.Text" xml:space="preserve">
+    <value>TXT record</value>
+    <comment>DNS-SD TXT-record field label.</comment>
+  </data>
+  <data name="PairingCodeLabel.Text" xml:space="preserve">
+    <value>Pairing Code</value>
+    <comment>Pairing-code field label. Mac manualConnect.pairingCode.</comment>
+  </data>
+
+  <!-- ============================ Remote Desktop — session search ============================ -->
+  <data name="RemoteDesktopSearchBox.PlaceholderText" xml:space="preserve">
+    <value>Search sessions...</value>
+    <comment>Active-session filter placeholder.</comment>
+  </data>
+
+  <!-- ============================ Settings — page chrome ============================ -->
+  <data name="SettingsPageTitle.Text" xml:space="preserve">
+    <value>Settings</value>
+    <comment>Settings page header title. Mac sidebar.settings / settings.header.title.</comment>
+  </data>
+  <data name="SettingsActionsHeader.Text" xml:space="preserve">
+    <value>Settings Actions</value>
+    <comment>Settings-actions section header.</comment>
+  </data>
+
+  <!-- ============================ Device Discovery — peer card ============================ -->
+  <data name="DiscoveredPeerFingerprintBadge.Text" xml:space="preserve">
+    <value>Fingerprint</value>
+    <comment>Discovered-peer identity badge (fingerprint-only, not a verified-trust claim).</comment>
+  </data>
+
+  <!-- ============================ USB Management — device card ============================ -->
+  <data name="UsbMfiCertifiedBadge.Text" xml:space="preserve">
+    <value>MFi Certified</value>
+    <comment>USB device-card MFi-certified badge. Mac DeviceCard "MFi Certified".</comment>
+  </data>
+  <data name="UsbDeviceIdLabel.Text" xml:space="preserve">
+    <value>Device ID</value>
+    <comment>USB device-card detail row label. Mac usb.device.id.</comment>
+  </data>
+  <data name="UsbVendorIdLabel.Text" xml:space="preserve">
+    <value>Vendor ID</value>
+    <comment>USB device-card detail row label.</comment>
+  </data>
+  <data name="UsbProductIdLabel.Text" xml:space="preserve">
+    <value>Product ID</value>
+    <comment>USB device-card detail row label.</comment>
+  </data>
+  <data name="UsbSerialNumberLabel.Text" xml:space="preserve">
+    <value>Serial Number</value>
+    <comment>USB device-card detail row label.</comment>
+  </data>
+  <data name="UsbConnectionInterfaceLabel.Text" xml:space="preserve">
+    <value>Connection Interface</value>
+    <comment>USB device-card detail row label.</comment>
+  </data>
+  <data name="UsbCapabilitiesLabel.Text" xml:space="preserve">
+    <value>Capabilities</value>
+    <comment>USB device-card detail row label. Mac usb.device.capabilities.</comment>
+  </data>
+
+  <!-- ============================ Device Discovery — connection-mode header ============================ -->
+  <data name="DiscoveryModeLocalScanTitle.Text" xml:space="preserve">
+    <value>Near Scan</value>
+    <comment>Connection-mode header tab 1 title. Mac discovery.localScan.title. (iCloud tab title stays inline brand "iCloud".)</comment>
+  </data>
+  <data name="DiscoveryModeLocalScanSubtitle.Text" xml:space="preserve">
+    <value>Same Network</value>
+    <comment>Connection-mode header tab 1 subtitle (same-LAN hint).</comment>
+  </data>
+  <data name="DiscoveryModeQrTitle.Text" xml:space="preserve">
+    <value>Scan QR</value>
+    <comment>Connection-mode header tab 2 title (scan a QR code to connect).</comment>
+  </data>
+  <data name="DiscoveryModeQrSubtitle.Text" xml:space="preserve">
+    <value>Scan</value>
+    <comment>Connection-mode header tab 2 subtitle.</comment>
+  </data>
+  <data name="DiscoveryModeCloudSubtitle.Text" xml:space="preserve">
+    <value>Zero-Config</value>
+    <comment>Connection-mode header tab 3 subtitle (iCloud zero-configuration).</comment>
+  </data>
+  <data name="DiscoveryModeSmartCodeTitle.Text" xml:space="preserve">
+    <value>Smart Code</value>
+    <comment>Connection-mode header tab 4 title. Mac connection.smartCode.title.</comment>
+  </data>
+  <data name="DiscoveryModeSmartCodeSubtitle.Text" xml:space="preserve">
+    <value>Short-Lived Code</value>
+    <comment>Connection-mode header tab 4 subtitle (short-lived connection code).</comment>
+  </data>
+
+  <!-- ============================ Device Discovery — local-scan banner ============================ -->
+  <data name="DiscoveryLocalScanBannerTitle.Text" xml:space="preserve">
+    <value>LAN Device Discovery</value>
+    <comment>Local-scan info banner title.</comment>
+  </data>
+  <data name="DiscoveryLocalScanBannerBody.Text" xml:space="preserve">
+    <value>Devices broadcasting via DNS-SD on the same network appear below.</value>
+    <comment>Local-scan info banner body.</comment>
+  </data>
+
+  <!-- ============================ Device Discovery — scan-toolbar legend ============================ -->
+  <data name="DiscoveryScanLegendExtendedSearch.Text" xml:space="preserve">
+    <value>Extended Search</value>
+    <comment>Scan-toolbar legend label. Mac discovery.extendedSearch.default.</comment>
+  </data>
+  <data name="DiscoveryScanLegendManualConnect.Text" xml:space="preserve">
+    <value>Manual Connect</value>
+    <comment>Scan-toolbar legend label. Mac discovery.manualConnect.</comment>
+  </data>
+  <data name="DiscoveryScanLegendStartScan.Text" xml:space="preserve">
+    <value>Start Scan</value>
+    <comment>Scan-toolbar legend label. Mac discovery.startScan.</comment>
+  </data>
+  <data name="DiscoveryScanLegendStopScan.Text" xml:space="preserve">
+    <value>Stop Scan</value>
+    <comment>Scan-toolbar legend label. Mac discovery.stopScan.</comment>
+  </data>
+  <data name="DiscoveryScanLegendRefresh.Text" xml:space="preserve">
+    <value>Refresh</value>
+    <comment>Scan-toolbar legend label. Mac action.refresh.</comment>
+  </data>
+
+  <!-- ============================ Per-page status (Status.* — localized at the binding layer by StatusKeyToLocalizedConverter) ============================ -->
+  <data name="Status.Ready" xml:space="preserve">
+    <value>Ready</value>
+    <comment>Canonical per-page status "Ready". Backing field/source literal stays "Ready" (gate-asserted); only the displayed text is localized via StatusKeyToLocalizedConverter. Mac status.ready.</comment>
+  </data>
+  <data name="Status.Idle" xml:space="preserve">
+    <value>Idle</value>
+    <comment>Canonical status "Idle" (session/preview). Mac status.idle.</comment>
+  </data>
+  <data name="Status.PreviewReady" xml:space="preserve">
+    <value>Preview ready</value>
+    <comment>Canonical status "Preview ready" (settings export preview).</comment>
+  </data>
+  <data name="Status.IntentReady" xml:space="preserve">
+    <value>Intent ready</value>
+    <comment>Canonical status "Intent ready" (staged action intent).</comment>
+  </data>
+  <data name="Status.NoCoreValidatedPeers" xml:space="preserve">
+    <value>No Core-validated peers</value>
+    <comment>Canonical discovery-browser status "No Core-validated peers" (zero discovered peers).</comment>
+  </data>
+  <data name="Status.DiscoveryStopped" xml:space="preserve">
+    <value>Discovery stopped</value>
+    <comment>Canonical discovery status "Discovery stopped".</comment>
+  </data>
+  <data name="Status.Disconnected" xml:space="preserve">
+    <value>Disconnected</value>
+    <comment>Top-bar connection pill. Backing value stays EngineConnectionState.Disconnected.ToString() (gate-asserted); only displayed text localizes via StatusKeyToLocalizedConverter. Mac connection.disconnected.</comment>
+  </data>
+  <data name="Status.Connecting" xml:space="preserve">
+    <value>Connecting</value>
+    <comment>Top-bar connection pill. Backing value stays EngineConnectionState.Connecting.ToString().</comment>
+  </data>
+  <data name="Status.Connected" xml:space="preserve">
+    <value>Connected</value>
+    <comment>Top-bar connection pill. Backing value stays EngineConnectionState.Connected.ToString().</comment>
+  </data>
+  <data name="Status.Reconnecting" xml:space="preserve">
+    <value>Reconnecting</value>
+    <comment>Top-bar connection pill. Backing value stays EngineConnectionState.Reconnecting.ToString().</comment>
+  </data>
+  <data name="Status.ShuttingDown" xml:space="preserve">
+    <value>Shutting down</value>
+    <comment>Top-bar connection pill. Backing value stays EngineConnectionState.ShuttingDown.ToString().</comment>
+  </data>
+  <data name="Status.Nominal" xml:space="preserve">
+    <value>Nominal</value>
+    <comment>Top-bar FPS/diagnostics pill (PerformanceStatus health scalar). Backing value stays "Nominal" (gate-asserted); only displayed text localizes.</comment>
+  </data>
+  <data name="Status.Busy" xml:space="preserve">
+    <value>Busy</value>
+    <comment>Top-bar FPS/diagnostics pill (PerformanceStatus health scalar). Backing value stays "Busy".</comment>
+  </data>
+  <data name="Status.HeartbeatAcknowledged" xml:space="preserve">
+    <value>Heartbeat acknowledged</value>
+    <comment>Page status line completed message. Backing value stays "Heartbeat acknowledged" (SessionStatusClient); only displayed text localizes.</comment>
+  </data>
+
+  <!-- ============================ Device Discovery — my-devices / discovered subsections ============================ -->
+  <data name="DiscoveryMyDevicesHeader.Text" xml:space="preserve">
+    <value>My Devices</value>
+    <comment>Device Discovery "My Devices" card header (this-device section). Mac EnhancedDeviceDiscoveryView 我的设备 section.</comment>
+  </data>
+  <data name="DiscoveryThisDeviceBadge.Text" xml:space="preserve">
+    <value>This Device</value>
+    <comment>Local-machine "This device" pill in the My Devices card. Mac discovery.device.thisDevice / device.local.</comment>
+  </data>
+  <data name="DiscoveryDeviceStatusOnline.Text" xml:space="preserve">
+    <value>Online</value>
+    <comment>Local-machine online status capsule. Mac discovery.device.status.online.</comment>
+  </data>
+  <data name="DiscoveryTrustedRecentNoteTitle.Text" xml:space="preserve">
+    <value>Trusted Devices &amp; Recent Connections</value>
+    <comment>Honest-omission note title (no persisted trust/recent store on Windows yet). Mac 已信任设备 / 最近连接 sections.</comment>
+  </data>
+  <data name="DiscoveryTrustedRecentNoteBody.Text" xml:space="preserve">
+    <value>Paired devices will appear here. This version does not yet persist a trusted-device list or connection history, so trusted and recent devices are not shown yet.</value>
+    <comment>Honest-omission note body explaining why trusted/recent sections are not shown.</comment>
+  </data>
+  <data name="DiscoveryDiscoveredDevicesHeader.Text" xml:space="preserve">
+    <value>Discovered Devices</value>
+    <comment>Discovered-devices group section header. Mac discovery.diagnostics.discoveredDevices / dashboard.discoveredDevices.</comment>
+  </data>
+  <data name="DiscoveryDiscoveredEmptySubtitle.Text" xml:space="preserve">
+    <value>Start scanning to discover devices broadcasting on this network.</value>
+    <comment>Discovered-devices empty-state subtitle (DD page). Pairs with reused DashboardDeviceDiscoveryEmptyTitle ("No Devices Found").</comment>
+  </data>
+
+  <!-- ============================ Settings ▸ General ▸ UI Language ============================ -->
+  <data name="SettingsGeneralLanguageSectionHeader.Text" xml:space="preserve">
+    <value>Language</value>
+    <comment>Settings ▸ General "语言" section header. Mac SettingsView 语言 section.</comment>
+  </data>
+  <data name="SettingsGeneralLanguageRowLabel.Text" xml:space="preserve">
+    <value>UI Language</value>
+    <comment>Settings ▸ General language-row label (left of the dropdown). Mac 界面语言.</comment>
+  </data>
+  <data name="SettingsGeneralLanguageOptionSystem.Content" xml:space="preserve">
+    <value>Follow System</value>
+    <comment>Language dropdown option: follow the system display language (no override).</comment>
+  </data>
+  <data name="SettingsGeneralLanguageOptionZhHans.Content" xml:space="preserve">
+    <value>简体中文</value>
+    <comment>Language dropdown option: Simplified Chinese (endonym, conventionally not translated).</comment>
+  </data>
+  <data name="SettingsGeneralLanguageOptionJa.Content" xml:space="preserve">
+    <value>日本語</value>
+    <comment>Language dropdown option: Japanese (endonym, conventionally not translated).</comment>
+  </data>
+  <data name="SettingsGeneralLanguageOptionEn.Content" xml:space="preserve">
+    <value>English</value>
+    <comment>Language dropdown option: English (endonym, conventionally not translated).</comment>
+  </data>
+  <data name="SettingsGeneralLanguageHint.Text" xml:space="preserve">
+    <value>Choose the app's display language.</value>
+    <comment>Helper text under the language dropdown. Mac 选择应用的显示语言.</comment>
+  </data>
+  <data name="SettingsGeneralLanguageRestartNote.Text" xml:space="preserve">
+    <value>Restart to apply.</value>
+    <comment>Shown after the user changes the language: the new language takes full effect on next launch.</comment>
+  </data>
+
+  <!-- ============================ Sidebar nav titles (Nav.* — localized at the model layer by FeatureCatalogClient via LabelKeyToLocalizedConverter.Localize) ============================
+       Data-bound through NavigationItemTemplate's {Binding Title} + the header {Binding
+       SelectedFeature.Title}. The FeatureEntry.Title VALUE is localized; the canonical English
+       string ("Dashboard"/…) stays the stable converter key. FeatureEntryId (NOT Title) is the
+       gate-asserted identity. No ".Text" suffix: looked up by raw key (same convention as Status.*). -->
+  <data name="Nav.Dashboard" xml:space="preserve">
+    <value>Dashboard</value>
+    <comment>Sidebar nav title. Mac NavigationItem.dashboard / sidebar.dashboard.</comment>
+  </data>
+  <data name="Nav.DeviceDiscovery" xml:space="preserve">
+    <value>Device Discovery</value>
+    <comment>Sidebar nav title. Mac sidebar.deviceDiscovery.</comment>
+  </data>
+  <data name="Nav.UsbManagement" xml:space="preserve">
+    <value>USB Management</value>
+    <comment>Sidebar nav title. Mac sidebar.usbManagement / usb.management.title.</comment>
+  </data>
+  <data name="Nav.FileTransfer" xml:space="preserve">
+    <value>File Transfer</value>
+    <comment>Sidebar nav title. Mac sidebar.fileTransfer. Shared by the Settings "File Transfer" tab.</comment>
+  </data>
+  <data name="Nav.RemoteDesktop" xml:space="preserve">
+    <value>Remote Desktop</value>
+    <comment>Sidebar nav title. Mac sidebar.remoteDesktop. Shared by the Settings "Remote Desktop" tab.</comment>
+  </data>
+  <data name="Nav.SystemMonitor" xml:space="preserve">
+    <value>System Monitor</value>
+    <comment>Sidebar nav title. Mac sidebar.systemMonitor. Shared by the Settings "System Monitor" tab.</comment>
+  </data>
+  <data name="Nav.Settings" xml:space="preserve">
+    <value>Settings</value>
+    <comment>Sidebar nav title. Mac sidebar.settings.</comment>
+  </data>
+
+  <!-- ============================ Settings left sub-nav tabs (SettingsTab.* — localized at the model layer by SettingsTabItemView.DisplayName via LabelKeyToLocalizedConverter.Localize) ============================
+       The {Binding DisplayName} in SettingsTabItemTemplate. The English tab Title stays the stable
+       key SettingsTabKeyToVisibilityConverter groups the right pane against (Section == Title).
+       File Transfer / Remote Desktop / System Monitor reuse the Nav.* keys above (identical text). -->
+  <data name="SettingsTab.General" xml:space="preserve">
+    <value>General</value>
+    <comment>Settings tab name. Mac SettingsView General tab.</comment>
+  </data>
+  <data name="SettingsTab.Network" xml:space="preserve">
+    <value>Network</value>
+    <comment>Settings tab name. Mac SettingsView Network tab.</comment>
+  </data>
+  <data name="SettingsTab.Devices" xml:space="preserve">
+    <value>Devices</value>
+    <comment>Settings tab name. Mac SettingsView Devices tab.</comment>
+  </data>
+  <data name="SettingsTab.Permissions" xml:space="preserve">
+    <value>Permissions</value>
+    <comment>Settings tab name. Mac SettingsView Permissions tab.</comment>
+  </data>
+  <data name="SettingsTab.Advanced" xml:space="preserve">
+    <value>Advanced</value>
+    <comment>Settings tab name. Mac SettingsView Advanced tab.</comment>
+  </data>
+
+  <!-- ============================ Settings tab views (x:Uid -> resw; the 8 Settings*View.xaml interactive tab views) ============================
+       Trilingual section headers + setting-row labels for the Settings page's interactive tab views.
+       Each key maps to an x:Uid element in Settings/Settings*View.xaml; the inline CJK in the XAML is the design-time fallback.
+       SettingsCommon* keys are shared across multiple views (reused via the same x:Uid). -->
+  <data name="SettingsCommonMacOnly.Text" xml:space="preserve">
+    <value>macOS only</value>
+    <comment>Shared: macOS-only badge/value across Settings views.</comment>
+  </data>
+  <data name="SettingsCommonWindowsOsAuth.Text" xml:space="preserve">
+    <value>Windows OS-level authorization</value>
+    <comment>Shared: Windows OS-level authorization status (Permissions).</comment>
+  </data>
+  <data name="SettingsCommonRetryCount.Text" xml:space="preserve">
+    <value>Retry count</value>
+    <comment>Shared: retry-count row label.</comment>
+  </data>
+  <data name="SettingsCommonReading.Text" xml:space="preserve">
+    <value>Reading...</value>
+    <comment>Shared: in-progress read placeholder.</comment>
+  </data>
+  <data name="SettingsCommonClearTransferHistory.Text" xml:space="preserve">
+    <value>Clear transfer history</value>
+    <comment>Shared: clear transfer history label.</comment>
+  </data>
+  <data name="SettingsCommonBalanced.Content" xml:space="preserve">
+    <value>Balanced</value>
+    <comment>Shared: 'Balanced' preset/option.</comment>
+  </data>
+  <data name="SettingsCommonAlwaysOn.Text" xml:space="preserve">
+    <value>Always on</value>
+    <comment>Shared: 'Always on' status pill.</comment>
+  </data>
+  <data name="SettingsCommonNoSensorNA.Text" xml:space="preserve">
+    <value>Shows N/A when no sensor is available</value>
+    <comment>Shared: no-sensor N/A caption (System Monitor).</comment>
+  </data>
+  <data name="SettingsGeneralPreferencesHeader.Text" xml:space="preserve">
+    <value>Preferences</value>
+    <comment>Settings &gt; General Preferences section header.</comment>
+  </data>
+  <data name="SettingsGeneralAutoScanRow.Text" xml:space="preserve">
+    <value>Auto-scan devices on startup</value>
+  </data>
+  <data name="SettingsGeneralNotificationsRow.Text" xml:space="preserve">
+    <value>Show system notifications</value>
+  </data>
+  <data name="SettingsGeneralDarkModeRow.Text" xml:space="preserve">
+    <value>Enable dark mode</value>
+  </data>
+  <data name="SettingsGeneralScanIntervalRow.Text" xml:space="preserve">
+    <value>Scan interval</value>
+  </data>
+  <data name="SettingsGeneralScanInterval15.Content" xml:space="preserve">
+    <value>15 sec</value>
+  </data>
+  <data name="SettingsGeneralScanInterval30.Content" xml:space="preserve">
+    <value>30 sec</value>
+  </data>
+  <data name="SettingsGeneralScanInterval60.Content" xml:space="preserve">
+    <value>60 sec</value>
+  </data>
+  <data name="SettingsGeneralScanInterval120.Content" xml:space="preserve">
+    <value>120 sec</value>
+  </data>
+  <data name="SettingsGeneralInterfaceHeader.Text" xml:space="preserve">
+    <value>Interface</value>
+    <comment>Settings &gt; General Interface section header.</comment>
+  </data>
+  <data name="SettingsGeneralShowDeviceDetailsRow.Text" xml:space="preserve">
+    <value>Show device details</value>
+  </data>
+  <data name="SettingsGeneralShowConnectionStatsRow.Text" xml:space="preserve">
+    <value>Show connection statistics</value>
+  </data>
+  <data name="SettingsGeneralCompactModeRow.Text" xml:space="preserve">
+    <value>Compact mode</value>
+  </data>
+  <data name="SettingsGeneralThemeColorRow.Text" xml:space="preserve">
+    <value>Theme color</value>
+  </data>
+  <data name="SettingsGeneralSwatchSkyBlue.Text" xml:space="preserve">
+    <value>Sky Blue</value>
+  </data>
+  <data name="SettingsGeneralSwatchForestGreen.Text" xml:space="preserve">
+    <value>Forest Green</value>
+  </data>
+  <data name="SettingsGeneralSwatchViolet.Text" xml:space="preserve">
+    <value>Violet</value>
+  </data>
+  <data name="SettingsGeneralSwatchSunsetOrange.Text" xml:space="preserve">
+    <value>Sunset Orange</value>
+  </data>
+  <data name="SettingsGeneralSwatchRose.Text" xml:space="preserve">
+    <value>Rose</value>
+  </data>
+  <data name="SettingsGeneralSwatchCyan.Text" xml:space="preserve">
+    <value>Cyan</value>
+  </data>
+  <data name="SettingsGeneralDataManagementHeader.Text" xml:space="preserve">
+    <value>Data Management</value>
+    <comment>Settings &gt; General Data Management section header.</comment>
+  </data>
+  <data name="SettingsGeneralDataActionsTitle.Text" xml:space="preserve">
+    <value>Export / Import / Reset settings</value>
+  </data>
+  <data name="SettingsGeneralDataActionsHint.Text" xml:space="preserve">
+    <value>Use the Export, Import, and Reset actions in the toolbar above to manage the settings file, stored at %LOCALAPPDATA%\SkyBridge\settings.json.</value>
+  </data>
+  <data name="SettingsGeneralCacheRow.Text" xml:space="preserve">
+    <value>Cache</value>
+  </data>
+  <data name="SettingsGeneralCacheSizeStatus.Text" xml:space="preserve">
+    <value>Current cache: calculating...</value>
+    <comment>Default before code-behind fills the live cache size.</comment>
+  </data>
+  <data name="SettingsGeneralClearCacheAffordance.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Clear temporary data in the app cache folder</value>
+  </data>
+  <data name="SettingsGeneralClearCacheLabel.Text" xml:space="preserve">
+    <value>Clear cache</value>
+  </data>
+  <data name="SettingsGeneralCleanKeychainRow.Text" xml:space="preserve">
+    <value>Clean up duplicate keychain items</value>
+  </data>
+  <data name="SettingsGeneralCleanKeychainCaption.Text" xml:space="preserve">
+    <value>macOS only - Windows has no Keychain; credentials are managed by DPAPI.</value>
+  </data>
+  <data name="SettingsNetworkCurrentNetworkLabel.Text" xml:space="preserve">
+    <value>Current network</value>
+  </data>
+  <data name="SettingsNetworkCurrentNetworkDetail.Text" xml:space="preserve">
+    <value>Reading system network profile...</value>
+  </data>
+  <data name="SettingsNetworkAutoConnectLabel.Text" xml:space="preserve">
+    <value>Auto-connect to known networks</value>
+  </data>
+  <data name="SettingsNetworkAutoConnectCaption.Text" xml:space="preserve">
+    <value>Managed by Windows - preference saved; actual auto-connect is governed by the system WLAN configuration</value>
+  </data>
+  <data name="SettingsNetworkShowHiddenNetworks.Text" xml:space="preserve">
+    <value>Show hidden networks</value>
+  </data>
+  <data name="SettingsNetworkPrefer5GHzLabel.Text" xml:space="preserve">
+    <value>Prefer 5 GHz / 6 GHz band</value>
+  </data>
+  <data name="SettingsNetworkPrefer5GHzCaption.Text" xml:space="preserve">
+    <value>Managed by Windows - the band is decided by the system/driver/router; the preference is only saved</value>
+  </data>
+  <data name="SettingsNetworkScanTimeoutLabel.Text" xml:space="preserve">
+    <value>Scan timeout</value>
+  </data>
+  <data name="SettingsNetworkDiscoveryHeader.Text" xml:space="preserve">
+    <value>Device discovery</value>
+    <comment>Settings &gt; Network Discovery section header.</comment>
+  </data>
+  <data name="SettingsNetworkEnableBonjour.Text" xml:space="preserve">
+    <value>Enable Bonjour discovery</value>
+  </data>
+  <data name="SettingsNetworkEnableMDNS.Text" xml:space="preserve">
+    <value>Enable mDNS resolution</value>
+  </data>
+  <data name="SettingsNetworkScanCustomPorts.Text" xml:space="preserve">
+    <value>Scan custom ports</value>
+  </data>
+  <data name="SettingsNetworkDiscoveryTimeoutLabel.Text" xml:space="preserve">
+    <value>Discovery timeout</value>
+  </data>
+  <data name="SettingsNetworkDiscoveryTimeoutUnit.Text" xml:space="preserve">
+    <value>Unit: seconds</value>
+  </data>
+  <data name="SettingsNetworkDiscoveryTimeoutBox.PlaceholderText" xml:space="preserve">
+    <value>sec</value>
+  </data>
+  <data name="SettingsNetworkCustomServiceTypesLabel.Text" xml:space="preserve">
+    <value>Custom service types</value>
+  </data>
+  <data name="SettingsNetworkCustomServiceTypesHint.Text" xml:space="preserve">
+    <value>e.g. _skybridge._tcp</value>
+  </data>
+  <data name="SettingsNetworkRemoveServiceTypeAffordance.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Remove</value>
+  </data>
+  <data name="SettingsNetworkAddServiceTypeAffordance.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Add</value>
+  </data>
+  <data name="SettingsNetworkTopBarHeader.Text" xml:space="preserve">
+    <value>Top bar display</value>
+    <comment>Settings &gt; Network Top bar section header.</comment>
+  </data>
+  <data name="SettingsNetworkShowTopBarIPLocation.Text" xml:space="preserve">
+    <value>Show IP city and proxy status</value>
+  </data>
+  <data name="SettingsNetworkShowTopBarNetworkSpeed.Text" xml:space="preserve">
+    <value>Show real-time network speed</value>
+  </data>
+  <data name="SettingsNetworkShowTopBarNetworkLatency.Text" xml:space="preserve">
+    <value>Show network latency</value>
+  </data>
+  <data name="SettingsNetworkConnectionHeader.Text" xml:space="preserve">
+    <value>Connection</value>
+    <comment>Settings &gt; Network Connection section header.</comment>
+  </data>
+  <data name="SettingsNetworkConnectionTimeoutLabel.Text" xml:space="preserve">
+    <value>Connection timeout</value>
+  </data>
+  <data name="SettingsDevicesBluetoothHeader.Text" xml:space="preserve">
+    <value>Bluetooth</value>
+    <comment>Settings &gt; Devices Bluetooth section header.</comment>
+  </data>
+  <data name="SettingsDevicesBluetoothStatusLabel.Text" xml:space="preserve">
+    <value>Bluetooth status</value>
+  </data>
+  <data name="SettingsDevicesBluetoothStatusCaption.Text" xml:space="preserve">
+    <value>Reads live status via BluetoothLEAdvertisementWatcher</value>
+  </data>
+  <data name="SettingsDevicesBluetoothStatusValue.Text" xml:space="preserve">
+    <value>Not scanned</value>
+    <comment>Default before code-behind fills live status.</comment>
+  </data>
+  <data name="SettingsDevicesBluetoothDiscoveredLabel.Text" xml:space="preserve">
+    <value>Discovered devices</value>
+  </data>
+  <data name="SettingsDevicesBluetoothDiscoveredValue.Text" xml:space="preserve">
+    <value>Found: 0 devices</value>
+    <comment>Default before code-behind fills live count.</comment>
+  </data>
+  <data name="SettingsDevicesScanLabel.Text" xml:space="preserve">
+    <value>Scan Bluetooth devices</value>
+  </data>
+  <data name="SettingsDevicesScanCaption.Text" xml:space="preserve">
+    <value>Continuously advertise-scan when on (live BLE advertisement scan)</value>
+  </data>
+  <data name="SettingsDevicesScanToggle.OnContent" xml:space="preserve">
+    <value>Scanning</value>
+  </data>
+  <data name="SettingsDevicesScanToggle.OffContent" xml:space="preserve">
+    <value>Stopped</value>
+  </data>
+  <data name="SettingsDevicesAutoConnectPaired.Text" xml:space="preserve">
+    <value>Auto-connect paired devices</value>
+  </data>
+  <data name="SettingsDevicesShowRSSI.Text" xml:space="preserve">
+    <value>Show device RSSI</value>
+  </data>
+  <data name="SettingsDevicesShowConnectableOnly.Text" xml:space="preserve">
+    <value>Show connectable devices only</value>
+  </data>
+  <data name="SettingsDevicesAirPlayDescription.Text" xml:space="preserve">
+    <value>AirPlay is provided by the Apple platform and is unavailable on Windows, so the following options are not emulated.</value>
+  </data>
+  <data name="SettingsDevicesAirPlayStatusLabel.Text" xml:space="preserve">
+    <value>AirPlay status</value>
+  </data>
+  <data name="SettingsDevicesAirPlayAutoDiscover.Text" xml:space="preserve">
+    <value>Auto-discover Apple TV</value>
+  </data>
+  <data name="SettingsDevicesAirPlayShowHomePod.Text" xml:space="preserve">
+    <value>Show HomePod devices</value>
+  </data>
+  <data name="SettingsDevicesAirPlayShowThirdParty.Text" xml:space="preserve">
+    <value>Show third-party AirPlay devices</value>
+  </data>
+  <data name="SettingsDevicesFiltersHeader.Text" xml:space="preserve">
+    <value>Device filters &amp; sorting</value>
+    <comment>Settings &gt; Devices Filters section header.</comment>
+  </data>
+  <data name="SettingsDevicesHideOffline.Text" xml:space="preserve">
+    <value>Hide offline devices</value>
+  </data>
+  <data name="SettingsDevicesSortBySignal.Text" xml:space="preserve">
+    <value>Sort by signal strength</value>
+  </data>
+  <data name="SettingsDevicesShowIcons.Text" xml:space="preserve">
+    <value>Show device icons</value>
+  </data>
+  <data name="SettingsDevicesMinSignalStrength.Text" xml:space="preserve">
+    <value>Minimum signal strength</value>
+  </data>
+  <data name="SettingsFileTransferTabTitle.Text" xml:space="preserve">
+    <value>File Transfer</value>
+    <comment>Settings &gt; File Transfer page/section header.</comment>
+  </data>
+  <data name="SettingsFileTransferConfigHeader.Text" xml:space="preserve">
+    <value>Transfer Configuration</value>
+  </data>
+  <data name="SettingsFileTransferDefaultPathLabel.Text" xml:space="preserve">
+    <value>Default Receive Path</value>
+  </data>
+  <data name="SettingsFileTransferDefaultPathBox.PlaceholderText" xml:space="preserve">
+    <value>Path</value>
+  </data>
+  <data name="SettingsFileTransferSelectFolderAffordance.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Choose folder</value>
+  </data>
+  <data name="SettingsFileTransferDefaultPathCaption.Text" xml:space="preserve">
+    <value>Received files will be saved to this location</value>
+  </data>
+  <data name="SettingsFileTransferMaxConcurrentLabel.Text" xml:space="preserve">
+    <value>Max Concurrent Transfers</value>
+  </data>
+  <data name="SettingsFileTransferChunkSizeLabel.Text" xml:space="preserve">
+    <value>Chunk Size</value>
+  </data>
+  <data name="SettingsFileTransferRateLimitLabel.Text" xml:space="preserve">
+    <value>Transfer Rate Limit</value>
+  </data>
+  <data name="SettingsFileTransferEstimatedThroughputLabel.Text" xml:space="preserve">
+    <value>Estimated Throughput</value>
+  </data>
+  <data name="SettingsFileTransferEstimatedThroughputCaption.Text" xml:space="preserve">
+    <value>Estimated from current rate limit / concurrency / chunk size</value>
+  </data>
+  <data name="SettingsFileTransferEstimatedRateValue.Text" xml:space="preserve">
+    <value>Limited by network and disk</value>
+    <comment>Default before code-behind updates.</comment>
+  </data>
+  <data name="SettingsFileTransferOptionsHeader.Text" xml:space="preserve">
+    <value>Transfer Options</value>
+  </data>
+  <data name="SettingsFileTransferShowNotificationsLabel.Text" xml:space="preserve">
+    <value>Show notification when transfer completes</value>
+  </data>
+  <data name="SettingsFileTransferAutoRetryLabel.Text" xml:space="preserve">
+    <value>Enable resume (auto-retry on failure)</value>
+  </data>
+  <data name="SettingsFileTransferKeepHistoryLabel.Text" xml:space="preserve">
+    <value>Keep transfer history</value>
+  </data>
+  <data name="SettingsFileTransferClearHistoryStatus.Text" xml:space="preserve">
+    <value>Clear transfer entries recorded in the current session</value>
+    <comment>Default before code-behind updates.</comment>
+  </data>
+  <data name="SettingsFileTransferClearHistoryAffordance.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Clear transfer history</value>
+  </data>
+  <data name="SettingsFileTransferClearHistoryButtonText.Text" xml:space="preserve">
+    <value>Clear</value>
+  </data>
+  <data name="SettingsFileTransferKeepAwakeLabel.Text" xml:space="preserve">
+    <value>Keep system awake during transfer</value>
+  </data>
+  <data name="SettingsFileTransferKeepAwakeCaption.Text" xml:space="preserve">
+    <value>Prevent system sleep only while a file transfer is in progress</value>
+  </data>
+  <data name="SettingsFileTransferRetryCountBox.PlaceholderText" xml:space="preserve">
+    <value>times</value>
+  </data>
+  <data name="SettingsFileTransferSecurityHeader.Text" xml:space="preserve">
+    <value>Security</value>
+  </data>
+  <data name="SettingsFileTransferEncryptionLabel.Text" xml:space="preserve">
+    <value>Enable transfer encryption</value>
+  </data>
+  <data name="SettingsFileTransferEncryptionCaption.Text" xml:space="preserve">
+    <value>Always on (cannot be disabled)</value>
+  </data>
+  <data name="SettingsFileTransferCertVerifyLabel.Text" xml:space="preserve">
+    <value>Certificate Verification</value>
+  </data>
+  <data name="SettingsFileTransferCertVerifyCaption.Text" xml:space="preserve">
+    <value>Always verify the server certificate to prevent man-in-the-middle attacks</value>
+  </data>
+  <data name="SettingsFileTransferVirusScanLabel.Text" xml:space="preserve">
+    <value>Scan transferred files for viruses</value>
+  </data>
+  <data name="SettingsFileTransferVirusScanCaption.Text" xml:space="preserve">
+    <value>Requires Windows Defender - this app has no built-in antivirus engine; preference saved</value>
+  </data>
+  <data name="SettingsFileTransferScanLevelLabel.Text" xml:space="preserve">
+    <value>Scan Level</value>
+  </data>
+  <data name="SettingsFileTransferScanLevelQuick.Content" xml:space="preserve">
+    <value>Quick</value>
+  </data>
+  <data name="SettingsFileTransferScanLevelStandard.Content" xml:space="preserve">
+    <value>Standard</value>
+  </data>
+  <data name="SettingsFileTransferScanLevelDeep.Content" xml:space="preserve">
+    <value>Deep</value>
+  </data>
+  <data name="SettingsFileTransferEncryptionAlgorithmLabel.Text" xml:space="preserve">
+    <value>Encryption Algorithm</value>
+  </data>
+  <data name="SettingsFileTransferEncryptionAlgorithmCaption.Text" xml:space="preserve">
+    <value>Symmetric cipher suite (fixed)</value>
+  </data>
+  <data name="SettingsPermissionsStatusHeader.Text" xml:space="preserve">
+    <value>Permission Status</value>
+  </data>
+  <data name="SettingsPermissionsSummaryLabel.Text" xml:space="preserve">
+    <value>Permission Summary</value>
+  </data>
+  <data name="SettingsPermissionsRefreshHint.Text" xml:space="preserve">
+    <value>Refresh Status / Top</value>
+  </data>
+  <data name="SettingsPermissionsWarningNotice.Text" xml:space="preserve">
+    <value>Some permissions are not yet granted. Use the "Request Permissions" action at the top, or grant them manually via "Open System Settings".</value>
+  </data>
+  <data name="SettingsPermissionsDetailsHeader.Text" xml:space="preserve">
+    <value>Permission Details</value>
+  </data>
+  <data name="SettingsPermissionsWifiTitle.Text" xml:space="preserve">
+    <value>Wi-Fi Access</value>
+  </data>
+  <data name="SettingsPermissionsWifiCaption.Text" xml:space="preserve">
+    <value>Network access is required to scan for and connect to nearby devices.</value>
+  </data>
+  <data name="SettingsPermissionsBluetoothTitle.Text" xml:space="preserve">
+    <value>Bluetooth Access</value>
+  </data>
+  <data name="SettingsPermissionsBluetoothCaption.Text" xml:space="preserve">
+    <value>Bluetooth permission is required to discover and connect to Bluetooth devices.</value>
+  </data>
+  <data name="SettingsPermissionsLocationTitle.Text" xml:space="preserve">
+    <value>Location Access</value>
+  </data>
+  <data name="SettingsPermissionsLocationCaption.Text" xml:space="preserve">
+    <value>Location permission is required to read location-related information such as Wi-Fi network names.</value>
+  </data>
+  <data name="SettingsPermissionsSystemConfigTitle.Text" xml:space="preserve">
+    <value>System Configuration Access</value>
+  </data>
+  <data name="SettingsPermissionsSystemConfigCaption.Text" xml:space="preserve">
+    <value>Reads network and system configuration to perform device discovery and connection.</value>
+  </data>
+  <data name="SettingsPermissionsRequestHint.Text" xml:space="preserve">
+    <value>To actively request permissions, use the "Request Permissions" action in the top toolbar.</value>
+  </data>
+  <data name="SettingsPermissionsHelpHeader.Text" xml:space="preserve">
+    <value>Help</value>
+  </data>
+  <data name="SettingsPermissionsHelpTitle.Text" xml:space="preserve">
+    <value>Permission Notes</value>
+  </data>
+  <data name="SettingsPermissionsHelpWifi.Text" xml:space="preserve">
+    <value>Wi-Fi access: used to scan for and connect to nearby available devices and networks.</value>
+  </data>
+  <data name="SettingsPermissionsHelpBluetooth.Text" xml:space="preserve">
+    <value>Bluetooth access: used to discover and connect to Bluetooth devices.</value>
+  </data>
+  <data name="SettingsPermissionsHelpLocation.Text" xml:space="preserve">
+    <value>Location access: on some systems, reading Wi-Fi network names requires location permission.</value>
+  </data>
+  <data name="SettingsPermissionsHelpSystemConfig.Text" xml:space="preserve">
+    <value>System configuration access: used to read network and system configuration to complete device discovery and connection.</value>
+  </data>
+  <data name="SettingsPermissionsOpenSettingsHint.Text" xml:space="preserve">
+    <value>Use the "Open System Settings" action in the top toolbar to jump to Windows Settings for manual authorization.</value>
+  </data>
+  <data name="SettingsRemoteDesktopQualityHeader.Text" xml:space="preserve">
+    <value>Quality &amp; Performance</value>
+  </data>
+  <data name="SettingsRemoteDesktopCurrentConfigLabel.Text" xml:space="preserve">
+    <value>Current Configuration</value>
+  </data>
+  <data name="SettingsRemoteDesktopStatusBadgeOptimized.Text" xml:space="preserve">
+    <value>Optimized</value>
+  </data>
+  <data name="SettingsRemoteDesktopEstimatedRateLabel.Text" xml:space="preserve">
+    <value>Estimated Transfer Rate</value>
+  </data>
+  <data name="SettingsRemoteDesktopLoadTierLow.Text" xml:space="preserve">
+    <value>Load: Low</value>
+  </data>
+  <data name="SettingsRemoteDesktopPresetHeader.Text" xml:space="preserve">
+    <value>Presets</value>
+  </data>
+  <data name="SettingsRemoteDesktopPresetHighPerformance.Content" xml:space="preserve">
+    <value>High Performance</value>
+  </data>
+  <data name="SettingsRemoteDesktopPresetHighQuality.Content" xml:space="preserve">
+    <value>High Quality</value>
+  </data>
+  <data name="SettingsRemoteDesktopPresetLowLatency.Content" xml:space="preserve">
+    <value>Low Latency</value>
+  </data>
+  <data name="SettingsRemoteDesktopPresetCaption.Text" xml:space="preserve">
+    <value>Selecting a preset applies a resolution / frame rate / compression quality / adaptive bitrate combo in one tap</value>
+  </data>
+  <data name="SettingsRemoteDesktopResolutionLabel.Text" xml:space="preserve">
+    <value>Resolution</value>
+  </data>
+  <data name="SettingsRemoteDesktopResolution1080p.Content" xml:space="preserve">
+    <value>1080P (Full HD)　1920×1080</value>
+  </data>
+  <data name="SettingsRemoteDesktopResolution2k.Content" xml:space="preserve">
+    <value>2K (QHD)　2560×1440</value>
+  </data>
+  <data name="SettingsRemoteDesktopResolution4k.Content" xml:space="preserve">
+    <value>4K (Ultra HD)　3840×2160</value>
+  </data>
+  <data name="SettingsRemoteDesktopResolution5k.Content" xml:space="preserve">
+    <value>5K (Apple Retina)　5120×2880</value>
+  </data>
+  <data name="SettingsRemoteDesktopFrameRateLabel.Text" xml:space="preserve">
+    <value>Frame Rate</value>
+  </data>
+  <data name="SettingsRemoteDesktopCompressionQualityLabel.Text" xml:space="preserve">
+    <value>Compression Quality</value>
+  </data>
+  <data name="SettingsRemoteDesktopCompressionNone.Content" xml:space="preserve">
+    <value>No Compression</value>
+  </data>
+  <data name="SettingsRemoteDesktopCompressionFast.Content" xml:space="preserve">
+    <value>Fast Compression</value>
+  </data>
+  <data name="SettingsRemoteDesktopCompressionBalanced.Content" xml:space="preserve">
+    <value>Balanced Compression</value>
+  </data>
+  <data name="SettingsRemoteDesktopCompressionMaximum.Content" xml:space="preserve">
+    <value>Maximum Compression</value>
+  </data>
+  <data name="SettingsRemoteDesktopHardwareAccelLabel.Text" xml:space="preserve">
+    <value>Enable Hardware Acceleration</value>
+  </data>
+  <data name="SettingsRemoteDesktopAdaptiveBitrateLabel.Text" xml:space="preserve">
+    <value>Adaptive Bitrate</value>
+  </data>
+  <data name="SettingsRemoteDesktopAppleSiliconLabel.Text" xml:space="preserve">
+    <value>Apple Silicon Optimization</value>
+  </data>
+  <data name="SettingsRemoteDesktopDisplayHeader.Text" xml:space="preserve">
+    <value>Display</value>
+  </data>
+  <data name="SettingsRemoteDesktopCompressionLevelLabel.Text" xml:space="preserve">
+    <value>Compression Level</value>
+  </data>
+  <data name="SettingsRemoteDesktopFullScreenLabel.Text" xml:space="preserve">
+    <value>Full-Screen Mode</value>
+  </data>
+  <data name="SettingsRemoteDesktopInteractionHeader.Text" xml:space="preserve">
+    <value>Interaction</value>
+  </data>
+  <data name="SettingsRemoteDesktopClipboardSyncLabel.Text" xml:space="preserve">
+    <value>Enable Clipboard Sync</value>
+  </data>
+  <data name="SettingsRemoteDesktopAudioRedirectLabel.Text" xml:space="preserve">
+    <value>Audio Redirection</value>
+  </data>
+  <data name="SettingsRemoteDesktopAudioRedirectUnavailable.Text" xml:space="preserve">
+    <value>Unavailable</value>
+  </data>
+  <data name="SettingsRemoteDesktopFileTransferLabel.Text" xml:space="preserve">
+    <value>Enable File Transfer</value>
+  </data>
+  <data name="SettingsRemoteDesktopTrackpadGestureLabel.Text" xml:space="preserve">
+    <value>Trackpad Gestures</value>
+  </data>
+  <data name="SettingsRemoteDesktopMouseSensitivityLabel.Text" xml:space="preserve">
+    <value>Mouse Sensitivity</value>
+  </data>
+  <data name="SettingsRemoteDesktopDoubleClickIntervalLabel.Text" xml:space="preserve">
+    <value>Double-Click Interval</value>
+  </data>
+  <data name="SettingsRemoteDesktopNetworkHeader.Text" xml:space="preserve">
+    <value>Network Optimization</value>
+  </data>
+  <data name="SettingsRemoteDesktopAdaptiveBandwidthLabel.Text" xml:space="preserve">
+    <value>Enable Bandwidth Adaptation</value>
+  </data>
+  <data name="SettingsRemoteDesktopUDPTransportLabel.Text" xml:space="preserve">
+    <value>Enable UDP Transport</value>
+  </data>
+  <data name="SettingsRemoteDesktopNetworkEncryptionLabel.Text" xml:space="preserve">
+    <value>Enable Network Encryption</value>
+  </data>
+  <data name="SettingsRemoteDesktopDataCompressionLabel.Text" xml:space="preserve">
+    <value>Enable Data Compression</value>
+  </data>
+  <data name="SettingsRemoteDesktopNetworkCompressionCaption.Text" xml:space="preserve">
+    <value>Network compression level　0=off　9=max</value>
+  </data>
+  <data name="SettingsRemoteDesktopBandwidthLimitLabel.Text" xml:space="preserve">
+    <value>Bandwidth Limit (Mbps)</value>
+  </data>
+  <data name="SettingsRemoteDesktopBufferSizeLabel.Text" xml:space="preserve">
+    <value>Buffer Size</value>
+  </data>
+  <data name="SettingsAdvancedPageHeader.Text" xml:space="preserve">
+    <value>Advanced</value>
+    <comment>Settings &gt; Advanced page header.</comment>
+  </data>
+  <data name="SettingsAdvancedDebugHeader.Text" xml:space="preserve">
+    <value>Debug</value>
+  </data>
+  <data name="SettingsAdvancedVerboseLoggingLabel.Text" xml:space="preserve">
+    <value>Enable verbose logging</value>
+  </data>
+  <data name="SettingsAdvancedShowDebugInfoLabel.Text" xml:space="preserve">
+    <value>Show debug info</value>
+  </data>
+  <data name="SettingsAdvancedSaveNetworkLogsLabel.Text" xml:space="preserve">
+    <value>Save network logs</value>
+  </data>
+  <data name="SettingsAdvancedLogLevelLabel.Text" xml:space="preserve">
+    <value>Log level</value>
+  </data>
+  <data name="SettingsAdvancedPerformanceHeader.Text" xml:space="preserve">
+    <value>Performance</value>
+  </data>
+  <data name="SettingsAdvancedRenderModeLabel.Text" xml:space="preserve">
+    <value>Render performance mode</value>
+  </data>
+  <data name="SettingsAdvancedRenderModeExtreme.Content" xml:space="preserve">
+    <value>Extreme</value>
+  </data>
+  <data name="SettingsAdvancedRenderModePowerSaving.Content" xml:space="preserve">
+    <value>Power saving</value>
+  </data>
+  <data name="SettingsAdvancedRealTimeWeatherLabel.Text" xml:space="preserve">
+    <value>Enable real-time weather</value>
+  </data>
+  <data name="SettingsAdvancedRealTimeWeatherCaption.Text" xml:space="preserve">
+    <value>Refresh weather and animate the background when turned on. When off, the background stays still; weather data and manual refresh remain available.</value>
+  </data>
+  <data name="SettingsAdvancedShowRealtimeFpsLabel.Text" xml:space="preserve">
+    <value>Show real-time FPS</value>
+  </data>
+  <data name="SettingsAdvancedHardwareAccelLabel.Text" xml:space="preserve">
+    <value>Hardware acceleration</value>
+  </data>
+  <data name="SettingsAdvancedOptimizeMemoryLabel.Text" xml:space="preserve">
+    <value>Optimize memory usage</value>
+  </data>
+  <data name="SettingsAdvancedBackgroundScanLabel.Text" xml:space="preserve">
+    <value>Background scanning</value>
+  </data>
+  <data name="SettingsAdvancedMaxConcurrentLabel.Text" xml:space="preserve">
+    <value>Max concurrent connections</value>
+  </data>
+  <data name="SettingsAdvancedMaxConcurrentInput.PlaceholderText" xml:space="preserve">
+    <value>count</value>
+  </data>
+  <data name="SettingsAdvancedMetalHudLabel.Text" xml:space="preserve">
+    <value>Metal Performance HUD</value>
+  </data>
+  <data name="SettingsAdvancedMetalHudCaption.Text" xml:space="preserve">
+    <value>macOS only / Metal is an Apple platform technology</value>
+  </data>
+  <data name="SettingsAdvancedExperimentalHeader.Text" xml:space="preserve">
+    <value>Experimental features</value>
+  </data>
+  <data name="SettingsAdvancedIPv6Label.Text" xml:space="preserve">
+    <value>Enable IPv6 support</value>
+  </data>
+  <data name="SettingsAdvancedNewDiscoveryLabel.Text" xml:space="preserve">
+    <value>Use new discovery algorithm</value>
+  </data>
+  <data name="SettingsAdvancedP2PDirectLabel.Text" xml:space="preserve">
+    <value>Enable P2P direct connection</value>
+  </data>
+  <data name="SettingsAdvancedExperimentalWarning.Text" xml:space="preserve">
+    <value>Experimental features may be unstable. Disable them if you encounter issues.</value>
+  </data>
+  <data name="SettingsAdvancedPqcHeader.Text" xml:space="preserve">
+    <value>Post-Quantum Cryptography (PQC)</value>
+  </data>
+  <data name="SettingsAdvancedAppPqcLabel.Text" xml:space="preserve">
+    <value>Enable post-quantum cryptography (application layer)</value>
+  </data>
+  <data name="SettingsAdvancedAppPqcCaption.Text" xml:space="preserve">
+    <value>Force-enabled by policy</value>
+  </data>
+  <data name="SettingsAdvancedAppPqcStatus.Text" xml:space="preserve">
+    <value>Enabled</value>
+  </data>
+  <data name="SettingsAdvancedHybridTlsLabel.Text" xml:space="preserve">
+    <value>Enable TLS hybrid negotiation (when supported by the system)</value>
+  </data>
+  <data name="SettingsAdvancedHybridTlsStatus.Text" xml:space="preserve">
+    <value>Negotiated automatically by the system</value>
+  </data>
+  <data name="SettingsAdvancedPreferXWingLabel.Text" xml:space="preserve">
+    <value>Prefer X-Wing hybrid suite</value>
+  </data>
+  <data name="SettingsAdvancedPreferXWingCaption.Text" xml:space="preserve">
+    <value>Affects the priority of post-quantum key agreement suites</value>
+  </data>
+  <data name="SettingsAdvancedSignatureAlgorithmLabel.Text" xml:space="preserve">
+    <value>Signature algorithm</value>
+  </data>
+  <data name="SettingsAdvancedSecureEnclaveCaption.Text" xml:space="preserve">
+    <value>macOS only / No Secure Enclave on Windows</value>
+  </data>
+  <data name="SettingsAdvancedMlKemLabel.Text" xml:space="preserve">
+    <value>ML-KEM key agreement</value>
+  </data>
+  <data name="SettingsAdvancedMlKemStatus.Text" xml:space="preserve">
+    <value>X-Wing hybrid / software / ephemeral session keys</value>
+  </data>
+  <data name="SettingsAdvancedPqcNote.Text" xml:space="preserve">
+    <value>The post-quantum cipher suite is force-enabled by policy; hybrid key agreement is preferred when both ends support X-Wing.</value>
+  </data>
+  <data name="SettingsAdvancedSmoothingHeader.Text" xml:space="preserve">
+    <value>Signal smoothing</value>
+  </data>
+  <data name="SettingsAdvancedEmaAlphaLabel.Text" xml:space="preserve">
+    <value>Strength smoothing coefficient (EMA)</value>
+  </data>
+  <data name="SettingsAdvancedEmaAlphaCaption.Text" xml:space="preserve">
+    <value>A higher value is more sensitive to the latest samples; a lower value is smoother.</value>
+  </data>
+  <data name="SettingsAdvancedResetHeader.Text" xml:space="preserve">
+    <value>Reset</value>
+  </data>
+  <data name="SettingsAdvancedResetGuidance.Text" xml:space="preserve">
+    <value>Use the "Reset / Restore defaults" button in the settings toolbar above to restore all settings to their defaults.</value>
+  </data>
+  <data name="SettingsAdvancedResetWarning.Text" xml:space="preserve">
+    <value>Resetting is irreversible and will clear all your custom settings.</value>
+  </data>
+  <data name="SettingsSystemMonitorPageHeader.Text" xml:space="preserve">
+    <value>System Monitor</value>
+    <comment>Settings &gt; System Monitor page header.</comment>
+  </data>
+  <data name="SettingsSystemMonitorConfigHeader.Text" xml:space="preserve">
+    <value>Monitoring Configuration</value>
+  </data>
+  <data name="SettingsSystemMonitorRefreshIntervalLabel.Text" xml:space="preserve">
+    <value>Refresh interval</value>
+  </data>
+  <data name="SettingsSystemMonitorEnableRealtimeLabel.Text" xml:space="preserve">
+    <value>Enable real-time monitoring</value>
+  </data>
+  <data name="SettingsSystemMonitorShowTrendLabel.Text" xml:space="preserve">
+    <value>Show trend indicators</value>
+  </data>
+  <data name="SettingsSystemMonitorEnablePerfAlertsLabel.Text" xml:space="preserve">
+    <value>Enable performance alerts</value>
+  </data>
+  <data name="SettingsSystemMonitorRetentionDaysLabel.Text" xml:space="preserve">
+    <value>Data retention days</value>
+  </data>
+  <data name="SettingsSystemMonitorRetentionDaysField.PlaceholderText" xml:space="preserve">
+    <value>Days</value>
+  </data>
+  <data name="SettingsSystemMonitorMaxHistoryPointsLabel.Text" xml:space="preserve">
+    <value>Max history points</value>
+  </data>
+  <data name="SettingsSystemMonitorDisplayHeader.Text" xml:space="preserve">
+    <value>Display Items</value>
+  </data>
+  <data name="SettingsSystemMonitorShowCpuLabel.Text" xml:space="preserve">
+    <value>Show CPU usage</value>
+  </data>
+  <data name="SettingsSystemMonitorShowMemoryLabel.Text" xml:space="preserve">
+    <value>Show memory usage</value>
+  </data>
+  <data name="SettingsSystemMonitorShowDiskLabel.Text" xml:space="preserve">
+    <value>Show disk usage</value>
+  </data>
+  <data name="SettingsSystemMonitorShowNetworkLabel.Text" xml:space="preserve">
+    <value>Show network activity</value>
+  </data>
+  <data name="SettingsSystemMonitorShowTemperatureLabel.Text" xml:space="preserve">
+    <value>Show temperature</value>
+  </data>
+  <data name="SettingsSystemMonitorShowFanSpeedLabel.Text" xml:space="preserve">
+    <value>Show fan speed</value>
+  </data>
+  <data name="SettingsSystemMonitorChartTypeLabel.Text" xml:space="preserve">
+    <value>Chart type</value>
+  </data>
+  <data name="SettingsSystemMonitorChartTypeLine.Content" xml:space="preserve">
+    <value>Line chart</value>
+  </data>
+  <data name="SettingsSystemMonitorChartTypeBar.Content" xml:space="preserve">
+    <value>Bar chart</value>
+  </data>
+  <data name="SettingsSystemMonitorChartTypeArea.Content" xml:space="preserve">
+    <value>Area chart</value>
+  </data>
+  <data name="SettingsSystemMonitorAlertsHeader.Text" xml:space="preserve">
+    <value>Alert Thresholds</value>
+  </data>
+  <data name="SettingsSystemMonitorCpuThresholdLabel.Text" xml:space="preserve">
+    <value>CPU alert threshold</value>
+  </data>
+  <data name="SettingsSystemMonitorMemoryThresholdLabel.Text" xml:space="preserve">
+    <value>Memory alert threshold</value>
+  </data>
+  <data name="SettingsSystemMonitorDiskThresholdLabel.Text" xml:space="preserve">
+    <value>Disk alert threshold</value>
+  </data>
+  <data name="SettingsSystemMonitorEnableTemperatureLabel.Text" xml:space="preserve">
+    <value>Enable temperature monitoring</value>
+  </data>
+  <data name="SettingsSystemMonitorTemperatureThresholdLabel.Text" xml:space="preserve">
+    <value>Temperature threshold</value>
+  </data>
+  <data name="SettingsSystemMonitorEnableFanSpeedLabel.Text" xml:space="preserve">
+    <value>Enable fan speed monitoring</value>
+  </data>
+  <data name="SettingsSystemMonitorFanSpeedThresholdLabel.Text" xml:space="preserve">
+    <value>Fan speed threshold</value>
+  </data>
+  <data name="SettingsSystemMonitorEnableSoundAlertsLabel.Text" xml:space="preserve">
+    <value>Enable sound alerts</value>
+  </data>
+  <data name="SettingsSystemMonitorEnableNotificationsLabel.Text" xml:space="preserve">
+    <value>Enable notification center</value>
+  </data>
+  <data name="SettingsSystemMonitorAdvancedHeader.Text" xml:space="preserve">
+    <value>Advanced</value>
+  </data>
+  <data name="SettingsSystemMonitorEnableThermalThrottlingLabel.Text" xml:space="preserve">
+    <value>Enable thermal throttling alert</value>
+  </data>
+  <data name="SettingsSystemMonitorEnableRemoteLabel.Text" xml:space="preserve">
+    <value>Enable remote monitoring</value>
+  </data>
+  <data name="SettingsSystemMonitorSamplingPrecisionLabel.Text" xml:space="preserve">
+    <value>Sampling precision</value>
+  </data>
+  <data name="SettingsSystemMonitorSamplingPrecisionLow.Content" xml:space="preserve">
+    <value>Low</value>
+  </data>
+  <data name="SettingsSystemMonitorSamplingPrecisionNormal.Content" xml:space="preserve">
+    <value>Normal</value>
+  </data>
+  <data name="SettingsSystemMonitorSamplingPrecisionHigh.Content" xml:space="preserve">
+    <value>High</value>
+  </data>
+  <data name="SettingsSystemMonitorExportAffordance.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Export current monitoring metrics as a JSON or CSV file</value>
+  </data>
+  <data name="SettingsSystemMonitorExportTitle.Text" xml:space="preserve">
+    <value>Export monitoring data</value>
+  </data>
+  <data name="SettingsSystemMonitorExportSubtitle.Text" xml:space="preserve">
+    <value>Save a snapshot of current monitoring metrics and alert thresholds to a file</value>
+  </data>
+  <data name="SettingsSystemMonitorClearHistoryAffordance.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Clear collected monitoring history and re-sample</value>
+  </data>
+  <data name="SettingsSystemMonitorClearHistoryTitle.Text" xml:space="preserve">
+    <value>Clear monitoring history</value>
+  </data>
+  <data name="SettingsSystemMonitorClearHistorySubtitle.Text" xml:space="preserve">
+    <value>Clear the collected history buffer and re-sample immediately</value>
+  </data>
+
+  <!-- ============================ Settings Actions row Title/State (converter-localized; visible 'Settings Actions' list) ============================
+       SettingsAction.* localized by LabelKeyToLocalizedConverter (Title); Status.Disabled by StatusKeyToLocalizedConverter (State).
+       Canonical English Title/State stay the SettingsWorkspaceClient model values; only the displayed text is localized. -->
+  <data name="SettingsAction.ExportSettings" xml:space="preserve">
+    <value>Export settings</value>
+    <comment>Settings Actions row Title; localized at the binding layer by LabelKeyToLocalizedConverter. Canonical English Title stays the model value.</comment>
+  </data>
+  <data name="SettingsAction.ImportSettings" xml:space="preserve">
+    <value>Import settings</value>
+  </data>
+  <data name="SettingsAction.ResetSettings" xml:space="preserve">
+    <value>Reset settings</value>
+  </data>
+  <data name="SettingsAction.RefreshStatus" xml:space="preserve">
+    <value>Refresh Status</value>
+  </data>
+  <data name="SettingsAction.RequestPermission" xml:space="preserve">
+    <value>Request Permission</value>
+  </data>
+  <data name="SettingsAction.OpenSystemPreferences" xml:space="preserve">
+    <value>Open System Preferences</value>
+  </data>
+  <data name="SettingsAction.ApplyFileTransferSettings" xml:space="preserve">
+    <value>Apply file transfer settings</value>
+  </data>
+  <data name="SettingsAction.ApplyRemoteDesktopSettings" xml:space="preserve">
+    <value>Apply remote desktop settings</value>
+  </data>
+  <data name="SettingsAction.RestoreDefaults" xml:space="preserve">
+    <value>Restore Defaults</value>
+  </data>
+  <data name="SettingsAction.ResetMonitorData" xml:space="preserve">
+    <value>Reset Monitor Data</value>
+  </data>
+  <data name="SettingsAction.ClearHistoryData" xml:space="preserve">
+    <value>Clear History Data</value>
+  </data>
+  <data name="Status.Disabled" xml:space="preserve">
+    <value>Disabled</value>
+    <comment>Canonical status 'Disabled' (gated Settings action State); localized via StatusKeyToLocalizedConverter.</comment>
+  </data>
+  <data name="DiscoveryQrBannerTitle.Text" xml:space="preserve">
+    <value>Scan to Connect</value>
+    <comment>QR section info banner title. Mac discovery qrCodeSection banner.</comment>
+  </data>
+  <data name="DiscoveryQrBannerBody.Text" xml:space="preserve">
+    <value>Generate an encrypted QR on this device, or scan another device's code to start a cross-network connection.</value>
+    <comment>QR section info banner body.</comment>
+  </data>
+  <data name="DiscoveryRecentNoteTitle.Text" xml:space="preserve">
+    <value>Recent Connections</value>
+    <comment>Recent-connections placeholder card title (Mac 最近连接 section).</comment>
+  </data>
+  <data name="DiscoveryRecentNoteBody.Text" xml:space="preserve">
+    <value>Recently connected devices will appear here once a connection-history store is available on Windows.</value>
+    <comment>Recent-connections placeholder card body (honest empty state).</comment>
+  </data>
+  <data name="SystemMonitorLiveSnapshotTitle.Text" xml:space="preserve">
+    <value>Live Snapshot</value>
+    <comment>System Monitor visible title (Mac liveSnapshotHeader "Live Snapshot").</comment>
+  </data>
+  <data name="SystemMonitorLiveSnapshotSubtitle.Text" xml:space="preserve">
+    <value>Unified monitor view for current health, load, network and thermal headroom.</value>
+    <comment>System Monitor subtitle (Mac liveSnapshotHeader subheadline).</comment>
+  </data>
+  <data name="SystemMonitorMonitoringPill.Text" xml:space="preserve">
+    <value>Monitoring</value>
+    <comment>System Monitor header status pill (Mac liveSnapshotHeader isMonitoring capsule).</comment>
+  </data>
+  <data name="DiscoveryCloudNoteTitle.Text" xml:space="preserve">
+    <value>iCloud Zero-Config</value>
+    <comment>Cloud Link mode honest note title (Mac iCloud zero-config section).</comment>
+  </data>
+  <data name="DiscoveryCloudNoteBody.Text" xml:space="preserve">
+    <value>iCloud device sync is available on Apple devices. This Windows client connects over LAN scan, QR, or a connection code.</value>
+    <comment>Cloud Link mode honest note body (iCloud is Apple-only).</comment>
+  </data>
+  <data name="FileTransferTabTransfer.Text" xml:space="preserve">
+    <value>Transfer</value>
+    <comment>File Transfer segmented tab (Mac modernTabBar Transfer tab).</comment>
+  </data>
+  <data name="FileTransferTabHistory.Text" xml:space="preserve">
+    <value>History</value>
+    <comment>File Transfer segmented tab (Mac modernTabBar History tab).</comment>
+  </data>
+  <!-- ============================ Batch 2 (System Monitor + cross-net lease) ============================ -->
+  <data name="SystemMonitorAdvancedBannerTitle.Text" xml:space="preserve">
+    <value>Enable Advanced Monitoring</value>
+    <comment>A13 advanced-monitoring banner title (Mac advancedMonitoringNotice).</comment>
+  </data>
+  <data name="SystemMonitorAdvancedBannerBody.Text" xml:space="preserve">
+    <value>Surfaces additional read-only diagnostics in memory only. No helper is installed and no elevation is requested.</value>
+    <comment>A13 advanced-monitoring banner honest body (in-memory, no helper/elevation).</comment>
+  </data>
+  <data name="SystemMonitorInsightsHeading.Text" xml:space="preserve">
+    <value>Insights</value>
+    <comment>System Monitor insights section heading (Mac liveSnapshotHighlights).</comment>
+  </data>
+  <data name="SysMonLabel.Bandwidth" xml:space="preserve">
+    <value>Bandwidth</value>
+    <comment>Metric tile label "Bandwidth" (B4 real throughput sampler).</comment>
+  </data>
+  <data name="SysMonCaption.Throughput" xml:space="preserve">
+    <value>Throughput</value>
+    <comment>Metric tile caption for the Bandwidth tile.</comment>
+  </data>
+  <data name="SysMonCaption.Temperature" xml:space="preserve">
+    <value>Temperature</value>
+    <comment>Metric tile caption for the Thermal tile (honest unavailable).</comment>
+  </data>
+  <data name="DiscoveryCodeLeaseShort.Text" xml:space="preserve">
+    <value>Short-lived</value>
+    <comment>B1 connection-code lease segment (Mac 短时, shortLived; 10-minute TTL).</comment>
+  </data>
+  <data name="DiscoveryCodeLeaseDay.Text" xml:space="preserve">
+    <value>Day-stable</value>
+    <comment>B1 connection-code lease segment (Mac 全天, dayStable; 24-hour TTL).</comment>
+  </data>
+  <data name="DiscoveryCodeLeaseHint.Text" xml:space="preserve">
+    <value>Short-lived codes expire in 10 minutes; day-stable codes last 24 hours.</value>
+    <comment>B1 connection-code lease hint (Mac lease-mode hint text).</comment>
+  </data>
+  <data name="RemoteDesktopCardTransportLabel.Text" xml:space="preserve">
+    <value>Transport</value>
+    <comment>B3 per-session summary card Transport pill label. Mac remoteMetricPill transport.</comment>
+  </data>
+  <data name="RemoteDesktopCardQualityLabel.Text" xml:space="preserve">
+    <value>Quality</value>
+    <comment>B3 per-session summary card Quality pill label. Mac remoteMetricPill quality.</comment>
+  </data>
+  <data name="RemoteControlHostTitle.Text" xml:space="preserve"><value>Control this PC</value></data>
+  <data name="RemoteControlHostToggle.OnContent" xml:space="preserve"><value>On</value></data>
+  <data name="RemoteControlHostToggle.OffContent" xml:space="preserve"><value>Off</value></data>
+  <data name="RemoteControlHostExplanation.Text" xml:space="preserve"><value>Each trusted connection needs approval on this PC. Up to two viewers can connect; only one has keyboard and mouse control.</value></data>
+  <data name="RemoteControlHostNetwork.Header" xml:space="preserve"><value>Local network</value></data>
+  <data name="RemoteControlHostNetwork.PlaceholderText" xml:space="preserve"><value>Choose a network</value></data>
+  <data name="RemoteControlHostRefresh.Label" xml:space="preserve"><value>Refresh</value></data>
+  <data name="RemoteControlHostCopyPairing.Label" xml:space="preserve"><value>Copy pairing info</value></data>
+  <data name="RemoteControlHostImportPairing.Label" xml:space="preserve"><value>Paste pairing info</value></data>
+  <data name="RemoteControlHostPendingController.Title" xml:space="preserve"><value>Review controller</value></data>
+  <data name="RemoteControlHostPendingFingerprint.Header" xml:space="preserve"><value>Identity fingerprint</value></data>
+  <data name="RemoteControlHostReviewHint.Text" xml:space="preserve"><value>Check the name and fingerprint against the intended controller. Trusting this identity still requires approval for each connection.</value></data>
+  <data name="RemoteControlHostConfirmController.Content" xml:space="preserve"><value>Trust this controller</value></data>
+  <data name="RemoteControlHostCancelController.Content" xml:space="preserve"><value>Cancel</value></data>
+  <data name="RemoteControlHostIdentity.Header" xml:space="preserve"><value>This PC's identity</value></data>
+  <data name="RemoteControlHostPairingHint.Text" xml:space="preserve"><value>Exchange pairing information with the controller before enabling access.</value></data>
+  <data name="RemoteControlHostActiveBanner.Title" xml:space="preserve"><value>Remote access is enabled</value></data>
+  <data name="RemoteControlHostStop.Content" xml:space="preserve"><value>Stop sharing</value></data>
+  <data name="RemoteControlHostNoticeWindowTitle" xml:space="preserve"><value>Remote access requests and sessions</value></data>
+  <data name="RemoteControlHostNoTrustedDevices" xml:space="preserve"><value>No trusted controllers. Import pairing information first.</value></data>
+  <data name="RemoteControlHostTrustedDevices" xml:space="preserve"><value>Trusted controllers ({0}): {1}</value></data>
+  <data name="RemoteControlHostNoNetwork" xml:space="preserve"><value>No active local network was found. Connect to Wi-Fi or Ethernet, then refresh.</value></data>
+  <data name="RemoteControlHostChooseNetwork" xml:space="preserve"><value>More than one network is available. Choose the one shared with your controller.</value></data>
+  <data name="RemoteControlHostNetworkHint" xml:space="preserve"><value>The controller must be connected to the selected network.</value></data>
+  <data name="RemoteControlHostStatusStopped" xml:space="preserve"><value>Remote access is off</value></data>
+  <data name="RemoteControlHostStatusListening" xml:space="preserve"><value>Waiting for a trusted controller</value></data>
+  <data name="RemoteControlHostStatusAuthenticating" xml:space="preserve"><value>Verifying the controller's identity</value></data>
+  <data name="RemoteControlHostStatusConnected" xml:space="preserve"><value>Approved remote viewers are connected</value></data>
+  <data name="RemoteControlHostStatusFailed" xml:space="preserve"><value>Remote access needs attention</value></data>
+  <data name="RemoteControlHostTransferSummary" xml:space="preserve"><value>Sent {0} screen frames and {1} audio packets</value></data>
+  <data name="RemoteControlHostPairingCopied" xml:space="preserve"><value>This PC's public pairing information was copied.</value></data>
+  <data name="RemoteControlHostPairingImported" xml:space="preserve"><value>The controller is trusted. You can now enable remote access.</value></data>
+  <data name="RemoteControlHostClipboardEmpty" xml:space="preserve"><value>The clipboard does not contain pairing information.</value></data>
+  <data name="RemoteControlHostSessionAwaitingApproval" xml:space="preserve"><value>Waiting for approval on this PC</value></data>
+  <data name="RemoteControlHostSessionPreparing" xml:space="preserve"><value>Preparing the approved screen stream</value></data>
+  <data name="RemoteControlHostSessionViewing" xml:space="preserve"><value>Viewing only · Input control is assigned on this PC</value></data>
+  <data name="RemoteControlHostSessionControlling" xml:space="preserve"><value>Viewing and controlling this PC</value></data>
+  <data name="RemoteControlHostSessionDisconnecting" xml:space="preserve"><value>Disconnecting and releasing input</value></data>
+  <data name="RemoteControlHostSessionApproveViewing.Label" xml:space="preserve"><value>Allow viewing</value></data>
+  <data name="RemoteControlHostSessionApproveControl.Label" xml:space="preserve"><value>Allow control</value></data>
+  <data name="RemoteControlHostSessionTransferInput.Label" xml:space="preserve"><value>Give input control</value></data>
+  <data name="RemoteControlHostSessionDisconnect.Label" xml:space="preserve"><value>Reject / disconnect</value></data>
+  <data name="NetworkProbeTimeout" xml:space="preserve"><value>Timed out</value></data>
+  <data name="NetworkProbeUnreachable" xml:space="preserve"><value>Network unreachable</value></data>
+  <data name="NetworkProbeInvalidResponse" xml:space="preserve"><value>Invalid response</value></data>
+  <data name="NetworkProbeCountersUnavailable" xml:space="preserve"><value>Counters unavailable</value></data>
+  <data name="NetworkProbeStopped" xml:space="preserve"><value>Sampling stopped</value></data>
+  <data name="NetworkProxy" xml:space="preserve"><value>Proxy</value></data>
+  <data name="NetworkDirect" xml:space="preserve"><value>Direct</value></data>
+  <data name="DiscoveryDiagnostics.Header" xml:space="preserve"><value>Discovery diagnostics</value></data>
+  <data name="RemoteViewerTitle" xml:space="preserve"><value>Nearby Remote Control</value></data>
+  <data name="RemoteViewerPeers.Header" xml:space="preserve"><value>Nearby desktops</value></data>
+  <data name="RemoteViewerRefresh.Content" xml:space="preserve"><value>Refresh</value></data>
+  <data name="RemoteViewerConnect.Content" xml:space="preserve"><value>Connect</value></data>
+  <data name="RemoteViewerDisconnect.Content" xml:space="preserve"><value>Disconnect</value></data>
+  <data name="RemoteViewerChoose" xml:space="preserve"><value>Select a nearby paired device. The host must approve this connection.</value></data>
+  <data name="RemoteViewerScanning" xml:space="preserve"><value>Searching nearby devices…</value></data>
+  <data name="RemoteViewerNoPeers" xml:space="preserve"><value>No remote desktops found on this network.</value></data>
+  <data name="RemoteViewerAuthenticating" xml:space="preserve"><value>Verifying the paired device…</value></data>
+  <data name="RemoteViewerWaitingApproval" xml:space="preserve"><value>Waiting for the host to approve remote viewing…</value></data>
+  <data name="RemoteViewerControlling" xml:space="preserve"><value>Connected · Keyboard and mouse control granted</value></data>
+  <data name="RemoteViewerObserving" xml:space="preserve"><value>Connected · View only</value></data>
+  <data name="RemoteViewerDisconnected" xml:space="preserve"><value>Remote viewing ended.</value></data>
+  <data name="RemoteViewerSignInRequired" xml:space="preserve"><value>Sign in before connecting so the other device can show who is requesting control.</value></data>
+  <data name="AccountRestoreNetworkFailure" xml:space="preserve"><value>The account service is temporarily unavailable. Your saved sign-in is retained; retry when the network recovers.</value></data>
+  <data name="AccountRestoreStorageFailure" xml:space="preserve"><value>The saved sign-in could not be read or updated. Check storage permissions and retry.</value></data>
+  <data name="AccountRestoreVerificationFailure" xml:space="preserve"><value>The saved sign-in could not be verified. Please sign in again.</value></data>
+  <data name="FileTransferLiveReady" xml:space="preserve">
+    <value>Select files or connect a device</value>
+  </data>
+  <data name="FileTransferLiveBusy" xml:space="preserve">
+    <value>A file transfer operation is already in progress</value>
+  </data>
+  <data name="FileTransferLiveCancelled" xml:space="preserve">
+    <value>Selection cancelled</value>
+  </data>
+  <data name="FileTransferLiveSelectionLimit" xml:space="preserve">
+    <value>Select up to 64 files or one folder at a time</value>
+  </data>
+  <data name="FileTransferLivePackaging" xml:space="preserve">
+    <value>Packaging folder…</value>
+  </data>
+  <data name="FileTransferLiveCompleted" xml:space="preserve">
+    <value>Transfer completed</value>
+  </data>
+  <data name="FileTransferLiveSending" xml:space="preserve">
+    <value>Sending; awaiting the receiver’s receipt…</value>
+  </data>
+  <data name="FileTransferLiveSignIn" xml:space="preserve">
+    <value>Sign in before transferring files</value>
+  </data>
+  <data name="FileTransferLiveConnecting" xml:space="preserve">
+    <value>Establishing a secure connection…</value>
+  </data>
+  <data name="FileTransferLiveConnected" xml:space="preserve">
+    <value>Connected; ready to send or approve incoming files</value>
+  </data>
+  <data name="FileTransferLiveDisconnected" xml:space="preserve">
+    <value>Device disconnected</value>
+  </data>
+  <data name="FileTransferLiveIncoming" xml:space="preserve">
+    <value>Incoming file</value>
+  </data>
+  <data name="FileTransferLiveFailed" xml:space="preserve">
+    <value>Transfer failed</value>
+  </data>
+  <data name="FileTransferLiveReceiptVerified" xml:space="preserve">
+    <value>Complete file and authenticated receipt verified</value>
+  </data>
+  <data name="FileTransferLiveConnectionLabel" xml:space="preserve">
+    <value>Connected devices</value>
+  </data>
+  <data name="FileTransferLiveProtocol" xml:space="preserve">
+    <value>Uses the existing PQC device session; disconnecting stops transfers</value>
+  </data>
+  <data name="FileTransferLiveDestinationLabel" xml:space="preserve">
+    <value>Receive location</value>
+  </data>
+  <data name="FileTransferLiveNoPeers" xml:space="preserve">
+    <value>No file-transfer devices found. Open both apps on the same network.</value>
+  </data>
+  <data name="FileTransferLiveChoosePeer" xml:space="preserve">
+    <value>Choose a transfer device</value>
+  </data>
+  <data name="FileTransferLiveConnect" xml:space="preserve">
+    <value>Connect</value>
+  </data>
+  <data name="FileTransferLiveCancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="FileTransferLiveAccept" xml:space="preserve">
+    <value>Accept</value>
+  </data>
+  <data name="FileTransferLiveDecline" xml:space="preserve">
+    <value>Decline</value>
+  </data>
+  <data name="FileTransferLiveConnectButton.Content" xml:space="preserve">
+    <value>Connect device</value>
+  </data>
+  <data name="FileTransferLiveDisconnectButton.Content" xml:space="preserve">
+    <value>Disconnect transfers</value>
+  </data>
+  <data name="FileTransferLiveMissingDestination" xml:space="preserve">
+    <value>The receive folder in Settings does not exist. Choose a valid folder.</value>
+  </data>
+  <data name="FileTransferLiveListenerStopped" xml:space="preserve">
+    <value>File receiving has stopped. Disconnect and reconnect the device.</value>
+  </data>
+  <data name="FileTransferLiveDestinationPending" xml:space="preserve">
+    <value>Uses the receive folder in Settings when connected</value>
+  </data>
+  <data name="FileTransferLiveSendingState" xml:space="preserve">
+    <value>Sending</value>
+  </data>
+  <data name="FileTransferLiveReceivingState" xml:space="preserve">
+    <value>Receiving</value>
+  </data>
+  <data name="FileTransferLiveSent" xml:space="preserve">
+    <value>Sent</value>
+  </data>
+  <data name="FileTransferLiveReceived" xml:space="preserve">
+    <value>Received</value>
+  </data>
+  <data name="AccountDevicesTitle.Text" xml:space="preserve"><value>Account devices</value></data>
+  <data name="AccountDevicesOpen.AutomationProperties.Name" xml:space="preserve"><value>View account devices</value></data>
+  <data name="AccountDevicesRefresh.Content" xml:space="preserve"><value>Refresh</value></data>
+  <data name="AccountDevicesClose.Content" xml:space="preserve"><value>Close</value></data>
+  <data name="AccountDevicesHint.Text" xml:space="preserve"><value>Devices signed in to this account. Online status expires after 90 seconds without a heartbeat. This list does not grant remote-control access.</value></data>
+  <data name="AccountDevicesSignedOut" xml:space="preserve"><value>Sign in to view account devices</value></data>
+  <data name="AccountDevicesLoading" xml:space="preserve"><value>Connecting to account devices…</value></data>
+  <data name="AccountDevicesSummary" xml:space="preserve"><value>{0} devices · {1} online</value></data>
+  <data name="AccountDevicesCurrent" xml:space="preserve"><value>Account devices updated</value></data>
+  <data name="AccountDevicesTruncated" xml:space="preserve"><value>Showing the first 200 devices; this list is incomplete.</value></data>
+  <data name="AccountDevicesExpired" xml:space="preserve"><value>Online status expired; waiting for a refresh.</value></data>
+  <data name="AccountDevicesAuthError" xml:space="preserve"><value>The account session is unverified or expired. Refresh or sign in again.</value></data>
+  <data name="AccountDevicesNotActive" xml:space="preserve"><value>This device is not approved for account devices. Check its status on an authorized device.</value></data>
+  <data name="AccountDevicesRateLimited" xml:space="preserve"><value>Too many refreshes. Retrying later.</value></data>
+  <data name="AccountDevicesServiceError" xml:space="preserve"><value>The account device service rejected the request or is unavailable. Retry later.</value></data>
+  <data name="AccountDevicesNetworkError" xml:space="preserve"><value>Cannot reach account devices. Retrying later.</value></data>
+  <data name="AccountDevicesInvalidResponse" xml:space="preserve"><value>Account device data failed validation; online status is not shown.</value></data>
+  <data name="AccountDevicesLocalError" xml:space="preserve"><value>Local device identity or metadata is unavailable. Refresh later.</value></data>
+  <data name="AccountDeviceModelUnknown" xml:space="preserve"><value>Model not reported</value></data>
+  <data name="AccountDevicePending" xml:space="preserve"><value>Awaiting approval</value></data>
+  <data name="AccountDeviceFrozen" xml:space="preserve"><value>Frozen</value></data>
+  <data name="AccountDeviceOnline" xml:space="preserve"><value>Online</value></data>
+  <data name="AccountDeviceOffline" xml:space="preserve"><value>Offline</value></data>
+  <data name="AccountDeviceThisDevice" xml:space="preserve"><value>This device</value></data>
+  <data name="AccountDeviceLastSeen" xml:space="preserve"><value>Last seen: {0}</value></data>
+  <data name="AccountDeviceLastSeenUnknown" xml:space="preserve"><value>No last-seen record</value></data>
+  <data name="FileTransferQrUnavailableHint.Text" xml:space="preserve"><value>QR sharing is unavailable for this LAN session. Select files or a folder, then choose a receiving device.</value></data>
+  <data name="NotificationsButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Notification center</value></data>
+  <data name="NotificationsButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Notification center</value></data>
+  <data name="AppearanceButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Appearance and wallpaper</value></data>
+  <data name="AppearanceButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Appearance and wallpaper</value></data>
+  <data name="NotificationsCenterTitle" xml:space="preserve"><value>Notifications</value></data>
+  <data name="NotificationsClear" xml:space="preserve"><value>Clear</value></data>
+  <data name="NotificationsEmpty" xml:space="preserve"><value>No notifications yet</value></data>
+  <data name="NotificationsSystemDisabled" xml:space="preserve"><value>System notifications are off</value></data>
+  <data name="NotificationsSystemUnavailable" xml:space="preserve"><value>Windows notifications are unavailable; events remain here</value></data>
+  <data name="NotificationsTransferSent" xml:space="preserve"><value>File sent</value></data>
+  <data name="NotificationsTransferReceived" xml:space="preserve"><value>File received</value></data>
+  <data name="NotificationsTransferFailed" xml:space="preserve"><value>File transfer failed</value></data>
+  <data name="NotificationsAccountConnected" xml:space="preserve"><value>Account connected</value></data>
+  <data name="NotificationsAccountConnectedDetail" xml:space="preserve"><value>The sign-in session was verified for account device services.</value></data>
+  <data name="NotificationsAccountSignedOut" xml:space="preserve"><value>Signed out</value></data>
+  <data name="NotificationsAccountSignedOutDetail" xml:space="preserve"><value>The current account session has ended.</value></data>
+  <data name="NotificationsRemoteConnected" xml:space="preserve"><value>Remote control connected</value></data>
+  <data name="NotificationsRemoteConnectedDetail" xml:space="preserve"><value>An approved remote device connected to this computer.</value></data>
+  <data name="NotificationsRemoteEnded" xml:space="preserve"><value>Remote control ended</value></data>
+  <data name="NotificationsRemoteEndedDetail" xml:space="preserve"><value>The remote control session has closed.</value></data>
+  <data name="AppearanceMode_system" xml:space="preserve"><value>Follow system appearance</value></data>
+  <data name="AppearanceMode_light" xml:space="preserve"><value>Light appearance</value></data>
+  <data name="AppearanceMode_dark" xml:space="preserve"><value>Dark appearance</value></data>
+  <data name="BackgroundTheme_weather" xml:space="preserve"><value>Weather scene</value></data>
+  <data name="BackgroundTheme_starryNight" xml:space="preserve"><value>Starry night</value></data>
+  <data name="BackgroundTheme_deepSpace" xml:space="preserve"><value>Deep space</value></data>
+  <data name="BackgroundTheme_aurora" xml:space="preserve"><value>Aurora</value></data>
+  <data name="BackgroundTheme_classic" xml:space="preserve"><value>Classic</value></data>
+  <data name="BackgroundChooseImage" xml:space="preserve"><value>Choose background image…</value></data>
+  <data name="BackgroundLoadFailed" xml:space="preserve"><value>Background image could not be loaded</value></data>
+  <data name="AppearanceSettingsLabel.Text" xml:space="preserve"><value>Appearance</value></data>
+  <data name="AppearanceSystemChoice.Content" xml:space="preserve"><value>System</value></data>
+  <data name="AppearanceLightChoice.Content" xml:space="preserve"><value>Light</value></data>
+  <data name="AppearanceDarkChoice.Content" xml:space="preserve"><value>Dark</value></data>
+  <data name="DiscoveryModeAccountDevicesTitle.Text" xml:space="preserve"><value>Account devices</value></data>
+  <data name="DiscoveryModeAccountDevicesSubtitle.Text" xml:space="preserve"><value>Same account</value></data>
+  <data name="CloseToTrayLabel.Text" xml:space="preserve"><value>Keep running in the system tray when I close the window</value></data>
+  <data name="CloseToTrayHint.Text" xml:space="preserve"><value>When enabled, Close and Alt+F4 hide the main window. Use Exit in the tray menu to quit.</value></data>
+  <data name="TrayOpen" xml:space="preserve"><value>Open SkyBridge Compass</value></data>
+  <data name="TrayExit" xml:space="preserve"><value>Exit</value></data>
+  <data name="TrayUnavailableTitle" xml:space="preserve"><value>System tray unavailable</value></data>
+  <data name="TrayUnavailableDetail" xml:space="preserve"><value>The window is still open. Try again, or turn off "Keep running in the system tray" in General settings to exit.</value></data>
+  <data name="AccountDeviceRemove" xml:space="preserve"><value>Remove from account</value></data>
+  <data name="AccountDeviceRemoveTitle" xml:space="preserve"><value>Remove account device</value></data>
+  <data name="AccountDeviceRemoveMessage" xml:space="preserve"><value>Remove “{0}” from your account? This device will lose access to account device services. Local files and saved pairings are retained.</value></data>
+  <data name="AccountDeviceRemoveConfirm" xml:space="preserve"><value>Remove</value></data>
+  <data name="AccountDeviceRemoveCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="AccountDeviceRemoved" xml:space="preserve"><value>Device removed from account.</value></data>
+  <data name="AccountDeviceRemovedSelf" xml:space="preserve"><value>This device was removed. Account device synchronization has stopped.</value></data>
+  <data name="AccountDeviceRemovalFailed" xml:space="preserve"><value>Removal was not confirmed. Refresh and check the device before retrying.</value></data>
+  <data name="AudioReceiveExpander.Header" xml:space="preserve"><value>Audio reception</value></data>
+  <data name="AudioReceiveDescription.Text" xml:space="preserve"><value>Play audio from authenticated connected devices through an output you choose. Each request needs your approval.</value></data>
+  <data name="AudioOutputPicker.PlaceholderText" xml:space="preserve"><value>Choose an audio output</value></data>
+  <data name="AudioOutputRefresh.Label" xml:space="preserve"><value>Refresh devices and networks</value></data>
+  <data name="AudioReceiveStart.Label" xml:space="preserve"><value>Enable reception</value></data>
+  <data name="AudioReceiveStop.Label" xml:space="preserve"><value>Stop reception</value></data>
+  <data name="AudioReceiveOutputLabel" xml:space="preserve"><value>Audio output device</value></data>
+  <data name="AudioReceiveReleaseUnconfirmed" xml:space="preserve"><value>Audio resource release could not be confirmed. New playback is blocked until the application process has fully exited.</value></data>
+  <data name="AudioReceiveStopping" xml:space="preserve"><value>Stopping audio and releasing the output…</value></data>
+  <data name="AudioReceiveApprovalPending" xml:space="preserve"><value>Waiting for playback approval</value></data>
+  <data name="AudioReceivePlaying" xml:space="preserve"><value>Playing device audio</value></data>
+  <data name="AudioReceiveFinishing" xml:space="preserve"><value>Finishing the last audio frames</value></data>
+  <data name="AudioReceivePreparing" xml:space="preserve"><value>Preparing audio reception</value></data>
+  <data name="AudioReceiveWaiting" xml:space="preserve"><value>Ready for requests from connected devices. Each request requires approval.</value></data>
+  <data name="AudioReceiveNoConnectedDevice" xml:space="preserve"><value>Reception is enabled. Connect an authenticated device to receive its audio.</value></data>
+  <data name="AudioReceiveDisabled" xml:space="preserve"><value>Choose an output and enable reception. The original capture format must be supported.</value></data>
+  <data name="AudioReceiveUnsupportedOutput" xml:space="preserve"><value>The selected output could not be prepared in the original audio format. Check that it is available, or choose a compatible output.</value></data>
+  <data name="AudioReceiveAuthorizationEnded" xml:space="preserve"><value>Device authorization or playback permission ended.</value></data>
+  <data name="AudioReceiveRequestEnded" xml:space="preserve"><value>The playback request ended.</value></data>
+  <data name="AudioReceiveContentFailed" xml:space="preserve"><value>Audio verification failed. Playback was stopped.</value></data>
+  <data name="AudioReceiveFailed" xml:space="preserve"><value>Audio reception ended with an error. Check the connection and output before trying again.</value></data>
+  <data name="AudioReceiveUnnamedOutput" xml:space="preserve"><value>Output name unavailable</value></data>
+  <data name="AudioReceiveNoOutputs" xml:space="preserve"><value>No active audio outputs were found. Connect an output and refresh.</value></data>
+  <data name="AudioReceiveOutputReadFailed" xml:space="preserve"><value>Audio outputs could not be read. Check the output device and try again.</value></data>
+  <data name="AudioReceiveApprovalTitle" xml:space="preserve"><value>Allow this device to play audio?</value></data>
+  <data name="AudioReceiveApprovalDetail" xml:space="preserve"><value>This approval applies only to this request and output. Playback starts only if the original capture format is supported.</value></data>
+  <data name="AudioReceiveAllowOnce" xml:space="preserve"><value>Allow once</value></data>
+  <data name="AudioReceiveDecline" xml:space="preserve"><value>Decline</value></data>
+  <data name="AudioReceiveNetworkLabel" xml:space="preserve"><value>Local network for reception</value></data>
+  <data name="AudioNetworkPicker.PlaceholderText" xml:space="preserve"><value>Choose a local network</value></data>
+  <data name="AudioReceiveConnectionFailed" xml:space="preserve"><value>A device connection failed. Check pairing and network connectivity, or stop and retry.</value></data>
+  <data name="AudioReceiveListeningAt" xml:space="preserve"><value>Receiving connections at</value></data>
+  <data name="AudioReceiveNoNetworks" xml:space="preserve"><value>No available local IPv4 network was found. Connect a network and refresh.</value></data>
+  <data name="LanPairingTitle" xml:space="preserve"><value>Pair this device</value></data>
+  <data name="LanPairingCompare" xml:space="preserve"><value>Confirm that the six-digit code matches the code on your phone.</value></data>
+  <data name="LanPairingSaveDetail" xml:space="preserve"><value>Pairing saves this device identity on this computer. Audio playback still requires account verification and a separate playback approval.</value></data>
+  <data name="LanPairingSave" xml:space="preserve"><value>Match and save</value></data>
+  <data name="LanPairingReject" xml:space="preserve"><value>Reject</value></data>
+  <data name="LanPairingEnded" xml:space="preserve"><value>The pairing request ended. You can start a new request from your phone.</value></data>
+  <data name="AudioConnectionCopy.Label" xml:space="preserve"><value>Copy connection info</value></data>
+  <data name="AudioConnectionCopied" xml:space="preserve"><value>Connection information copied</value></data>
+  <data name="AudioConnectionCopyDetail" xml:space="preserve"><value>On your phone, open Direct connection and paste this information. Keep reception enabled. Pairing and playback still require approval.</value></data>
+  <data name="AudioConnectionCopyFailed" xml:space="preserve"><value>Connection information could not be copied</value></data>
+  <data name="AudioConnectionCopyRetry" xml:space="preserve"><value>Check that reception is enabled, then try again.</value></data>
+  <data name="AudioReceiveReceivingFile" xml:space="preserve"><value>Receiving and verifying the original file…</value></data>
+  <data name="AudioReceiveOriginalFile" xml:space="preserve"><value>Original audio file</value></data>
+  <data name="AudioReceiveBytes" xml:space="preserve"><value>bytes</value></data>
+  <data name="AudioReceiveOriginalFileDetail" xml:space="preserve"><value>The original file is held temporarily for this playback and released afterward. Playback starts only if its actual format is supported by the selected strict output. File transfer completion does not mean playback has finished.</value></data>
+</root>

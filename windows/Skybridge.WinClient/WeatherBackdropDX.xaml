@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WeatherBackdropDX: the Direct3D 12 weather renderer's host. The SwapChainPanel receives a DXGI
+  composition swap chain (see WeatherBackdropDX.xaml.cs), into which a fullscreen HLSL shader
+  draws the per-condition cinematic weather scene every frame, plus the frosted glass under the
+  shell's sidebar and top bar.
+
+  Condition (string, default "Clear") selects the scene; IsAnimationEnabled drives the render
+  loop (a static scene is drawn once per layout or weather change).
+-->
+<UserControl
+    x:Class="Skybridge.WinClient.WeatherBackdropDX"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    IsHitTestVisible="False">
+
+    <!-- SwapChainPanel is a built-in WinUI control; no extra xmlns required. The DX12 swap
+         chain is bound to it via ISwapChainPanelNative.SetSwapChain in code-behind. -->
+    <SwapChainPanel x:Name="Panel" />
+</UserControl>

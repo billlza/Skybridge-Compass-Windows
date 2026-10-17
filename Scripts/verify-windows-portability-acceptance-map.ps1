@@ -1,0 +1,782 @@
+param(
+    [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+function Assert-True {
+    param(
+        [bool]$Condition,
+        [string]$Message
+    )
+
+    if (-not $Condition) {
+        throw $Message
+    }
+}
+
+function Assert-Contains {
+    param(
+        [string]$Text,
+        [string]$Needle,
+        [string]$Message
+    )
+
+    Assert-True -Condition ($Text.Contains($Needle)) -Message $Message
+}
+
+function Read-RequiredText {
+    param([string]$Path)
+
+    Assert-True -Condition (Test-Path -LiteralPath $Path) -Message "Missing acceptance-map input: $Path"
+    return (Get-Content -Raw -LiteralPath $Path)
+}
+
+$architecturePath = Join-Path $RepoRoot "docs/windows-architecture.md"
+$researchSynthesisPath = Join-Path $RepoRoot "docs/windows-research-agent-synthesis.md"
+$uiContractPath = Join-Path $RepoRoot "docs/windows-ui-parity-contract.md"
+$uiMatrixPath = Join-Path $RepoRoot "docs/windows-ui-parity-matrix.md"
+$webrtcSchemaPath = Join-Path $RepoRoot "docs/windows-webrtc-proof-schema.md"
+$opensshPqKexPath = Join-Path $RepoRoot "docs/windows-openssh-pq-kex.md"
+$reverseSshRelayLifecyclePath = Join-Path $RepoRoot "docs/windows-reverse-ssh-relay-lifecycle.md"
+$directLanSshLifecyclePath = Join-Path $RepoRoot "docs/windows-lan-ssh-lifecycle.md"
+$githubTransportPath = Join-Path $RepoRoot "docs/github-ssh-transport.md"
+$acceptanceMapPath = Join-Path $RepoRoot "docs/windows-portability-acceptance-map.md"
+$gitIgnorePath = Join-Path $RepoRoot ".gitignore"
+
+$portabilitySmokePath = Join-Path $RepoRoot "Scripts/verify-windows-portability-smoke.ps1"
+$acceptanceEvidencePath = Join-Path $RepoRoot "Scripts/verify-windows-portability-acceptance-evidence.ps1"
+$powershellAstPath = Join-Path $RepoRoot "Scripts/verify-windows-powershell-ast.ps1"
+$completionAuditPath = Join-Path $RepoRoot "Scripts/audit-windows-portability-completion.ps1"
+$researchEvidencePath = Join-Path $RepoRoot "Scripts/verify-windows-research-evidence.ps1"
+$stackFreshnessPath = Join-Path $RepoRoot "Scripts/verify-windows-stack-freshness.ps1"
+$rustCoveragePath = Join-Path $RepoRoot "Scripts/verify-rust-cli-coverage.ps1"
+$ffiClientPath = Join-Path $RepoRoot "Scripts/verify-windows-ffi-client.ps1"
+$uiParityPath = Join-Path $RepoRoot "Scripts/verify-windows-ui-parity.ps1"
+$uiActionOrderPath = Join-Path $RepoRoot "Scripts/verify-windows-ui-action-order.ps1"
+$uiMatrixSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-ui-parity-matrix.ps1"
+$uiAutomationSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-ui-automation-smoke.ps1"
+$uiVisualEvidencePath = Join-Path $RepoRoot "Scripts/verify-windows-ui-visual-evidence.ps1"
+$applePreservationPath = Join-Path $RepoRoot "Scripts/verify-apple-native-preservation.ps1"
+$opensshPqKexSmokePath = Join-Path $RepoRoot "Scripts/verify-openssh-pq-kex.ps1"
+$reverseSshRelayStartPath = Join-Path $RepoRoot "Scripts/start-windows-reverse-ssh-relay.ps1"
+$reverseSshRelayRegisterPath = Join-Path $RepoRoot "Scripts/register-windows-reverse-ssh-relay-task.ps1"
+$reverseSshRelayLifecycleSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-reverse-ssh-relay-lifecycle.ps1"
+$directLanSshRegisterPath = Join-Path $RepoRoot "Scripts/register-windows-lan-ssh-access.ps1"
+$directLanSshLifecycleSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-lan-ssh-lifecycle.ps1"
+$directLanSshTestPath = Join-Path $RepoRoot "Scripts/test-windows-lan-ssh-lifecycle.ps1"
+$macCodbgPath = Join-Path $RepoRoot "Scripts/prepare-mac-rust-cli-codbg.ps1"
+$macCodbgWrapperPath = Join-Path $RepoRoot "Scripts/verify-mac-rust-cli-codbg-wrapper.ps1"
+$macInteropPath = Join-Path $RepoRoot "Scripts/verify-windows-mac-webrtc-interop.ps1"
+$currentPathProductControlTransportPath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-product-control-transport-live.ps1"
+$currentPathProductControlAppControlPath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-product-control-appcontrol-live.ps1"
+$currentPathProductControlFileTransferPath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-product-control-file-transfer-live.ps1"
+$currentPathProductControlAnswererPath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-product-control-answerer-transport-live.ps1"
+$currentPathProductControlAnswererAppControlPath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-product-control-answerer-appcontrol-live.ps1"
+$currentPathProductControlAnswererFileTransferPath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-product-control-answerer-file-transfer-live.ps1"
+$gitSshRemotePath = Join-Path $RepoRoot "Scripts/verify-git-ssh-remote.ps1"
+$githubPushPath = Join-Path $RepoRoot "Scripts/push-github-ssh.ps1"
+$githubGcmPushPath = Join-Path $RepoRoot "Scripts/push-github-gcm.ps1"
+$githubEnsurePath = Join-Path $RepoRoot "Scripts/ensure-github-ssh-remote.ps1"
+
+$architecture = Read-RequiredText -Path $architecturePath
+$researchSynthesis = Read-RequiredText -Path $researchSynthesisPath
+$uiContract = Read-RequiredText -Path $uiContractPath
+$uiMatrix = Read-RequiredText -Path $uiMatrixPath
+$webrtcSchema = Read-RequiredText -Path $webrtcSchemaPath
+$opensshPqKex = Read-RequiredText -Path $opensshPqKexPath
+$reverseSshRelayLifecycle = Read-RequiredText -Path $reverseSshRelayLifecyclePath
+$directLanSshLifecycle = Read-RequiredText -Path $directLanSshLifecyclePath
+$githubTransport = Read-RequiredText -Path $githubTransportPath
+$acceptanceMap = Read-RequiredText -Path $acceptanceMapPath
+$gitIgnore = Read-RequiredText -Path $gitIgnorePath
+$portabilitySmoke = Read-RequiredText -Path $portabilitySmokePath
+$acceptanceEvidence = Read-RequiredText -Path $acceptanceEvidencePath
+$powershellAst = Read-RequiredText -Path $powershellAstPath
+$completionAudit = Read-RequiredText -Path $completionAuditPath
+$researchEvidence = Read-RequiredText -Path $researchEvidencePath
+$stackFreshness = Read-RequiredText -Path $stackFreshnessPath
+$rustCoverage = Read-RequiredText -Path $rustCoveragePath
+$ffiClient = Read-RequiredText -Path $ffiClientPath
+$uiParity = Read-RequiredText -Path $uiParityPath
+$uiActionOrder = Read-RequiredText -Path $uiActionOrderPath
+$uiMatrixSmoke = Read-RequiredText -Path $uiMatrixSmokePath
+$uiAutomationSmoke = Read-RequiredText -Path $uiAutomationSmokePath
+$uiVisualEvidence = Read-RequiredText -Path $uiVisualEvidencePath
+$applePreservation = Read-RequiredText -Path $applePreservationPath
+$opensshPqKexSmoke = Read-RequiredText -Path $opensshPqKexSmokePath
+$reverseSshRelayStart = Read-RequiredText -Path $reverseSshRelayStartPath
+$reverseSshRelayRegister = Read-RequiredText -Path $reverseSshRelayRegisterPath
+$reverseSshRelayLifecycleSmoke = Read-RequiredText -Path $reverseSshRelayLifecycleSmokePath
+$directLanSshRegister = Read-RequiredText -Path $directLanSshRegisterPath
+$directLanSshLifecycleSmoke = Read-RequiredText -Path $directLanSshLifecycleSmokePath
+$directLanSshTest = Read-RequiredText -Path $directLanSshTestPath
+$macCodbg = Read-RequiredText -Path $macCodbgPath
+$macCodbgWrapper = Read-RequiredText -Path $macCodbgWrapperPath
+$macInterop = Read-RequiredText -Path $macInteropPath
+$currentPathProductControlTransport = Read-RequiredText -Path $currentPathProductControlTransportPath
+$currentPathProductControlAppControl = Read-RequiredText -Path $currentPathProductControlAppControlPath
+$currentPathProductControlFileTransfer = Read-RequiredText -Path $currentPathProductControlFileTransferPath
+$currentPathProductControlAnswerer = Read-RequiredText -Path $currentPathProductControlAnswererPath
+$currentPathProductControlAnswererAppControl = Read-RequiredText -Path $currentPathProductControlAnswererAppControlPath
+$currentPathProductControlAnswererFileTransfer = Read-RequiredText -Path $currentPathProductControlAnswererFileTransferPath
+$gitSshRemote = Read-RequiredText -Path $gitSshRemotePath
+$githubPush = Read-RequiredText -Path $githubPushPath
+$githubGcmPush = Read-RequiredText -Path $githubGcmPushPath
+$githubEnsure = Read-RequiredText -Path $githubEnsurePath
+
+foreach ($requirement in @(
+    "REQ-RESEARCH",
+    "REQ-BEST-PRACTICE-RESEARCH",
+    "REQ-SUBAGENT-SUMMARY",
+    "REQ-STACK",
+    "REQ-MODULARITY",
+    "REQ-UI",
+    "REQ-RUST-CLI",
+    "REQ-RUST-CLI-SESSION-IMPORT",
+    "REQ-BASIC-SMOKE",
+    "REQ-PUBLIC-ARTIFACT-REDACTION",
+    "REQ-APPLE-PRESERVATION",
+    "REQ-NATIVE-DNS-SD",
+    "REQ-MAC-INTEROP",
+    "REQ-CURRENT-PATH-APPCONTROL",
+    "REQ-CURRENT-PATH-ANSWERER-TRANSPORT",
+    "REQ-CURRENT-PATH-ANSWERER-APPCONTROL",
+    "REQ-OPENSSH-PQ-KEX",
+    "REQ-WINDOWS-REVERSE-SSH-RELAY",
+    "REQ-WINDOWS-DIRECT-LAN-SSH",
+    "REQ-GITHUB-SSH",
+    "REQ-GITHUB-UPLOAD"
+)) {
+    Assert-Contains -Text $acceptanceMap -Needle $requirement -Message "Acceptance map missing requirement id: $requirement"
+}
+
+foreach ($signal in @(
+    "Current TDSC mac branch",
+    "Docs/CoreLayering.md",
+    "Docs/ProtocolAlignmentPlan.md",
+    "Docs/ADR-0001-SkyBridge-Core-Transport-Matrix.md",
+    "Sources checked on 2026-06-09",
+    "paper materials as stale"
+)) {
+    Assert-Contains -Text $architecture -Needle $signal -Message "Research evidence missing signal: $signal"
+}
+foreach ($signal in @(
+    "Best-Practice Research Matrix",
+    "Sub-Agent Research Summary",
+    "checkedAtUtc",
+    "sourceUris",
+    "decisionImpact",
+    "staleRisk",
+    "agentRole",
+    "reportId",
+    "019eaabe-015c-7ba1-a82f-ed04ef5295e5",
+    "019eaabe-45ca-7fe2-a24c-83a5bfa02ecb",
+    "019eaabe-7d5b-7c33-9691-ba4765b93287",
+    "verify-windows-research-evidence.ps1",
+    "windows-research-evidence: ok"
+)) {
+    Assert-Contains -Text ($researchSynthesis + $researchEvidence + $acceptanceMap) -Needle $signal -Message "Sub-agent research evidence missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "Technology stack check",
+    "net10.0-windows10.0.22621.0",
+    "TargetPlatformMinVersion",
+    "10.0.19041.0",
+    "Microsoft.WindowsAppSDK",
+    "2.3.1",
+    "Microsoft.Windows.SDK.BuildTools",
+    "10.0.28000.2526",
+    "QRCoder",
+    "1.8.0",
+    "MsQuic v2.5.9",
+    "libdatachannel v0.24.5",
+    "verify-windows-stack-freshness.ps1"
+)) {
+    Assert-Contains -Text $architecture -Needle $signal -Message "Stack evidence missing architecture signal: $signal"
+}
+foreach ($signal in @(
+    "CheckOnline",
+    "api.nuget.org",
+    "api.github.com",
+    "sourceUris",
+    "online latest-version results",
+    "EvidencePath"
+)) {
+    Assert-Contains -Text $stackFreshness -Needle $signal -Message "Stack freshness gate missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "SessionViewModelDependencies",
+    "SessionViewModelDependencyFactory",
+    "CreateConfigured",
+    "CoreBridge",
+    "IWindowsTransportAdapterClient",
+    "VerifiedWebRtcDataChannelTransportAdapterClient",
+    "ConnectionLaunchRequest",
+    "fail-closed"
+)) {
+    Assert-Contains -Text $architecture -Needle $signal -Message "Modularity architecture missing signal: $signal"
+}
+foreach ($signal in @(
+    "FfiEngineClient",
+    "CoreBridge",
+    "SessionViewModelDependencyFactory",
+    "WindowsNativeRuntimeDependencyFactory",
+    "verify-windows-ui-parity.ps1"
+)) {
+    Assert-Contains -Text $ffiClient -Needle $signal -Message "Modularity gate missing signal: $signal"
+}
+Assert-Contains -Text $uiParity -Needle "MainWindow.xaml action surface must use shared resources" -Message "UI parity static gate missing shared-resource action-surface assertion."
+Assert-Contains -Text $uiParity -Needle 'x:Key="WorkspaceActionButtonTemplate"' -Message "UI parity static gate missing shared action-button template assertion."
+
+foreach ($signal in @(
+    "Product Design QA gate",
+    "buttons and feature positions must match",
+    "fonts, rendering scale, and platform-specific pixel metrics remain out of scope",
+    "Action Order Matrix",
+    "Mac baseline commit",
+    "16 PNG screenshots",
+    "runtimeActionBounds"
+)) {
+    Assert-Contains -Text ($uiContract + $uiMatrix) -Needle $signal -Message "UI parity evidence missing signal: $signal"
+}
+foreach ($signal in @(
+    "WorkspaceAction.<Surface>.<Key>",
+    "minimum usable bounds",
+    "windows-ui-visual-evidence.json",
+    "windows-ui-visual-evidence-verify: ok"
+)) {
+    Assert-Contains -Text ($uiAutomationSmoke + $uiVisualEvidence + $uiMatrixSmoke + $uiActionOrder) -Needle $signal -Message "UI executable gate missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "MinimumLineCoverage",
+    "cargo fmt",
+    "cargo clippy",
+    "cargo test",
+    "cargo llvm-cov",
+    "totalLineCoverage",
+    "cliLineCoverage",
+    "cli.rs line coverage",
+    "nativeLibraryPath"
+)) {
+    Assert-Contains -Text $rustCoverage -Needle $signal -Message "Rust CLI coverage gate missing signal: $signal"
+}
+Assert-Contains -Text $architecture -Needle "at or above 90%" -Message "Architecture doc missing Rust CLI 90% threshold."
+
+foreach ($gate in @(
+    "git-ssh-remote",
+    "windows-ci-workflow",
+    "windows-stack-freshness",
+    "windows-research-evidence",
+    "windows-ffi-client",
+    "windows-ui-parity",
+    "windows-ui-action-order",
+    "windows-ui-parity-matrix",
+    "windows-startup-state",
+    "windows-command-gates",
+    "windows-file-transfer-qr",
+    "windows-native-runtime-profile",
+    "windows-connection-launch",
+    "windows-webrtc-proof-smoke",
+    "apple-native-preservation",
+    "mac-rust-cli-codbg-wrapper"
+)) {
+    Assert-Contains -Text $portabilitySmoke -Needle $gate -Message "Default portability smoke missing gate: $gate"
+}
+foreach ($optionalGate in @(
+    "IncludeWinUiAutomationSmoke",
+    "WinUiEvidenceDir",
+    "IncludeRustCliCoverage",
+    "RustCliCoverageEvidencePath",
+    "CheckOnlineStackFreshness",
+    "StackFreshnessEvidencePath",
+    "RequireMacWebRtcInterop",
+    "RequireCurrentPathProductControlTransport",
+    "RequireCurrentPathProductControlAppControl",
+    "RequireCurrentPathProductControlFileTransfer",
+    "RequireCurrentPathProductControlAnswererTransport",
+    "RequireCurrentPathProductControlAnswererAppControl",
+    "RequireCurrentPathProductControlAnswererFileTransfer",
+    "ImportCurrentPathProductControlAppControlSession",
+    "ImportCurrentPathProductControlAnswererAppControlSession",
+    "CurrentPathProductControlEvidencePath",
+    "CurrentPathProductControlFileTransferEvidencePath",
+    "CurrentPathProductControlAnswererEvidencePath",
+    "CurrentPathProductControlAnswererAppControlEvidencePath",
+    "CurrentPathProductControlAnswererFileTransferEvidencePath",
+    "CurrentPathProductControlAppControlSessionImportEvidencePath",
+    "CurrentPathProductControlAnswererAppControlSessionImportEvidencePath",
+    "CurrentPathProductControlAppControlSessionImportStateDir",
+    "CurrentPathProductControlAnswererAppControlSessionImportStateDir",
+    "CurrentPathProductControlAnswererConnectionCodePath",
+    "CurrentPathProductControlAnswererTransportConnectionCodePath",
+    "CurrentPathProductControlAnswererAppControlConnectionCodePath",
+    "CurrentPathProductControlAnswererFileTransferConnectionCodePath",
+    "CurrentPathFileTransferPayloadBytes",
+    "MacExpectedHostKeyFingerprint",
+    "AcceptanceEvidencePath"
+)) {
+    Assert-Contains -Text $portabilitySmoke -Needle $optionalGate -Message "Portability evidence option missing signal: $optionalGate"
+}
+foreach ($signal in @(
+    "Windows OpenSSH PQ KEX Gate",
+    "REQ-OPENSSH-PQ-KEX",
+    "verify-openssh-pq-kex.ps1",
+    "ExpectedHostKeyFingerprint",
+    "KexAlgorithms=<pq-only-list>",
+    "mlkem768x25519-sha256",
+    "sntrup761x25519-sha512",
+    "negotiatedKexAlgorithm",
+    "AllowAuthenticationFailureAfterKex",
+    "not SkyBridge product transport evidence",
+    "does not satisfy WebRTC helper"
+)) {
+    Assert-Contains -Text ($acceptanceMap + $opensshPqKex + $opensshPqKexSmoke) -Needle $signal -Message "OpenSSH PQ KEX evidence missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "Windows Reverse SSH Relay Lifecycle Gate",
+    "REQ-WINDOWS-REVERSE-SSH-RELAY",
+    "register-windows-reverse-ssh-relay-task.ps1",
+    "start-windows-reverse-ssh-relay.ps1",
+    "verify-windows-reverse-ssh-relay-lifecycle.ps1",
+    "ExpectedRelayHostKeyFingerprint",
+    "-F", "none",
+    "PreferredAuthentications=publickey",
+    "KbdInteractiveAuthentication=no",
+    "BatchMode=yes",
+    "NumberOfPasswordPrompts=0",
+    "StrictHostKeyChecking=yes",
+    "UserKnownHostsFile=",
+    "IdentitiesOnly=yes",
+    "IdentityAgent=none",
+    "UpdateHostKeys=no",
+    "ExitOnForwardFailure=yes",
+    "NT AUTHORITY\LOCAL SERVICE",
+    "least-privilege",
+    "RepairPrivateKeyAcl",
+    "InstalledStartScriptPath",
+    "C:\ProgramData\SkyBridge\reverse-ssh-relay\bin",
+    "logs",
+    "taskActionExpected",
+    "taskActionFailClosed",
+    "taskPrincipalExpected",
+    "relayHostKeyPinned",
+    "identityFileAclOk",
+    "knownHostsAclOk",
+    "installedStartScriptAclOk",
+    "runtimeAclOk",
+    "sourceStartScriptSha256",
+    "installedStartScriptSha256",
+    "installedStartScriptPath",
+    "startScriptInstalledAndCurrent",
+    "sshProcessOwnerExpected",
+    "localSshEndpointReachable",
+    "sshProcessCount",
+    "accepted",
+    "RequireWindowsReverseSshRelayLifecycle",
+    "IncludeWindowsReverseSshRelayLifecycle",
+    "not SkyBridge product transport evidence",
+    "does not satisfy WebRTC helper"
+)) {
+    Assert-Contains -Text ($acceptanceMap + $reverseSshRelayLifecycle + $reverseSshRelayStart + $reverseSshRelayRegister + $reverseSshRelayLifecycleSmoke + $portabilitySmoke + $acceptanceEvidence) -Needle $signal -Message "Windows reverse SSH relay lifecycle evidence missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "REQ-WINDOWS-DIRECT-LAN-SSH",
+    "register-windows-lan-ssh-access.ps1",
+    "verify-windows-lan-ssh-lifecycle.ps1",
+    "test-windows-lan-ssh-lifecycle.ps1",
+    "private-provisioning",
+    "ServerAudit",
+    "ExpectedServerAuditSha256",
+    "serverAuditPassed",
+    "accepted=false",
+    "StrictHostKeyChecking=yes",
+    "UserKnownHostsFile",
+    "GlobalKnownHostsFile",
+    "UpdateHostKeys=no",
+    "BatchMode=yes",
+    "PreferredAuthentications=publickey",
+    "IdentityAgent=none",
+    "BindAddress",
+    "BindInterface",
+    "ProxyCommand=none",
+    "ProxyJump=none",
+    "ClearAllForwardings=yes",
+    "mlkem768x25519-sha256",
+    "ssh-ed25519",
+    "SSH_CONNECTION",
+    "same physical LAN",
+    "reverse relay",
+    "UU",
+    "not SkyBridge product transport evidence"
+)) {
+    Assert-Contains -Text ($acceptanceMap + $directLanSshLifecycle + $directLanSshRegister + $directLanSshLifecycleSmoke + $directLanSshTest) `
+        -Needle $signal -Message "Windows direct-LAN SSH lifecycle evidence missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "verify-windows-portability-acceptance-evidence.ps1",
+    "verify-windows-powershell-ast.ps1",
+    "audit-windows-portability-completion.ps1",
+    "AcceptanceEvidencePath",
+    "AllowStandaloneWinUiVisualEvidence",
+    "gateResults",
+    "generatedAtUtc",
+    "windows-powershell-ast",
+    "runId",
+    "artifactDigests",
+    "pathSha256",
+    "pathScope",
+    "pathType",
+    "sha256",
+    "byteLength",
+    "RequireRustCliCoverage",
+    "RequireOnlineStackFreshness",
+    "RequireWinUiVisualEvidence",
+    "RequireNativeDnsSdAcceptance",
+    "RequireMacInterop",
+    "RequireComplete",
+    "CheckRemoteBranch",
+    "REQ-GITHUB-UPLOAD",
+    "REQ-MAC-INTEROP",
+    "REQ-CURRENT-PATH-APPCONTROL",
+    "REQ-CURRENT-PATH-ANSWERER-TRANSPORT",
+    "REQ-CURRENT-PATH-ANSWERER-APPCONTROL",
+    "REQ-RUST-CLI-SESSION-IMPORT",
+    "RequireCurrentPathProductControlSessionImport",
+    "RequireCurrentPathProductControlAnswererAppControlSessionImport",
+    "windows-current-path-product-control-session-import",
+    "windows-current-path-product-control-answerer-appcontrol-session-import",
+    "Assert-CurrentPathProductControlSessionImportEvidence",
+    "windows-portability-acceptance-evidence: ok"
+)) {
+    Assert-Contains -Text ($acceptanceMap + $acceptanceEvidence + $completionAudit + $portabilitySmoke + $powershellAst) -Needle $signal -Message "Portability acceptance evidence gate missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "REQ-RUST-CLI-SESSION-IMPORT",
+    "session import-product-control",
+    "--session-id-file",
+    "session_id_file_used",
+    "SessionIdSha256",
+    "RemoteDeviceIdSha256",
+    "RemoteProtocolPublicKeyFingerprint",
+    "session_import_session_hash_mismatch",
+    "session_import_session_id_ambiguous",
+    "session_import_not_live_runtime_start",
+    "target_runtime_id_provided",
+    "ttl_seconds",
+    "appcontrol_evidence_required",
+    "request_registered_not_live_transfer",
+    "request_registered_not_live_remote_apply",
+    "cli_session_import_product_control_writes_authority_for_request_registries",
+    "cli_session_import_product_control_rejects_hash_mismatch_without_mutation",
+    "cli_session_import_product_control_rejects_ambiguous_session_id_sources"
+)) {
+    Assert-Contains -Text ($acceptanceMap + $rustCoverage) -Needle $signal -Message "Rust session import acceptance contract missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "System.Management.Automation.Language.Parser",
+    "ParseFile",
+    "CommandAst",
+    "Invoke-Expression",
+    "windows-powershell-ast: parse-ok",
+    "windows-powershell-ast: ok"
+)) {
+    Assert-Contains -Text $powershellAst -Needle $signal -Message "PowerShell AST verifier missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "REQ-CURRENT-PATH-APPCONTROL",
+    "verify-windows-current-path-product-control-transport-live.ps1",
+    "verify-windows-current-path-product-control-appcontrol-live.ps1",
+    "RequireCurrentPathProductControlTransport",
+    "RequireCurrentPathProductControlAppControl",
+    "CurrentPathProductControlEvidencePath",
+    "AdmissionLookupBoundSdpIceProductControlTransportOpen",
+    "AdmissionLookupBoundSdpIceProductControlHandshakeAppControlPong",
+    "NegotiatedSuiteWireId",
+    "0x0101",
+    "ResponderIdentityFingerprintVerified",
+    "ResponderSignatureVerified",
+    "ResponderFinishedVerified",
+    "SecureSessionState",
+    "Established",
+    "AppControlReceivedMessageKind",
+    "pong",
+    "SkybridgeSecureEnvelopeV1",
+    "AppControlCryptoFormat",
+    "AppControlSbwcEnvelope",
+    "AppControlSbwcCounterPresent",
+    "AppControlReplayProtection",
+    "sbwc-replay-window",
+    "AppControlLegacyAadLength",
+    "AppControlOutboundCounter",
+    "AppControlInboundCounter",
+    "AppControlSessionHash",
+    "AppControlTranscriptPrefix",
+    "LateRemoteIceCandidateRelayCount",
+    "PeerMlKem768PublicKeySource",
+    "operatorProvidedOutOfBand",
+    "PeerMlKem768PublicKeyServerAttested",
+    "AuthenticatedAppControlPingPongProof",
+    "RemoteProductAppObserved",
+    "PeerTrustPersistenceProof",
+    "NotMacProductAppProof",
+    "ImportProductControlSession",
+    "SessionImportStateDir",
+    "SessionImportReportPath",
+    "CurrentPathProductControlAppControlSessionImportEvidencePath",
+    "CurrentPathProductControlAppControlSessionImportStateDir",
+    "windows-current-path-product-control-session-import",
+    "RequireCurrentPathProductControlSessionImport",
+    "--session-id-out",
+    "--session-id-file",
+    "session_id_file_used",
+    "session_import_not_live_runtime_start",
+    "request_registered_not_live_transfer",
+    "request_registered_not_live_remote_apply"
+)) {
+    Assert-Contains -Text ($acceptanceMap + $portabilitySmoke + $acceptanceEvidence + $completionAudit + $currentPathProductControlTransport + $currentPathProductControlAppControl) -Needle $signal -Message "Current-path AppControl acceptance evidence missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "REQ-CURRENT-PATH-FILE-TRANSFER",
+    "verify-windows-current-path-product-control-file-transfer-live.ps1",
+    "RequireCurrentPathProductControlFileTransfer",
+    "CurrentPathProductControlFileTransferEvidencePath",
+    "windows-current-path-product-control-file-transfer",
+    "current-path-product-control-file-transfer",
+    "AdmissionLookupBoundSdpIceProductControlHandshakeFileTransferReceipt",
+    "fileTransferReceipt",
+    "FileTransferPayloadBytes",
+    "FileTransferPacketType",
+    "SbwcPacketType",
+    "FileTransferSbwcEnvelope",
+    "FileTransferReplayProtection",
+    "AuthenticatedFileTransferReceiptProof",
+    "TransferRole",
+    "ManifestFileCount",
+    "ManifestBytes",
+    "TransferredBytes",
+    "ChunkCount",
+    "ChunkAckCount",
+    "CompleteAckReceived",
+    "SentFileSha256",
+    "FileSha256Receipt",
+    "ReceiptMatchesSentHash",
+    "ProductPayloadCountSource",
+    "runtime-smoke-filetransfer-exchange",
+    "RawPayloadCaptured",
+    "NotAppControlProof"
+)) {
+    Assert-Contains -Text ($acceptanceMap + $portabilitySmoke + $acceptanceEvidence + $completionAudit + $currentPathProductControlFileTransfer) -Needle $signal -Message "Current-path FileTransfer acceptance evidence missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "REQ-CURRENT-PATH-ANSWERER-TRANSPORT",
+    "verify-windows-current-path-product-control-answerer-transport-live.ps1",
+    "RequireCurrentPathProductControlAnswererTransport",
+    "CurrentPathProductControlAnswererEvidencePath",
+    "windows-current-path-product-control-answerer-transport",
+    "current-path-product-control-answerer-transport",
+    "AdmissionRegisterBoundSdpIceProductControlAnswererTransportOpen",
+    "RegisterCode",
+    "RegisteredCodeOutPath",
+    "CurrentPathProductControlAnswererTransportConnectionCodePath",
+    "ExpectedBoundRole",
+    "SignalingExchangeRole",
+    "HelperMode",
+    "LocalSignalType",
+    "RemoteSignalType",
+    "RemoteSignalWaitType",
+    "RemoteSignalTimeoutSeconds",
+    "LateRemoteIceCandidateRelayCount",
+    "TransportOnlyDirection",
+    "RemoteIdentitySource",
+    "operatorExpectedPeerNotServerAttested",
+    "NotRemoteIdentityProof",
+    "answerer",
+    "product-control-answer",
+    "TransportOnly",
+    "NotHandshakeProof",
+    "NotAppControlProof",
+    "NotMacProductAppProof"
+)) {
+    Assert-Contains -Text ($acceptanceMap + $portabilitySmoke + $acceptanceEvidence + $completionAudit + $currentPathProductControlTransport + $currentPathProductControlAnswerer) -Needle $signal -Message "Current-path answerer transport acceptance evidence missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "REQ-CURRENT-PATH-ANSWERER-APPCONTROL",
+    "verify-windows-current-path-product-control-answerer-appcontrol-live.ps1",
+    "RequireCurrentPathProductControlAnswererAppControl",
+    "CurrentPathProductControlAnswererAppControlEvidencePath",
+    "CurrentPathProductControlAnswererAppControlConnectionCodePath",
+    "LocalMlKem768DecapsulationKeyBase64EnvVar",
+    "LocalMlKem768EncapsulationKeyBase64EnvVar",
+    "windows-current-path-product-control-answerer-appcontrol",
+    "current-path-product-control-answerer-appcontrol",
+    "AdmissionRegisterBoundSdpIceProductControlAnswererHandshakeAppControlPong",
+    "HandshakeRole",
+    "responder",
+    "InitiatorIdentityFingerprintVerified",
+    "InitiatorSignatureVerified",
+    "ResponderFinishedSent",
+    "InitiatorFinishedVerified",
+    "AppControlReceivedMessageKind",
+    "ping",
+    "AppControlResponseMessageKind",
+    "pong",
+    "operatorExpectedPeerHandshakeVerifiedNotServerAttested",
+    "LocalMlKem768DecapsulationKeyCaptured",
+    "LocalMlKem768DecapsulationKeyInputPresent",
+    "LocalMlKem768EncapsulationKeyCaptured",
+    "LocalMlKem768EncapsulationKeySource",
+    "LocalMlKem768EncapsulationKeyServerPublished",
+    "LocalMlKem768KeyPairVerified",
+    "SkybridgeSecureEnvelopeV1",
+    "AppControlCryptoFormat",
+    "AppControlSbwcEnvelope",
+    "AppControlSbwcCounterPresent",
+    "AppControlReplayProtection",
+    "sbwc-replay-window",
+    "AppControlLegacyAadLength",
+    "AppControlOutboundCounter",
+    "AppControlInboundCounter",
+    "AppControlSessionHash",
+    "AppControlTranscriptPrefix",
+    "AuthenticatedAppControlPingPongProof",
+    "LateRemoteIceCandidateRelayCount",
+    "RemoteProductAppObserved",
+    "PeerTrustPersistenceProof",
+    "NotMacProductAppProof",
+    "SecureSessionState",
+    "Established",
+    "ImportProductControlSession",
+    "SessionImportStateDir",
+    "SessionImportReportPath",
+    "CurrentPathProductControlAnswererAppControlSessionImportEvidencePath",
+    "CurrentPathProductControlAnswererAppControlSessionImportStateDir",
+    "windows-current-path-product-control-answerer-appcontrol-session-import",
+    "RequireCurrentPathProductControlAnswererAppControlSessionImport",
+    "--session-id-out",
+    "--session-id-file",
+    "session_id_file_used",
+    "session_import_not_live_runtime_start",
+    "request_registered_not_live_transfer",
+    "request_registered_not_live_remote_apply"
+)) {
+    Assert-Contains -Text ($acceptanceMap + $portabilitySmoke + $acceptanceEvidence + $completionAudit + $currentPathProductControlAnswererAppControl) -Needle $signal -Message "Current-path answerer AppControl acceptance evidence missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "REQ-CURRENT-PATH-ANSWERER-FILE-TRANSFER",
+    "verify-windows-current-path-product-control-answerer-file-transfer-live.ps1",
+    "RequireCurrentPathProductControlAnswererFileTransfer",
+    "CurrentPathProductControlAnswererFileTransferEvidencePath",
+    "CurrentPathProductControlAnswererFileTransferConnectionCodePath",
+    "LocalMlKem768DecapsulationKeyBase64EnvVar",
+    "LocalMlKem768EncapsulationKeyBase64EnvVar",
+    "windows-current-path-product-control-answerer-file-transfer",
+    "current-path-product-control-answerer-file-transfer",
+    "AdmissionRegisterBoundSdpIceProductControlAnswererHandshakeFileTransferReceipt",
+    "FileTransferPayloadBytes",
+    "TransferRole",
+    "receiver",
+    "CompleteAckSent",
+    "ReceivedBytes",
+    "ReceivedFileSha256",
+    "ReceiptMatchesReceivedHash",
+    "AuthenticatedFileTransferReceiptProof",
+    "FileTransferSbwcEnvelope",
+    "FileTransferReplayProtection",
+    "ManifestBytes",
+    "ChunkAckCount",
+    "RawPayloadCaptured",
+    "operatorExpectedPeerHandshakeVerifiedNotServerAttested"
+)) {
+    Assert-Contains -Text ($acceptanceMap + $portabilitySmoke + $acceptanceEvidence + $completionAudit + $currentPathProductControlFileTransfer + $currentPathProductControlAnswererFileTransfer) -Needle $signal -Message "Current-path answerer FileTransfer acceptance evidence missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "artifacts/**/skybridge-current-path-product-control-answerer-code-*/",
+    "artifacts/**/skybridge-current-path-product-control-session-id-*/",
+    "artifacts/**/skybridge-current-path-product-control-session-state-*/",
+    "artifacts/**/skybridge-current-path-product-control-signaling-*/",
+    "**/skybridge-current-path-product-control-session-id-*/",
+    "**/skybridge-current-path-product-control-session-state-*/",
+    "**/skybridge-current-path-product-control-signaling-*/",
+    "**/webrtc-signaling/"
+)) {
+    Assert-Contains -Text $gitIgnore -Needle $signal -Message "Current-path product-control sensitive artifact ignore pattern missing: $signal"
+}
+
+foreach ($signal in @(
+    "EvidenceBranch",
+    "EvidenceHead",
+    "repoBranch",
+    "repoHead",
+    "ExpectedBranch",
+    "ExpectedHead"
+)) {
+    Assert-Contains -Text ($acceptanceMap + $uiContract + $uiAutomationSmoke + $uiVisualEvidence + $acceptanceEvidence + $completionAudit) -Needle $signal -Message "Standalone WinUI visual evidence contract missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "cli_apple_to_apple_selects_apple_native",
+    "cli_apple_to_apple_connection_plan_keeps_apple_native_channels",
+    "windows_to_apple_same_lan_never_uses_apple_native",
+    "Windows-to-Apple cross-NAT connection plan must use WebRTC DataChannel",
+    "Apple-to-Apple transport must not be replaced by WebRTC"
+)) {
+    Assert-Contains -Text $applePreservation -Needle $signal -Message "AppleNative preservation gate missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "prepare-mac-rust-cli-codbg.ps1",
+    "RequireKnownHost",
+    "MacExpectedHostKeyFingerprint",
+    "ProbeEvidencePath",
+    "RequireDirectLan",
+    "RequireRustCliSmoke",
+    "MacRemoteRepoRoot",
+    "probeEvidencePath",
+    "remediation",
+    "reasonCodes",
+    "nextInteropCommand",
+    "verify-windows-mac-webrtc-interop.ps1",
+    "RequirePeer",
+    "verify-rust-webrtc-proof-cli.ps1",
+    "verify-windows-webrtc-proof.ps1",
+    "verify-windows-connection-launch.ps1",
+    "direct LAN, Mac SSH, Mac Rust CLI, native DNS-SD, and helper proof generation"
+)) {
+    Assert-Contains -Text ($macCodbg + $macCodbgWrapper + $macInterop + $webrtcSchema) -Needle $signal -Message "Mac interop evidence missing signal: $signal"
+}
+
+foreach ($signal in @(
+    "GitHub SSH transport policy",
+    "git-remote-https.exe",
+    "credential.helper",
+    "StrictHostKeyChecking=yes",
+    "fallback bundle",
+    "Permission denied (publickey)",
+    "RequireRemoteAccess",
+    "push-github-gcm.ps1",
+    "Git Credential Manager",
+    "SKYBRIDGE_ALLOW_GITHUB_HTTPS_GCM",
+    "AllowGitHubApiRemoteCheck",
+    "fast-forward",
+    "git@github.com:billlza/Skybridge-Compass-Windows.git"
+)) {
+    Assert-Contains -Text ($githubTransport + $gitSshRemote + $githubPush + $githubGcmPush + $githubEnsure) -Needle $signal -Message "GitHub SSH evidence missing signal: $signal"
+}
+
+Write-Output "windows-portability-acceptance-map: ok"

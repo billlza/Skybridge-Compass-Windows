@@ -1,0 +1,64 @@
+#!/bin/sh
+
+remote_name="$1"
+remote_url="$2"
+
+# Never publish Windows changes to the Apple or another platform repository.
+case "$remote_url" in
+    git@github.com:billlza/Skybridge-Compass-Windows.git|ssh://git@github.com/billlza/Skybridge-Compass-Windows.git|https://github.com/billlza/Skybridge-Compass-Windows.git) ;;
+    *) echo "pre-push: use the Skybridge-Compass-Windows repository." >&2; exit 1 ;;
+esac
+
+if [ "$SKYBRIDGE_ALLOW_GITHUB_HTTPS_GCM" = "1" ]; then
+    case "$remote_url" in
+        https://github.com/*|http://github.com/*)
+            exit 0
+            ;;
+    esac
+fi
+
+block_https_url() {
+    value="$1"
+
+    case "$value" in
+        https://github.com/*|http://github.com/*)
+            echo "pre-push: refusing GitHub HTTPS remote URL to avoid git-remote-https.exe on Windows." >&2
+            echo "pre-push: run Scripts/ensure-github-ssh-remote.ps1, then push over SSH; use Scripts/push-github-gcm.ps1 only as the explicit GCM fallback." >&2
+            exit 1
+            ;;
+    esac
+}
+
+block_https_url "$remote_url"
+
+if [ -n "$remote_name" ]; then
+    fetch_url="$(git config --get "remote.$remote_name.url" 2>/dev/null || true)"
+    push_url="$(git config --get "remote.$remote_name.pushurl" 2>/dev/null || true)"
+
+    block_https_url "$fetch_url"
+    block_https_url "$push_url"
+fi
+
+ssh_command="$(git config --get core.sshCommand 2>/dev/null || true)"
+for required_ssh_option in "BatchMode=yes" "IdentitiesOnly=yes" "StrictHostKeyChecking=yes" "UserKnownHostsFile="; do
+    case "$ssh_command" in
+        *"$required_ssh_option"*)
+            ;;
+        *)
+            echo "pre-push: refusing push because core.sshCommand is not pinned to the non-interactive GitHub SSH policy." >&2
+            echo "pre-push: missing $required_ssh_option" >&2
+            echo "pre-push: run Scripts/ensure-github-ssh-remote.ps1, then retry." >&2
+            exit 1
+            ;;
+    esac
+done
+
+helper_count="$(git config --local --get-all credential.helper 2>/dev/null | wc -l | tr -d ' ')"
+first_helper="$(git config --local --get-all credential.helper 2>/dev/null | sed -n '1p')"
+if [ "$helper_count" = "0" ] || [ -n "$first_helper" ]; then
+    echo "pre-push: refusing push because local credential.helper is not reset." >&2
+    echo "pre-push: run Scripts/ensure-github-ssh-remote.ps1, then retry." >&2
+    exit 1
+fi
+
+exit 0

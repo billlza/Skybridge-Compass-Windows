@@ -1,0 +1,396 @@
+use crate::error::CoreError;
+use crate::suite::CryptoSuite;
+use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit};
+use hkdf::Hkdf;
+use p256::{
+    ecdh::EphemeralSecret,
+    elliptic_curve::{sec1::ToSec1Point, Generate},
+    PublicKey,
+};
+use sha2::Sha256;
+use std::sync::Mutex;
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
+/// Encapsulates symmetric material derived during a session handshake.
+///
+/// `Debug` is hand-written to redact: the struct holds raw key material, so the
+/// derived formatter would leak the shared secret and AEAD key into any log.
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+pub struct SessionSecrets {
+    shared_secret: Vec<u8>,
+    aead_key: [u8; 32],
+}
+
+impl std::fmt::Debug for SessionSecrets {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionSecrets").finish_non_exhaustive()
+    }
+}
+
+/// Derive the RFC 7748 X25519 contribution used by the v2 product handshake.
+/// Low-order peer points are rejected because they contribute no secret entropy.
+pub fn x25519_shared_secret(private: &[u8; 32], peer: &[u8; 32]) -> Result<[u8; 32], CoreError> {
+    let private = x25519_dalek::StaticSecret::from(*private);
+    let peer = x25519_dalek::PublicKey::from(*peer);
+    let shared = private.diffie_hellman(&peer);
+    if !shared.was_contributory() {
+        return Err(CoreError::InvalidCryptoKey);
+    }
+    Ok(shared.to_bytes())
+}
+
+type AeadNonce = aes_gcm::Nonce<aes_gcm::aead::consts::U12>;
+
+impl SessionSecrets {
+    /// Derives AES-256-GCM material from a raw shared secret via HKDF-SHA256,
+    /// domain-separated by the negotiated [`CryptoSuite`] so the SAME 32-byte
+    /// secret can never derive the SAME AEAD key under two different suites
+    /// (a cross-suite key-collision the previous fixed-info derivation allowed).
+    /// `pub(crate)` so the PQC KEM path (`crate::pqc`) can build identical session
+    /// secrets from a KEM shared secret — the AEAD layer is suite-agnostic but the
+    /// derivation is suite-bound. (Full handshake-transcript binding lands in T4b.)
+    pub(crate) fn new(shared_secret: &[u8], suite: CryptoSuite) -> Result<Self, CoreError> {
+        let hk = Hkdf::<Sha256>::new(None, shared_secret);
+        let mut info = b"skybridge-session-aead/v1/suite=".to_vec();
+        info.extend_from_slice(&suite.wire_id().to_be_bytes());
+        let mut okm = [0u8; 32];
+        hk.expand(&info, &mut okm)
+            .map_err(|e| CoreError::CryptoHandshake(format!("hkdf expand failed: {e}")))?;
+        Ok(Self {
+            shared_secret: shared_secret.to_vec(),
+            aead_key: okm,
+        })
+    }
+
+    fn cipher(&self) -> Result<Aes256Gcm, CoreError> {
+        Aes256Gcm::new_from_slice(&self.aead_key)
+            .map_err(|e| CoreError::Crypto(format!("aead key init failed: {e}")))
+    }
+
+    /// AES-256-GCM seal with a fresh random 12-byte nonce, framed as `nonce || ciphertext`.
+    /// Single AEAD implementation shared by every negotiated suite (classic + PQC).
+    pub(crate) fn seal(&self, plaintext: &[u8]) -> Result<Vec<u8>, CoreError> {
+        let cipher = self.cipher()?;
+        let mut nonce_bytes = [0u8; 12];
+        getrandom::fill(&mut nonce_bytes)
+            .map_err(|e| CoreError::Crypto(format!("secure nonce generation failed: {e}")))?;
+        let nonce: AeadNonce = nonce_bytes.into();
+        let mut ciphertext = cipher
+            .encrypt(&nonce, plaintext)
+            .map_err(|e| CoreError::Encrypt(format!("aead encrypt failed: {e}")))?;
+        let mut framed = nonce.to_vec();
+        framed.append(&mut ciphertext);
+        Ok(framed)
+    }
+
+    /// AES-256-GCM open of a `nonce || ciphertext` frame produced by [`Self::seal`].
+    pub(crate) fn open(&self, ciphertext: &[u8]) -> Result<Vec<u8>, CoreError> {
+        if ciphertext.len() < 12 {
+            return Err(CoreError::Decrypt("ciphertext too short".into()));
+        }
+        let (nonce_bytes, body) = ciphertext.split_at(12);
+        let cipher = self.cipher()?;
+        let nonce_array: [u8; 12] = nonce_bytes
+            .try_into()
+            .map_err(|_| CoreError::Crypto("nonce length mismatch".into()))?;
+        let nonce: AeadNonce = nonce_array.into();
+        cipher
+            .decrypt(&nonce, body)
+            .map_err(|e| CoreError::Decrypt(format!("aead decrypt failed: {e}")))
+    }
+}
+
+/// Stores ephemeral key material for a single handshake attempt.
+pub struct KeyMaterial {
+    pub public_key: Vec<u8>,
+    secret: EphemeralSecret,
+}
+
+impl KeyMaterial {
+    fn derive(&self, peer_public_key: &[u8]) -> Result<Vec<u8>, CoreError> {
+        let peer_public =
+            PublicKey::from_sec1_bytes(peer_public_key).map_err(|_| CoreError::InvalidCryptoKey)?;
+        let shared = self.secret.diffie_hellman(&peer_public);
+        Ok(shared.raw_secret_bytes().to_vec())
+    }
+}
+
+/// Key exchange abstraction so algorithms (P-256 today, PQC later) can be swapped.
+#[async_trait::async_trait(?Send)]
+pub trait KeyExchangeProvider {
+    async fn generate(&self) -> Result<KeyMaterial, CoreError>;
+    async fn derive_shared(
+        &self,
+        key_material: &KeyMaterial,
+        peer_public_key: &[u8],
+    ) -> Result<Vec<u8>, CoreError>;
+    fn algorithm(&self) -> &'static str;
+}
+
+/// Session-level crypto that owns identity validation and leverages a key exchange provider.
+#[async_trait::async_trait(?Send)]
+pub trait SessionCryptoProvider {
+    async fn validate_device_identity(&self) -> Result<(), CoreError>;
+    async fn begin_handshake(&self) -> Result<Vec<u8>, CoreError>;
+    async fn finalize_handshake(&self, peer_public_key: &[u8])
+        -> Result<SessionSecrets, CoreError>;
+    fn local_public_key(&self) -> Option<Vec<u8>>;
+    fn algorithm(&self) -> &'static str;
+    fn encrypt(&self, secrets: &SessionSecrets, plaintext: &[u8]) -> Result<Vec<u8>, CoreError>;
+    fn decrypt(&self, secrets: &SessionSecrets, ciphertext: &[u8]) -> Result<Vec<u8>, CoreError>;
+}
+
+/// Extension point for post-quantum algorithms (e.g., ML-KEM families via HPKE).
+/// Implementations can mirror `KeyExchangeProvider` for PQC key exchange without
+/// altering the session-facing API, enabling drop-in swaps (e.g., ML-KEM-768 +
+/// HPKE) once standardized crates are available.
+#[async_trait::async_trait(?Send)]
+pub trait PqcKeyExchangeProvider: KeyExchangeProvider {
+    /// Returns the PQC algorithm family (e.g., ML-KEM, BIKE, HQC) when available.
+    fn pqc_algorithm(&self) -> &'static str;
+}
+
+/// Default P-256 key exchange implementation.
+pub struct P256KeyExchange;
+
+#[async_trait::async_trait(?Send)]
+impl KeyExchangeProvider for P256KeyExchange {
+    async fn generate(&self) -> Result<KeyMaterial, CoreError> {
+        let secret = EphemeralSecret::try_generate().map_err(|e| {
+            CoreError::CryptoHandshake(format!("P-256 ephemeral key generation failed: {e}"))
+        })?;
+        let public_point = secret.public_key();
+        Ok(KeyMaterial {
+            public_key: public_point.to_sec1_point(false).as_bytes().to_vec(),
+            secret,
+        })
+    }
+
+    async fn derive_shared(
+        &self,
+        key_material: &KeyMaterial,
+        peer_public_key: &[u8],
+    ) -> Result<Vec<u8>, CoreError> {
+        key_material.derive(peer_public_key)
+    }
+
+    fn algorithm(&self) -> &'static str {
+        "P-256"
+    }
+}
+
+/// Session crypto backed by the default P-256 key exchange.
+pub struct P256SessionCrypto<E: KeyExchangeProvider + Send + Sync> {
+    exchange: E,
+    local_key: Mutex<Option<KeyMaterial>>,
+}
+
+impl<E: KeyExchangeProvider + Send + Sync> P256SessionCrypto<E> {
+    pub fn new(exchange: E) -> Self {
+        Self {
+            exchange,
+            local_key: Mutex::new(None),
+        }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl<E> SessionCryptoProvider for P256SessionCrypto<E>
+where
+    E: KeyExchangeProvider + Send + Sync,
+{
+    async fn validate_device_identity(&self) -> Result<(), CoreError> {
+        // Placeholder for platform trust roots; succeed by default.
+        Ok(())
+    }
+
+    async fn begin_handshake(&self) -> Result<Vec<u8>, CoreError> {
+        let material = self.exchange.generate().await?;
+        let public_key = material.public_key.clone();
+        *self.local_key.lock().unwrap() = Some(material);
+        Ok(public_key)
+    }
+
+    async fn finalize_handshake(
+        &self,
+        peer_public_key: &[u8],
+    ) -> Result<SessionSecrets, CoreError> {
+        let local = {
+            let mut guard = self.local_key.lock().unwrap();
+            guard.take().ok_or(CoreError::MissingCryptoMaterial)?
+        };
+        let shared = self.exchange.derive_shared(&local, peer_public_key).await?;
+        *self.local_key.lock().unwrap() = Some(local);
+        // The only `KeyExchangeProvider` today is P-256 ECDH; bind the derivation
+        // to that suite. A future X25519 provider passes `X25519Ed25519` here.
+        SessionSecrets::new(&shared, CryptoSuite::P256Ecdsa)
+    }
+
+    fn local_public_key(&self) -> Option<Vec<u8>> {
+        self.local_key
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|m| m.public_key.clone())
+    }
+
+    fn algorithm(&self) -> &'static str {
+        self.exchange.algorithm()
+    }
+
+    fn encrypt(&self, secrets: &SessionSecrets, plaintext: &[u8]) -> Result<Vec<u8>, CoreError> {
+        secrets.seal(plaintext)
+    }
+
+    fn decrypt(&self, secrets: &SessionSecrets, ciphertext: &[u8]) -> Result<Vec<u8>, CoreError> {
+        secrets.open(ciphertext)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn p256_handshake_succeeds_and_matches_shared_secret() {
+        let local_crypto = P256SessionCrypto::new(P256KeyExchange);
+        let remote_crypto = P256SessionCrypto::new(P256KeyExchange);
+
+        let local_pub = local_crypto.begin_handshake().await.unwrap();
+        let remote_pub = remote_crypto.begin_handshake().await.unwrap();
+
+        let local_shared = local_crypto
+            .finalize_handshake(&remote_pub)
+            .await
+            .unwrap()
+            .shared_secret
+            .clone();
+        let remote_shared = remote_crypto
+            .finalize_handshake(&local_pub)
+            .await
+            .unwrap()
+            .shared_secret
+            .clone();
+
+        assert_eq!(local_shared, remote_shared);
+        assert!(!local_shared.is_empty());
+    }
+
+    #[tokio::test]
+    async fn p256_public_key_keeps_uncompressed_sec1_wire_encoding() {
+        let crypto = P256SessionCrypto::new(P256KeyExchange);
+
+        let public_key = crypto.begin_handshake().await.unwrap();
+
+        assert_eq!(public_key.len(), 65);
+        assert_eq!(public_key.first(), Some(&0x04));
+    }
+
+    #[tokio::test]
+    async fn handshake_fails_with_invalid_peer_key() {
+        let crypto = P256SessionCrypto::new(P256KeyExchange);
+        crypto.begin_handshake().await.unwrap();
+
+        let err = crypto
+            .finalize_handshake(&[1, 2, 3])
+            .await
+            .expect_err("invalid key should fail");
+        assert!(matches!(err, CoreError::InvalidCryptoKey));
+    }
+
+    #[tokio::test]
+    async fn handshake_requires_local_material() {
+        let crypto = P256SessionCrypto::new(P256KeyExchange);
+        let err = crypto
+            .finalize_handshake(&[0u8; 65])
+            .await
+            .expect_err("missing local key");
+        assert!(matches!(err, CoreError::MissingCryptoMaterial));
+    }
+
+    #[tokio::test]
+    async fn encrypt_decrypt_roundtrip_succeeds() {
+        let local_crypto = P256SessionCrypto::new(P256KeyExchange);
+        let remote_crypto = P256SessionCrypto::new(P256KeyExchange);
+
+        let local_pub = local_crypto.begin_handshake().await.unwrap();
+        let remote_pub = remote_crypto.begin_handshake().await.unwrap();
+
+        let local_secret = local_crypto.finalize_handshake(&remote_pub).await.unwrap();
+        let remote_secret = remote_crypto.finalize_handshake(&local_pub).await.unwrap();
+
+        let payload = b"hello secure world";
+        let ciphertext = local_crypto
+            .encrypt(&local_secret, payload)
+            .expect("encrypt");
+
+        assert_ne!(ciphertext, payload);
+
+        let decrypted = remote_crypto
+            .decrypt(&remote_secret, &ciphertext)
+            .expect("decrypt");
+
+        assert_eq!(payload.to_vec(), decrypted);
+    }
+
+    #[test]
+    fn aes_gcm_frame_keeps_nonce_prefix_and_tag_lengths() {
+        let secrets =
+            SessionSecrets::new(&[9u8; 32], CryptoSuite::P256Ecdsa).expect("construct secrets");
+        let plaintext = b"wire-format";
+
+        let sealed = secrets.seal(plaintext).expect("seal");
+
+        assert_eq!(sealed.len(), 12 + plaintext.len() + 16);
+        assert_eq!(secrets.open(&sealed).expect("open"), plaintext);
+    }
+
+    #[tokio::test]
+    async fn secrets_zeroize_wipes_material() {
+        let mut secrets =
+            SessionSecrets::new(&[1u8; 32], CryptoSuite::P256Ecdsa).expect("construct secrets");
+        // Call zeroize directly to validate the derive impl clears buffers.
+        secrets.zeroize();
+
+        assert!(secrets.shared_secret.iter().all(|b| *b == 0));
+        assert!(secrets.aead_key.iter().all(|b| *b == 0));
+    }
+
+    #[tokio::test]
+    async fn decrypt_fails_on_tampering() {
+        let crypto = P256SessionCrypto::new(P256KeyExchange);
+        let peer = P256SessionCrypto::new(P256KeyExchange);
+
+        let pub1 = crypto.begin_handshake().await.unwrap();
+        let pub2 = peer.begin_handshake().await.unwrap();
+
+        let secret1 = crypto.finalize_handshake(&pub2).await.unwrap();
+        let secret2 = peer.finalize_handshake(&pub1).await.unwrap();
+
+        let ciphertext = crypto.encrypt(&secret1, b"payload").expect("encrypt");
+
+        let mut tampered = ciphertext.clone();
+        tampered[0] ^= 0xFF;
+
+        let err = peer
+            .decrypt(&secret2, &tampered)
+            .expect_err("tampered data should fail");
+        assert!(matches!(err, CoreError::Decrypt(_)));
+    }
+
+    #[test]
+    fn session_secrets_are_domain_separated_by_suite() {
+        // The SAME raw shared secret must derive DIFFERENT AEAD keys under
+        // different negotiated suites, so a secret can never be cross-applied.
+        let shared = [7u8; 32];
+        let xwing = SessionSecrets::new(&shared, CryptoSuite::XWingHybrid).unwrap();
+        let mlkem = SessionSecrets::new(&shared, CryptoSuite::MlKem768MlDsa65).unwrap();
+        assert_ne!(xwing.aead_key, mlkem.aead_key);
+
+        let sealed = xwing.seal(b"cross-suite").unwrap();
+        assert!(
+            mlkem.open(&sealed).is_err(),
+            "same raw secret under different suites must not interoperate"
+        );
+    }
+}

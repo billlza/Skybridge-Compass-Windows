@@ -1,0 +1,394 @@
+using Skybridge.WinClient.Services;
+
+namespace Skybridge.WinClient.ViewModels;
+
+internal sealed class WorkspaceCommandGateCoordinator
+{
+    private readonly ISessionCommandStateClient _sessionCommandStateClient;
+    private readonly IFeatureCatalogClient _featureCatalogClient;
+    private readonly IWorkspaceCommandStateClient _workspaceCommandStateClient;
+    private readonly ITopBarStatusClient _topBarStatusClient;
+    private readonly IManualConnectionClient _manualConnectionClient;
+    private readonly ICrossNetworkConnectionClient _crossNetworkConnectionClient;
+    private readonly IFileTransferWorkspaceClient _fileTransferClient;
+    private readonly IRemoteDesktopWorkspaceClient _remoteDesktopClient;
+    private readonly ISystemMonitorWorkspaceClient _systemMonitorClient;
+    private readonly ISettingsWorkspaceClient _settingsClient;
+    private readonly IDiscoveryClient _discoveryClient;
+    private readonly IPairingMaterialClient _pairingMaterialClient;
+    private readonly IConnectionWorkspaceStateClient _connectionWorkspaceStateClient;
+    private readonly IProductSessionActionGateClient _productSessionActionGateClient;
+
+    public WorkspaceCommandGateCoordinator(
+        ISessionCommandStateClient sessionCommandStateClient,
+        IFeatureCatalogClient featureCatalogClient,
+        IWorkspaceCommandStateClient workspaceCommandStateClient,
+        ITopBarStatusClient topBarStatusClient,
+        IManualConnectionClient manualConnectionClient,
+        ICrossNetworkConnectionClient crossNetworkConnectionClient,
+        IFileTransferWorkspaceClient fileTransferClient,
+        IRemoteDesktopWorkspaceClient remoteDesktopClient,
+        ISystemMonitorWorkspaceClient systemMonitorClient,
+        ISettingsWorkspaceClient settingsClient,
+        IDiscoveryClient discoveryClient,
+        IPairingMaterialClient pairingMaterialClient,
+        IConnectionWorkspaceStateClient connectionWorkspaceStateClient,
+        IProductSessionActionGateClient productSessionActionGateClient)
+    {
+        _sessionCommandStateClient = sessionCommandStateClient;
+        _featureCatalogClient = featureCatalogClient;
+        _workspaceCommandStateClient = workspaceCommandStateClient;
+        _topBarStatusClient = topBarStatusClient;
+        _manualConnectionClient = manualConnectionClient;
+        _crossNetworkConnectionClient = crossNetworkConnectionClient;
+        _fileTransferClient = fileTransferClient;
+        _remoteDesktopClient = remoteDesktopClient;
+        _systemMonitorClient = systemMonitorClient;
+        _settingsClient = settingsClient;
+        _discoveryClient = discoveryClient;
+        _pairingMaterialClient = pairingMaterialClient;
+        _connectionWorkspaceStateClient = connectionWorkspaceStateClient;
+        _productSessionActionGateClient = productSessionActionGateClient ?? throw new ArgumentNullException(nameof(productSessionActionGateClient));
+    }
+
+    public bool IsFeatureSelected(FeatureEntry selectedFeature, FeatureEntryId featureId) =>
+        _featureCatalogClient.IsSelected(selectedFeature, featureId);
+
+    public bool CanConnect(WorkspaceCommandGateState state) =>
+        _sessionCommandStateClient.CanConnect(state.ConnectionState, state.IsBusy)
+            && _connectionWorkspaceStateClient.BuildLiveConnectionLaunchReadiness(
+                state.ValidatedState).IsReady;
+
+    public bool CanDisconnect(WorkspaceCommandGateState state) =>
+        _sessionCommandStateClient.CanDisconnect(state.ConnectionState, state.IsBusy);
+
+    public bool CanSendHeartbeat(WorkspaceCommandGateState state) =>
+        _sessionCommandStateClient.CanSendHeartbeat(state.ConnectionState, state.IsBusy);
+
+    public bool CanOpenTopBarNotifications(WorkspaceCommandGateState state) =>
+        _workspaceCommandStateClient.CanUseTopBarAction(
+            state.IsBusy,
+            _topBarStatusClient.CanOpenNotifications());
+
+    public bool CanToggleTopBarTheme(WorkspaceCommandGateState state) =>
+        _workspaceCommandStateClient.CanUseTopBarAction(
+            state.IsBusy,
+            _topBarStatusClient.CanToggleTheme());
+
+    public bool CanUseDiscoveryBrowser(WorkspaceCommandGateState state) =>
+        _workspaceCommandStateClient.CanUseDeviceDiscovery(
+            state.IsBusy,
+            IsFeatureSelected(state.SelectedFeature, FeatureEntryId.DeviceDiscovery));
+
+    // Cancellation stays reachable while the browse itself owns the busy state.
+    // Stopping does not initiate a connection or relax peer authentication.
+    public bool CanStopDiscoveryBrowser(WorkspaceCommandGateState state) =>
+        IsFeatureSelected(state.SelectedFeature, FeatureEntryId.DeviceDiscovery);
+
+    public bool CanPrepareManualConnection(WorkspaceCommandGateState state) =>
+        CanUseDeviceDiscoveryAction(
+            state,
+            _manualConnectionClient.CanPrepareTarget(
+                state.ManualConnectionHost,
+                state.ManualConnectionPort));
+
+    public bool CanUseCrossNetworkConnection(WorkspaceCommandGateState state) =>
+        _workspaceCommandStateClient.CanUseCrossNetworkConnection(
+            state.IsBusy,
+            IsFeatureSelected(state.SelectedFeature, FeatureEntryId.DeviceDiscovery));
+
+    public bool CanScanQrCode(WorkspaceCommandGateState state) =>
+        CanUseCrossNetworkConnectionAction(
+            state,
+            _crossNetworkConnectionClient.CanScanQrCode(state.CrossNetworkQrInput));
+
+    public bool CanCopyConnectionCode(WorkspaceCommandGateState state) =>
+        CanUseCrossNetworkConnectionAction(
+            state,
+            _crossNetworkConnectionClient.CanCopyCode(state.CrossNetworkGeneratedCode));
+
+    public bool CanConnectConnectionCode(WorkspaceCommandGateState state) =>
+        CanUseCrossNetworkConnectionAction(
+            state,
+            _crossNetworkConnectionClient.CanConnectWithCode(state.CrossNetworkCodeInput));
+
+    public bool CanParseAdvertisement(WorkspaceCommandGateState state) =>
+        CanUseDeviceDiscoveryAction(
+            state,
+            _discoveryClient.CanParseAdvertisement(
+                state.DiscoveryService,
+                state.DiscoveryTxtRecord));
+
+    public bool CanValidatePairingCode(WorkspaceCommandGateState state) =>
+        CanUseDeviceDiscoveryAction(
+            state,
+            _pairingMaterialClient.CanValidate(state.PairingConnectionCode));
+
+    public bool CanPrepareConnection(WorkspaceCommandGateState state) =>
+        CanUseDeviceDiscoveryAction(
+            state,
+            _connectionWorkspaceStateClient.CanPreparePreflight(
+                state.ValidatedState.DiscoveredPeer,
+                state.ValidatedState.PairingMaterial));
+
+    public bool CanRefreshUsbManagement(WorkspaceCommandGateState state) =>
+        CanUseSelectedWorkspaceFeature(state, FeatureEntryId.UsbManagement);
+
+    // Core diagnostics no longer has a dedicated nav page (the standalone Quantum
+    // tab was removed for macOS parity), so the command is not surfaced in the UI.
+    // The command/binding remain wired; the gate is fail-closed while busy.
+    public bool CanRunCoreDiagnostics(WorkspaceCommandGateState state) =>
+        _workspaceCommandStateClient.CanUseTopBarAction(state.IsBusy, true);
+
+    public bool CanRefreshFileTransfer(WorkspaceCommandGateState state) =>
+        CanUseSelectedWorkspaceFeature(state, FeatureEntryId.FileTransfer);
+
+    public bool CanSelectFileTransferFiles(WorkspaceCommandGateState state) =>
+        CanUseFileTransferAction(
+            state,
+            _fileTransferClient.CanSelectFiles());
+
+    public bool CanSelectFileTransferFolder(WorkspaceCommandGateState state) =>
+        CanUseFileTransferAction(
+            state,
+            _fileTransferClient.CanSelectFolder());
+
+    public bool CanGenerateFileTransferQr(WorkspaceCommandGateState state) =>
+        CanUseFileTransferAction(
+            state,
+            _fileTransferClient.CanGenerateShareQr());
+
+    public bool CanRefreshRemoteDesktop(WorkspaceCommandGateState state) =>
+        CanUseSelectedWorkspaceFeature(state, FeatureEntryId.RemoteDesktop);
+
+    public bool CanRecommendedRemoteDesktopConnect(WorkspaceCommandGateState state) =>
+        CanUseRemoteDesktopAction(
+            state,
+            _remoteDesktopClient.CanStartRecommendedSession()
+                && BuildRemoteDesktopProductActionGate(state).IsReady);
+
+    public bool CanAdvancedRemoteDesktopConnect(WorkspaceCommandGateState state) =>
+        CanUseRemoteDesktopAction(
+            state,
+            _remoteDesktopClient.CanStartAdvancedSession()
+                && BuildRemoteDesktopProductActionGate(state).IsReady);
+
+    public bool CanShowRemoteDesktopPerformanceOverlay(WorkspaceCommandGateState state) =>
+        CanUseRemoteDesktopAction(
+            state,
+            _remoteDesktopClient.CanShowPerformanceOverlay());
+
+    public bool CanApplyRemoteDesktopQuality(WorkspaceCommandGateState state) =>
+        CanUseRemoteDesktopAction(
+            state,
+            _remoteDesktopClient.CanApplyQuality());
+
+    public bool CanOpenRemoteDesktopSettings(WorkspaceCommandGateState state) =>
+        CanUseRemoteDesktopAction(
+            state,
+            _remoteDesktopClient.CanOpenSettings());
+
+    public bool CanEnterRemoteDesktopFullScreen(WorkspaceCommandGateState state) =>
+        CanUseRemoteDesktopAction(
+            state,
+            _remoteDesktopClient.CanEnterFullScreen()
+                && BuildRemoteDesktopProductActionGate(state).IsReady);
+
+    public bool CanDisconnectRemoteDesktopSession(WorkspaceCommandGateState state) =>
+        CanUseRemoteDesktopAction(
+            state,
+            _remoteDesktopClient.CanDisconnectSession()
+                && BuildRemoteDesktopProductActionGate(state).IsReady);
+
+    public bool CanRefreshSystemMonitor(WorkspaceCommandGateState state) =>
+        CanUseSelectedWorkspaceFeature(state, FeatureEntryId.SystemMonitor);
+
+    public bool CanStartSystemMonitoring(WorkspaceCommandGateState state) =>
+        CanUseSystemMonitorAction(
+            state,
+            _systemMonitorClient.CanStartMonitoring());
+
+    public bool CanStopSystemMonitoring(WorkspaceCommandGateState state) =>
+        CanUseSystemMonitorAction(
+            state,
+            _systemMonitorClient.CanStopMonitoring());
+
+    public bool CanEnableAdvancedSystemMonitoring(WorkspaceCommandGateState state) =>
+        CanUseSystemMonitorAction(
+            state,
+            _systemMonitorClient.CanEnableAdvancedMonitoring());
+
+    public bool CanRefreshSettings(WorkspaceCommandGateState state) =>
+        CanUseSelectedWorkspaceFeature(state, FeatureEntryId.Settings);
+
+    public bool CanExportSettings(WorkspaceCommandGateState state) =>
+        CanUseSettingsAction(
+            state,
+            _settingsClient.CanExportSettings());
+
+    public bool CanImportSettings(WorkspaceCommandGateState state) =>
+        CanUseSettingsAction(
+            state,
+            _settingsClient.CanImportSettings());
+
+    public bool CanResetSettings(WorkspaceCommandGateState state) =>
+        CanUseSettingsAction(
+            state,
+            _settingsClient.CanResetSettings());
+
+    public bool CanRequestSettingsPermission(WorkspaceCommandGateState state) =>
+        CanUseSettingsAction(
+            state,
+            _settingsClient.CanRequestPermission());
+
+    public bool CanOpenSystemPreferences(WorkspaceCommandGateState state) =>
+        CanUseSettingsAction(
+            state,
+            _settingsClient.CanOpenSystemPreferences());
+
+    public bool CanApplySettings(WorkspaceCommandGateState state) =>
+        CanUseSettingsAction(
+            state,
+            _settingsClient.CanApplySettings());
+
+    public bool CanRestoreDefaults(WorkspaceCommandGateState state) =>
+        CanUseSettingsAction(
+            state,
+            _settingsClient.CanRestoreDefaults());
+
+    public bool CanResetMonitorData(WorkspaceCommandGateState state) =>
+        CanUseSettingsAction(
+            state,
+            _settingsClient.CanResetMonitorData());
+
+    public WorkspaceActionGateSnapshot BuildActionGateSnapshot(
+        WorkspaceCommandGateState state)
+    {
+        var sessionGates = _sessionCommandStateClient.BuildGateSnapshot(
+            state.ConnectionState,
+            state.IsBusy);
+        var launchAwareSessionGates = sessionGates with
+        {
+            CanConnect = CanConnect(state)
+        };
+
+        return _workspaceCommandStateClient.BuildActionGateSnapshot(
+            new WorkspaceCommandGateRequest(
+                state.IsBusy,
+                IsFeatureSelected(state.SelectedFeature, FeatureEntryId.UsbManagement),
+                IsFeatureSelected(state.SelectedFeature, FeatureEntryId.FileTransfer),
+                IsFeatureSelected(state.SelectedFeature, FeatureEntryId.RemoteDesktop),
+                IsFeatureSelected(state.SelectedFeature, FeatureEntryId.SystemMonitor),
+                IsFeatureSelected(state.SelectedFeature, FeatureEntryId.Settings),
+                launchAwareSessionGates,
+                CanOpenTopBarNotifications(state),
+                CanToggleTopBarTheme(state),
+                CanUseDiscoveryBrowser(state),
+                CanPrepareManualConnection(state),
+                CanParseAdvertisement(state),
+                CanValidatePairingCode(state),
+                CanPrepareConnection(state),
+                CanUseCrossNetworkConnection(state),
+                CanScanQrCode(state),
+                CanCopyConnectionCode(state),
+                CanConnectConnectionCode(state),
+                CanSelectFileTransferFiles(state),
+                CanSelectFileTransferFolder(state),
+                CanGenerateFileTransferQr(state),
+                CanRecommendedRemoteDesktopConnect(state),
+                CanAdvancedRemoteDesktopConnect(state),
+                CanShowRemoteDesktopPerformanceOverlay(state),
+                CanApplyRemoteDesktopQuality(state),
+                CanOpenRemoteDesktopSettings(state),
+                CanEnterRemoteDesktopFullScreen(state),
+                CanDisconnectRemoteDesktopSession(state),
+                CanStartSystemMonitoring(state),
+                CanStopSystemMonitoring(state),
+                CanEnableAdvancedSystemMonitoring(state),
+                CanExportSettings(state),
+                CanImportSettings(state),
+                CanResetSettings(state),
+                CanRequestSettingsPermission(state),
+                CanOpenSystemPreferences(state),
+                CanApplySettings(state),
+                CanRestoreDefaults(state),
+                CanResetMonitorData(state),
+                CanRunCoreDiagnostics(state),
+                CanStopDiscoveryBrowser(state)));
+    }
+
+    private bool CanUseDeviceDiscoveryAction(
+        WorkspaceCommandGateState state,
+        bool readiness) =>
+        _workspaceCommandStateClient.CanUseDeviceDiscoveryAction(
+            state.IsBusy,
+            IsFeatureSelected(state.SelectedFeature, FeatureEntryId.DeviceDiscovery),
+            readiness);
+
+    private bool CanUseCrossNetworkConnectionAction(
+        WorkspaceCommandGateState state,
+        bool readiness) =>
+        _workspaceCommandStateClient.CanUseCrossNetworkConnectionAction(
+            state.IsBusy,
+            IsFeatureSelected(state.SelectedFeature, FeatureEntryId.DeviceDiscovery),
+            readiness);
+
+    private bool CanUseFileTransferAction(
+        WorkspaceCommandGateState state,
+        bool readiness) =>
+        _workspaceCommandStateClient.CanUseFileTransferAction(
+            state.IsBusy,
+            IsFeatureSelected(state.SelectedFeature, FeatureEntryId.FileTransfer),
+            readiness);
+
+    private bool CanUseRemoteDesktopAction(
+        WorkspaceCommandGateState state,
+        bool readiness) =>
+        _workspaceCommandStateClient.CanUseRemoteDesktopAction(
+            state.IsBusy,
+            IsFeatureSelected(state.SelectedFeature, FeatureEntryId.RemoteDesktop),
+            readiness);
+
+    private bool CanUseSystemMonitorAction(
+        WorkspaceCommandGateState state,
+        bool readiness) =>
+        _workspaceCommandStateClient.CanUseSystemMonitorAction(
+            state.IsBusy,
+            IsFeatureSelected(state.SelectedFeature, FeatureEntryId.SystemMonitor),
+            readiness);
+
+    private bool CanUseSettingsAction(
+        WorkspaceCommandGateState state,
+        bool readiness) =>
+        _workspaceCommandStateClient.CanUseSettingsAction(
+            state.IsBusy,
+            IsFeatureSelected(state.SelectedFeature, FeatureEntryId.Settings),
+            readiness);
+
+    private bool CanUseSelectedWorkspaceFeature(
+        WorkspaceCommandGateState state,
+        FeatureEntryId featureId) =>
+        _workspaceCommandStateClient.CanUseWorkspaceFeature(
+            state.IsBusy,
+            IsFeatureSelected(state.SelectedFeature, featureId));
+
+    private ProductSessionActionGateResult BuildRemoteDesktopProductActionGate(
+        WorkspaceCommandGateState state) =>
+        _productSessionActionGateClient.EvaluateRemoteDesktop(
+            state.ValidatedState.DiscoveryCandidate,
+            DateTimeOffset.UtcNow);
+}
+
+internal sealed record WorkspaceCommandGateState(
+    bool IsBusy,
+    EngineConnectionState ConnectionState,
+    FeatureEntry SelectedFeature,
+    string ManualConnectionHost,
+    string ManualConnectionPort,
+    string CrossNetworkQrInput,
+    string CrossNetworkCodeInput,
+    string CrossNetworkGeneratedCode,
+    string DiscoveryService,
+    string DiscoveryTxtRecord,
+    string PairingConnectionCode,
+    ConnectionWorkspaceValidatedState ValidatedState);

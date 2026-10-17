@@ -1,0 +1,2639 @@
+param(
+    [string]$RepoRoot = ""
+)
+
+$ErrorActionPreference = "Stop"
+
+function Assert-True {
+    param(
+        [bool]$Condition,
+        [string]$Message
+    )
+
+    if (-not $Condition) {
+        throw $Message
+    }
+}
+
+function Assert-Contains {
+    param(
+        [string]$Text,
+        [string]$Needle,
+        [string]$Message
+    )
+
+    Assert-True -Condition ($Text.Contains($Needle)) -Message $Message
+}
+
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $scriptRoot = if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        Split-Path -Parent $PSCommandPath
+    } else {
+        $PSScriptRoot
+    }
+    Assert-True -Condition (-not [string]::IsNullOrWhiteSpace($scriptRoot)) -Message "RepoRoot must be supplied when the script path cannot be resolved."
+    $RepoRoot = (Resolve-Path (Join-Path $scriptRoot "..")).Path
+} else {
+    $RepoRoot = (Resolve-Path $RepoRoot).Path
+}
+
+$clientPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/FfiEngineClient.cs"
+$coreBridgePath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/CoreBridge.cs"
+$nativeLibraryResolverPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/SkybridgeNativeLibraryResolver.cs"
+$winClientProjectPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Skybridge.WinClient.csproj"
+$discoveryClientPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/DiscoveryClient.cs"
+$discoveryBrowserPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/DiscoveryBrowserClient.cs"
+$protocolConstantsPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/SkyBridgeProtocolConstants.cs"
+$routeBindingPayloadPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/WebRtcAuthenticatedRouteBindingPayload.cs"
+$routeBindingStorePath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/WebRtcAuthenticatedRouteBindingStore.cs"
+$msQuicDialerPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/WindowsNativeMsQuicTransportAdapterClient.cs"
+$msQuicListenerPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/WindowsNativeMsQuicListenerTransportAdapterClient.cs"
+$msQuicSecretPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/WindowsNativeMsQuicTransportSecret.cs"
+$nativeDnsSdBrowsePath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/NativeWindowsDnsSdBrowseClient.cs"
+$nativeDnsSdTxtCodecPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/NativeWindowsDnsSdTxtRecordCodec.cs"
+$deviceDiscoveryInputDefaultsPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/DeviceDiscoveryInputDefaultsClient.cs"
+$manualConnectionPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/ManualConnectionClient.cs"
+$crossNetworkConnectionCodePolicyPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/CrossNetworkConnectionCodePolicy.cs"
+$crossNetworkPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/CrossNetworkConnectionClient.cs"
+$pairingPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/PairingMaterialClient.cs"
+$connectionPreflightPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/ConnectionPreflightClient.cs"
+$connectionLaunchRequestPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/ConnectionLaunchRequest.cs"
+$windowsTransportAdapterPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/WindowsTransportAdapterClient.cs"
+$webRtcAppControlBootstrapPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/WebRtcAppControlBootstrapClient.cs"
+$webRtcFileTransferRuntimeProofPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/WebRtcFileTransferRuntimeProof.cs"
+$currentPathLiveGateFileSystemPath = Join-Path $RepoRoot "Scripts/windows-current-path-live-gate-file-system.ps1"
+$connectionWorkspaceStatePath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/ConnectionWorkspaceStateClient.cs"
+$workspaceErrorStatusPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/WorkspaceErrorStatusClient.cs"
+$usbManagementPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/UsbManagementWorkspaceClient.cs"
+$coreDiagnosticsPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/CoreDiagnosticsClient.cs"
+$fileTransferPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/FileTransferWorkspaceClient.cs"
+$workspaceActionCatalogPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/WorkspaceActionCatalogClient.cs"
+$remoteDesktopPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/RemoteDesktopWorkspaceClient.cs"
+$remoteDesktopProfileCatalogPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/RemoteDesktopProfileCatalogClient.cs"
+$systemMonitorPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/SystemMonitorWorkspaceClient.cs"
+$settingsPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/SettingsWorkspaceClient.cs"
+$dashboardMetricsPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/DashboardMetricsClient.cs"
+$featureCatalogPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/FeatureCatalogClient.cs"
+$topBarStatusPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/TopBarStatusClient.cs"
+$sessionStatusPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/SessionStatusClient.cs"
+$sessionCommandStatePath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/SessionCommandStateClient.cs"
+$workspaceCommandStatePath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/WorkspaceCommandStateClient.cs"
+$unavailableClientStubsPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/UnavailableClientStubs.cs"
+$interfacePath = Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/IEngineClient.cs"
+$dependencyFactoryPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/SessionViewModelDependencyFactory.cs"
+$nativeRuntimeFactoryPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/WindowsNativeRuntimeDependencyFactory.cs"
+$mainWindowPath = Join-Path $RepoRoot "windows/Skybridge.WinClient/MainWindow.xaml.cs"
+$architecturePath = Join-Path $RepoRoot "docs/windows-architecture.md"
+$researchSynthesisPath = Join-Path $RepoRoot "docs/windows-research-agent-synthesis.md"
+$portabilityAcceptanceMapPath = Join-Path $RepoRoot "docs/windows-portability-acceptance-map.md"
+$opensshPqKexPath = Join-Path $RepoRoot "docs/windows-openssh-pq-kex.md"
+$reverseSshRelayLifecyclePath = Join-Path $RepoRoot "docs/windows-reverse-ssh-relay-lifecycle.md"
+$portabilitySmokePath = Join-Path $RepoRoot "Scripts/verify-windows-portability-smoke.ps1"
+$portabilityAcceptanceMapSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-portability-acceptance-map.ps1"
+$opensshPqKexSmokePath = Join-Path $RepoRoot "Scripts/verify-openssh-pq-kex.ps1"
+$reverseSshRelayStartPath = Join-Path $RepoRoot "Scripts/start-windows-reverse-ssh-relay.ps1"
+$reverseSshRelayRegisterPath = Join-Path $RepoRoot "Scripts/register-windows-reverse-ssh-relay-task.ps1"
+$reverseSshRelayLifecycleSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-reverse-ssh-relay-lifecycle.ps1"
+$portabilityAcceptanceEvidenceSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-portability-acceptance-evidence.ps1"
+$publicArtifactRedactionPath = Join-Path $RepoRoot "Scripts/verify-windows-public-artifact-redaction.ps1"
+$portabilityCompletionAuditPath = Join-Path $RepoRoot "Scripts/audit-windows-portability-completion.ps1"
+$researchEvidenceSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-research-evidence.ps1"
+$ciWorkflowSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-ci-workflow.ps1"
+$githubWorkflowPath = Join-Path $RepoRoot ".github/workflows/windows-portability.yml"
+$stackFreshnessSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-stack-freshness.ps1"
+$macSshProbePath = Join-Path $RepoRoot "Scripts/probe-mac-ssh.ps1"
+$macRustCliCodbgPath = Join-Path $RepoRoot "Scripts/prepare-mac-rust-cli-codbg.ps1"
+$macRustCliCodbgWrapperSmokePath = Join-Path $RepoRoot "Scripts/verify-mac-rust-cli-codbg-wrapper.ps1"
+$startupStateSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-startup-state.ps1"
+$connectionLaunchSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-connection-launch.ps1"
+$fileTransferQrSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-file-transfer-qr.ps1"
+$uiAutomationSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-ui-automation-smoke.ps1"
+$uiVisualEvidenceSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-ui-visual-evidence.ps1"
+$nativeRuntimeProfileSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-native-runtime-profile.ps1"
+$nativeDnsSdAcceptancePath = Join-Path $RepoRoot "Scripts/verify-windows-native-dns-sd-acceptance.ps1"
+$webrtcProofSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-webrtc-proof.ps1"
+$rustWebRtcProofCliPath = Join-Path $RepoRoot "Scripts/verify-rust-webrtc-proof-cli.ps1"
+$webrtcProofSchemaSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-webrtc-proof-smoke.ps1"
+$webrtcProofSchemaPath = Join-Path $RepoRoot "docs/windows-webrtc-proof-schema.md"
+$macWebRtcInteropPath = Join-Path $RepoRoot "Scripts/verify-windows-mac-webrtc-interop.ps1"
+$macWebRtcHelperLivePath = Join-Path $RepoRoot "Scripts/verify-windows-mac-webrtc-helper-live.ps1"
+$currentPathBridgeContractPath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-bridge-contract.ps1"
+$runtimeSmokeProgramPath = Join-Path $RepoRoot "windows/Skybridge.WinClient.RuntimeSmoke/Program.cs"
+$webrtcHelperProgramPath = Join-Path $RepoRoot "windows/Skybridge.WebRtcHelper/Program.cs"
+$appleNativePreservationSmokePath = Join-Path $RepoRoot "Scripts/verify-apple-native-preservation.ps1"
+$powershellAstPath = Join-Path $RepoRoot "Scripts/verify-windows-powershell-ast.ps1"
+$currentPathProductControlTransportSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-product-control-transport-live.ps1"
+$currentPathProductControlAppControlSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-product-control-appcontrol-live.ps1"
+$currentPathProductControlFileTransferSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-product-control-file-transfer-live.ps1"
+$currentPathProductControlAnswererSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-product-control-answerer-transport-live.ps1"
+$currentPathProductControlAnswererAppControlSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-product-control-answerer-appcontrol-live.ps1"
+$currentPathProductControlAnswererFileTransferSmokePath = Join-Path $RepoRoot "Scripts/verify-windows-current-path-product-control-answerer-file-transfer-live.ps1"
+$gitIgnorePath = Join-Path $RepoRoot ".gitignore"
+
+foreach ($path in @($clientPath, $coreBridgePath, $nativeLibraryResolverPath, $winClientProjectPath, $discoveryClientPath, $discoveryBrowserPath, $protocolConstantsPath, $routeBindingPayloadPath, $routeBindingStorePath, $msQuicDialerPath, $msQuicListenerPath, $msQuicSecretPath, $nativeDnsSdBrowsePath, $nativeDnsSdTxtCodecPath, $deviceDiscoveryInputDefaultsPath, $manualConnectionPath, $crossNetworkConnectionCodePolicyPath, $crossNetworkPath, $pairingPath, $connectionPreflightPath, $connectionLaunchRequestPath, $windowsTransportAdapterPath, $webRtcAppControlBootstrapPath, $webRtcFileTransferRuntimeProofPath, $currentPathLiveGateFileSystemPath, $connectionWorkspaceStatePath, $workspaceErrorStatusPath, $usbManagementPath, $coreDiagnosticsPath, $fileTransferPath, $workspaceActionCatalogPath, $remoteDesktopPath, $remoteDesktopProfileCatalogPath, $systemMonitorPath, $settingsPath, $dashboardMetricsPath, $featureCatalogPath, $topBarStatusPath, $sessionStatusPath, $sessionCommandStatePath, $workspaceCommandStatePath, $unavailableClientStubsPath, $interfacePath, $dependencyFactoryPath, $nativeRuntimeFactoryPath, $mainWindowPath, $architecturePath, $researchSynthesisPath, $portabilityAcceptanceMapPath, $opensshPqKexPath, $reverseSshRelayLifecyclePath, $portabilitySmokePath, $portabilityAcceptanceMapSmokePath, $opensshPqKexSmokePath, $reverseSshRelayStartPath, $reverseSshRelayRegisterPath, $reverseSshRelayLifecycleSmokePath, $portabilityAcceptanceEvidenceSmokePath, $publicArtifactRedactionPath, $portabilityCompletionAuditPath, $researchEvidenceSmokePath, $ciWorkflowSmokePath, $githubWorkflowPath, $stackFreshnessSmokePath, $macSshProbePath, $macRustCliCodbgPath, $macRustCliCodbgWrapperSmokePath, $startupStateSmokePath, $connectionLaunchSmokePath, $fileTransferQrSmokePath, $uiAutomationSmokePath, $uiVisualEvidenceSmokePath, $nativeRuntimeProfileSmokePath, $nativeDnsSdAcceptancePath, $webrtcProofSmokePath, $rustWebRtcProofCliPath, $webrtcProofSchemaSmokePath, $webrtcProofSchemaPath, $macWebRtcInteropPath, $macWebRtcHelperLivePath, $currentPathBridgeContractPath, $runtimeSmokeProgramPath, $webrtcHelperProgramPath, $appleNativePreservationSmokePath, $powershellAstPath, $currentPathProductControlFileTransferSmokePath, $currentPathProductControlAnswererSmokePath, $currentPathProductControlAnswererAppControlSmokePath, $currentPathProductControlAnswererFileTransferSmokePath, $gitIgnorePath)) {
+    Assert-True -Condition (Test-Path -LiteralPath $path) -Message "Missing FFI client file: $path"
+}
+foreach ($path in @($currentPathProductControlTransportSmokePath, $currentPathProductControlAppControlSmokePath, $currentPathProductControlFileTransferSmokePath)) {
+    Assert-True -Condition (Test-Path -LiteralPath $path) -Message "Missing current-path product-control live gate file: $path"
+}
+
+$client = Get-Content -Raw -LiteralPath $clientPath
+$coreBridge = Get-Content -Raw -LiteralPath $coreBridgePath
+$nativeLibraryResolver = Get-Content -Raw -LiteralPath $nativeLibraryResolverPath
+$winClientProject = Get-Content -Raw -LiteralPath $winClientProjectPath
+$discoveryClient = Get-Content -Raw -LiteralPath $discoveryClientPath
+$discoveryBrowser = Get-Content -Raw -LiteralPath $discoveryBrowserPath
+$protocolConstants = Get-Content -Raw -LiteralPath $protocolConstantsPath
+$routeBindingPayload = Get-Content -Raw -LiteralPath $routeBindingPayloadPath
+$routeBindingStore = Get-Content -Raw -LiteralPath $routeBindingStorePath
+$msQuicDialer = Get-Content -Raw -LiteralPath $msQuicDialerPath
+$msQuicListener = Get-Content -Raw -LiteralPath $msQuicListenerPath
+$msQuicSecret = Get-Content -Raw -LiteralPath $msQuicSecretPath
+$nativeDnsSdBrowse = Get-Content -Raw -LiteralPath $nativeDnsSdBrowsePath
+$nativeDnsSdTxtCodec = Get-Content -Raw -LiteralPath $nativeDnsSdTxtCodecPath
+$deviceDiscoveryInputDefaults = Get-Content -Raw -LiteralPath $deviceDiscoveryInputDefaultsPath
+$manualConnection = Get-Content -Raw -LiteralPath $manualConnectionPath
+$crossNetworkConnectionCodePolicy = Get-Content -Raw -LiteralPath $crossNetworkConnectionCodePolicyPath
+$crossNetwork = Get-Content -Raw -LiteralPath $crossNetworkPath
+$crossNetworkCodeBoundary = $crossNetworkConnectionCodePolicy + "`n" + $crossNetwork
+$pairing = Get-Content -Raw -LiteralPath $pairingPath
+$connectionPreflight = Get-Content -Raw -LiteralPath $connectionPreflightPath
+$connectionLaunchRequest = Get-Content -Raw -LiteralPath $connectionLaunchRequestPath
+$windowsTransportAdapter = Get-Content -Raw -LiteralPath $windowsTransportAdapterPath
+$webRtcAppControlBootstrap = Get-Content -Raw -LiteralPath $webRtcAppControlBootstrapPath
+$webRtcFileTransferRuntimeProof = Get-Content -Raw -LiteralPath $webRtcFileTransferRuntimeProofPath
+$currentPathLiveGateFileSystem = Get-Content -Raw -LiteralPath $currentPathLiveGateFileSystemPath
+$connectionWorkspaceState = Get-Content -Raw -LiteralPath $connectionWorkspaceStatePath
+$workspaceErrorStatus = Get-Content -Raw -LiteralPath $workspaceErrorStatusPath
+$usbManagement = Get-Content -Raw -LiteralPath $usbManagementPath
+$coreDiagnostics = Get-Content -Raw -LiteralPath $coreDiagnosticsPath
+$fileTransfer = (Get-Content -Raw -LiteralPath $fileTransferPath) + (Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/FileTransferWorkspaceContracts.cs"))
+$workspaceActionCatalog = Get-Content -Raw -LiteralPath $workspaceActionCatalogPath
+$remoteDesktop = Get-Content -Raw -LiteralPath $remoteDesktopPath
+$remoteDesktopProfileCatalog = Get-Content -Raw -LiteralPath $remoteDesktopProfileCatalogPath
+$systemMonitor = Get-Content -Raw -LiteralPath $systemMonitorPath
+$settings = Get-Content -Raw -LiteralPath $settingsPath
+$dashboardMetrics = Get-Content -Raw -LiteralPath $dashboardMetricsPath
+$featureCatalog = Get-Content -Raw -LiteralPath $featureCatalogPath
+$topBarStatus = Get-Content -Raw -LiteralPath $topBarStatusPath
+$sessionStatus = Get-Content -Raw -LiteralPath $sessionStatusPath
+$sessionCommandState = Get-Content -Raw -LiteralPath $sessionCommandStatePath
+$workspaceCommandState = Get-Content -Raw -LiteralPath $workspaceCommandStatePath
+$unavailableClientStubs = Get-Content -Raw -LiteralPath $unavailableClientStubsPath
+$interface = Get-Content -Raw -LiteralPath $interfacePath
+$dependencyFactory = Get-Content -Raw -LiteralPath $dependencyFactoryPath
+$nativeRuntimeFactory = Get-Content -Raw -LiteralPath $nativeRuntimeFactoryPath
+$mainWindow = Get-Content -Raw -LiteralPath $mainWindowPath
+$architecture = Get-Content -Raw -LiteralPath $architecturePath
+$researchSynthesis = Get-Content -Raw -LiteralPath $researchSynthesisPath
+$portabilityAcceptanceMap = Get-Content -Raw -LiteralPath $portabilityAcceptanceMapPath
+$opensshPqKex = Get-Content -Raw -LiteralPath $opensshPqKexPath
+$reverseSshRelayLifecycle = Get-Content -Raw -LiteralPath $reverseSshRelayLifecyclePath
+$portabilitySmoke = Get-Content -Raw -LiteralPath $portabilitySmokePath
+$portabilityAcceptanceMapSmoke = Get-Content -Raw -LiteralPath $portabilityAcceptanceMapSmokePath
+$opensshPqKexSmoke = Get-Content -Raw -LiteralPath $opensshPqKexSmokePath
+$reverseSshRelayStart = Get-Content -Raw -LiteralPath $reverseSshRelayStartPath
+$reverseSshRelayRegister = Get-Content -Raw -LiteralPath $reverseSshRelayRegisterPath
+$reverseSshRelayLifecycleSmoke = Get-Content -Raw -LiteralPath $reverseSshRelayLifecycleSmokePath
+$portabilityAcceptanceEvidenceSmoke = Get-Content -Raw -LiteralPath $portabilityAcceptanceEvidenceSmokePath
+$publicArtifactRedaction = Get-Content -Raw -LiteralPath $publicArtifactRedactionPath
+$portabilityCompletionAudit = Get-Content -Raw -LiteralPath $portabilityCompletionAuditPath
+$researchEvidenceSmoke = Get-Content -Raw -LiteralPath $researchEvidenceSmokePath
+$ciWorkflowSmoke = Get-Content -Raw -LiteralPath $ciWorkflowSmokePath
+$githubWorkflow = Get-Content -Raw -LiteralPath $githubWorkflowPath
+$stackFreshnessSmoke = Get-Content -Raw -LiteralPath $stackFreshnessSmokePath
+$macSshProbe = Get-Content -Raw -LiteralPath $macSshProbePath
+$macRustCliCodbg = Get-Content -Raw -LiteralPath $macRustCliCodbgPath
+$macRustCliCodbgWrapperSmoke = Get-Content -Raw -LiteralPath $macRustCliCodbgWrapperSmokePath
+$startupStateSmoke = Get-Content -Raw -LiteralPath $startupStateSmokePath
+$connectionLaunchSmoke = Get-Content -Raw -LiteralPath $connectionLaunchSmokePath
+$fileTransferQrSmoke = Get-Content -Raw -LiteralPath $fileTransferQrSmokePath
+$uiAutomationSmoke = Get-Content -Raw -LiteralPath $uiAutomationSmokePath
+$uiAutomationHelpersPath = Join-Path $RepoRoot "Scripts/windows-ui-automation-helpers.ps1"
+$uiAutomationSmoke += "`n" + (Get-Content -Raw -LiteralPath $uiAutomationHelpersPath)
+$uiVisualEvidenceSmoke = Get-Content -Raw -LiteralPath $uiVisualEvidenceSmokePath
+$nativeRuntimeProfileSmoke = Get-Content -Raw -LiteralPath $nativeRuntimeProfileSmokePath
+$nativeDnsSdAcceptance = Get-Content -Raw -LiteralPath $nativeDnsSdAcceptancePath
+$webrtcProofSmoke = Get-Content -Raw -LiteralPath $webrtcProofSmokePath
+$rustWebRtcProofCli = Get-Content -Raw -LiteralPath $rustWebRtcProofCliPath
+$webrtcProofSchemaSmoke = Get-Content -Raw -LiteralPath $webrtcProofSchemaSmokePath
+$webrtcProofSchema = Get-Content -Raw -LiteralPath $webrtcProofSchemaPath
+$macWebRtcInterop = Get-Content -Raw -LiteralPath $macWebRtcInteropPath
+$macWebRtcHelperLive = Get-Content -Raw -LiteralPath $macWebRtcHelperLivePath
+$currentPathBridgeContract = Get-Content -Raw -LiteralPath $currentPathBridgeContractPath
+$runtimeSmokeSource = Get-Content -Raw -LiteralPath $runtimeSmokeProgramPath
+$webrtcHelperProgram = Get-Content -Raw -LiteralPath $webrtcHelperProgramPath
+$appleNativePreservationSmoke = Get-Content -Raw -LiteralPath $appleNativePreservationSmokePath
+$powershellAst = Get-Content -Raw -LiteralPath $powershellAstPath
+$currentPathProductControlTransportSmoke = Get-Content -Raw -LiteralPath $currentPathProductControlTransportSmokePath
+$currentPathProductControlAppControlSmoke = Get-Content -Raw -LiteralPath $currentPathProductControlAppControlSmokePath
+$currentPathProductControlFileTransferSmoke = Get-Content -Raw -LiteralPath $currentPathProductControlFileTransferSmokePath
+$currentPathProductControlAnswererSmoke = Get-Content -Raw -LiteralPath $currentPathProductControlAnswererSmokePath
+$currentPathProductControlAnswererAppControlSmoke = Get-Content -Raw -LiteralPath $currentPathProductControlAnswererAppControlSmokePath
+$currentPathProductControlAnswererFileTransferSmoke = Get-Content -Raw -LiteralPath $currentPathProductControlAnswererFileTransferSmokePath
+$gitIgnore = Get-Content -Raw -LiteralPath $gitIgnorePath
+
+foreach ($member in @("ConnectAsync", "DisconnectAsync", "SendHeartbeatAsync")) {
+    Assert-Contains -Text $interface -Needle $member -Message "IEngineClient missing member: $member"
+    Assert-Contains -Text $client -Needle $member -Message "FfiEngineClient missing member: $member"
+}
+
+foreach ($entryPoint in @(
+    "skybridge_engine_new",
+    "skybridge_engine_free",
+    "skybridge_engine_local_public_key",
+    "skybridge_engine_connect",
+    "skybridge_engine_send_heartbeat",
+    "skybridge_engine_disconnect",
+    "skybridge_engine_state"
+)) {
+    Assert-Contains -Text $client -Needle $entryPoint -Message "FfiEngineClient missing DllImport: $entryPoint"
+}
+
+foreach ($resolverSignal in @(
+    "internal static class SkybridgeNativeLibraryResolver",
+    "NativeLibrary.SetDllImportResolver",
+    "AppContext.BaseDirectory",
+    "SkyBridge native Core library was not found in the application directory",
+    "skybridge_core.dll",
+    "libskybridge_core.dylib",
+    "libskybridge_core.so"
+)) {
+    Assert-Contains -Text $nativeLibraryResolver -Needle $resolverSignal -Message "Native library resolver missing signal: $resolverSignal"
+}
+Assert-Contains -Text $client -Needle "SkybridgeNativeLibraryResolver.Register();" -Message "FfiEngineClient must register the app-directory native library resolver."
+Assert-Contains -Text $coreBridge -Needle "SkybridgeNativeLibraryResolver.Register();" -Message "CoreBridge must register the app-directory native library resolver."
+
+Assert-Contains -Text $winClientProject -Needle '<Import Project="..\NativeCore.targets" />' -Message "WinClient must import the shared native Core build."
+$nativeBuildTargets = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "windows/NativeCore.targets")
+foreach ($nativeBuildSignal in @(
+    '<SkybridgeCoreRustTarget Condition="''$(RuntimeIdentifier)''==''win-x64''">x86_64-pc-windows-msvc</SkybridgeCoreRustTarget>',
+    '<SkybridgeCoreTargetDir Condition="''$(SkybridgeCoreTargetDir)''==''''">',
+    'EnvironmentVariables="CARGO_TARGET_DIR=$(SkybridgeCoreTargetDir)"',
+    '<SkybridgeCoreNativeDll>$(SkybridgeCoreTargetDir)\$(SkybridgeCoreCargoTargetSegment)$(SkybridgeCoreCargoProfile)\skybridge_core.dll</SkybridgeCoreNativeDll>',
+    'CopyToOutputDirectory="PreserveNewest"'
+)) {
+    Assert-Contains -Text $nativeBuildTargets -Needle $nativeBuildSignal -Message "WinClient project missing native build contract: $nativeBuildSignal"
+}
+
+foreach ($signal in @(
+    "public sealed class FfiEngineClient : IEngineClient, IDisposable",
+    "ConnectAsync(ConnectionLaunchRequest request)",
+    "request.Plan.ValidateForLaunch(request.PairingMaterial)",
+    "Connection launch requires a live Windows transport adapter; the current request is preflight-only.",
+    "request.PairingMaterial.ToPeerPublicKeyProvider()",
+    "IPeerPublicKeyProvider",
+    "GetPeerPublicKeyAsync",
+    "Cannot connect without a peer public key from pairing.",
+    "SemaphoreSlim",
+    "GCHandle.Alloc",
+    "GetLocalPublicKeyAsync",
+    "RefreshStateFromCore",
+    "ThrowOnError",
+    "request.Plan.TransportKind",
+    "request.Plan.TransportAudit",
+    "request.Plan.TransportBindingDigest",
+    "request.Plan.AdapterBinding",
+    "request.Plan.LocalEndpoint",
+    "request.Plan.SelectedCandidatePair",
+    "request.Plan.TimestampWindowMs",
+    "request.Plan.ChannelMappings",
+    "BuildNativeChannelMappings",
+    "TransportBindingDigestPtr",
+    "AdapterBindingPtr",
+    "ChannelMappingsPtr",
+    "ChannelMappingCount"
+)) {
+    Assert-Contains -Text $client -Needle $signal -Message "FfiEngineClient missing lifecycle signal: $signal"
+}
+
+Assert-True -Condition (-not $client.Contains("var peerPublicKey = ReadLocalPublicKey();")) -Message "FfiEngineClient must not use the local public key as the peer key."
+foreach ($signal in @(
+    "public sealed record ConnectionLaunchRequest",
+    "public sealed record ConnectionPreflightPlan",
+    "ConnectionLaunchAdapterKind",
+    "ResolveAdapterKind",
+    "ValidateForLaunch",
+    "CoreTransportKind TransportKind",
+    "CoreTransportAuditCode TransportAudit",
+    "CoreCryptoSuiteKind SelectedSuite",
+    "CoreCryptoSuiteAuditCode SuiteAudit",
+    "IReadOnlyList<ChannelMapping> ChannelMappings",
+    "TransportBindingDigest",
+    "IsLiveAdapterReady",
+    "AdapterBinding",
+    "LocalEndpoint",
+    "RemoteEndpoint",
+    "SelectedCandidatePair",
+    "TimestampWindowMs",
+    "Connection launch requires a concrete transport adapter kind.",
+    "Windows connection launch must not use AppleNative transport; Apple-to-Apple stays on the Apple native path.",
+    "Connection launch requires a local transport endpoint.",
+    "Connection launch requires a selected transport candidate pair.",
+    "Connection launch requires a non-zero transport timestamp window.",
+    "Connection launch requires a 32-byte transport binding digest from Core preflight.",
+    "Connection launch requires all five Core channel mappings from preflight.",
+    "Connection launch Core channel mappings must not contain duplicate channels.",
+    "IsChannelBindingKindValidForTransport",
+    "which does not match",
+    "Connection launch request peer does not match pairing material.",
+    "Connection launch request fingerprint does not match pairing material."
+)) {
+    Assert-Contains -Text $connectionLaunchRequest -Needle $signal -Message "ConnectionLaunchRequest missing launch signal: $signal"
+}
+foreach ($signal in @(
+    "windows-connection-launch-smoke: ok",
+    "BuildLiveConnectionLaunchReadiness",
+    "BuildConnectionLaunchRequest",
+    "Parse a Core-validated discovery TXT record before connection launch.",
+    "Validate pairing material before connection launch.",
+    "Prepare Core connection preflight before connection launch.",
+    "Connection launch request peer does not match pairing material.",
+    "Connection launch request fingerprint does not match pairing material.",
+    "Connection launch requires a 32-byte transport binding digest from Core preflight.",
+    "Connection launch requires all five Core channel mappings from preflight.",
+    "Connection launch Core channel mappings must not contain duplicate channels.",
+    "AppleChannelMappings",
+    "which does not match WebRtcDataChannel.",
+    "Connection launch requires a local transport endpoint.",
+    "Connection launch requires a non-zero transport timestamp window.",
+    "Windows connection launch must not use AppleNative transport; Apple-to-Apple stays on the Apple native path.",
+    "Connection launch requires a live Windows transport adapter; the current request is preflight-only.",
+    "new FfiEngineClient()",
+    "SkybridgeNativeLibraryResolver.cs",
+    "Copy-Item -LiteralPath `$nativeCoreDll",
+    "--no-build",
+    "ffi smoke live adapter",
+    "ffi live adapter state",
+    "ffi heartbeat state",
+    "ffi disconnect state",
+    "PendingWindowsTransportAdapterClient",
+    "WindowsTransportAdapterRequest",
+    "BuildTransportBindingMaterial",
+    "pending adapter local endpoint",
+    "Windows transport adapter must not select AppleNative",
+    "IWindowsDnsSdBrowseClient",
+    "RecordingDnsSdBrowseClient",
+    "RecordingDiscoveryClient",
+    "NativeWindowsDnsSdBrowseClient",
+    "DNS-SD query order",
+    "DnsServiceBrowse/DnsServiceResolve",
+    "desk-mac.local:11550",
+    "cargo build --manifest-path",
+    "mac DNS-SD preflight transport",
+    "mac DNS-SD preflight transport audit",
+    "WebRtcInterop",
+    "Apple-native channel mapping",
+    "mac DNS-SD live adapter launch readiness",
+    "ExternalWindowsTransportAdapterClient",
+    "WindowsExternalTransportAdapterOptions",
+    "external adapter live readiness",
+    "external adapter binding",
+    "VerifiedWebRtcDataChannelTransportAdapterClient",
+    "WindowsVerifiedWebRtcDataChannelOptions",
+    "verified WebRTC adapter live readiness",
+    "Windows verified WebRTC adapter proof must confirm an SBF1 echo frame.",
+    "Windows external adapter must not select AppleNative",
+    "adapter pending",
+    "digestLength: 31",
+    "DefaultChannelMappings",
+    "DuplicateChannelMappings",
+    "preflight channel mapping count",
+    "smoke live adapter",
+    "BuildDynamicQrInput",
+    "P256 dynamic canonical signature verified",
+    "dynamic QR verified status",
+    "dynamic QR unverifiable status",
+    "generator osVersion",
+    "QR dynamic canonical signature verification failed.",
+    "Validating code...",
+    "smart-code connect status",
+    "Code envelope validated",
+    "No transportReady",
+    "no WebRTC join is started",
+    "No signaling room join",
+    "FfiEngineClient",
+    "Connection Code must be 6 or 8-16 characters from ABCDEFGHJKLMNPQRSTUVWXYZ23456789."
+)) {
+    Assert-Contains -Text $connectionLaunchSmoke -Needle $signal -Message "Windows connection launch smoke missing signal: $signal"
+}
+Assert-Contains -Text $mainWindow -Needle "SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu)" -Message "MainWindow should pass its file transfer, notification, settings, and appearance owners through the configured dependency factory."
+Assert-Contains -Text $dependencyFactory -Needle "CreateConfigured(IFileTransferWorkspaceClient? fileTransferClient = null, ITopBarStatusClient? topBarStatusClient = null, SettingsService? settingsService = null)" -Message "Dependency factory should expose explicit configured runtime selection with the shared window services."
+Assert-Contains -Text $dependencyFactory -Needle "WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment(fileTransferClient, topBarStatusClient, settingsService)" -Message "Configured window services must reach the native runtime composition root."
+Assert-Contains -Text $dependencyFactory -Needle "CreateDefault()" -Message "Dependency factory should retain the product default runtime entrypoint."
+Assert-Contains -Text $dependencyFactory -Needle "WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment()" -Message "Dependency factory should route configured/default startup through the Windows runtime composition root."
+Assert-True -Condition (-not $mainWindow.Contains("new FfiEngineClient()")) -Message "MainWindow must not bypass the configured lifecycle composition root."
+Assert-True -Condition (-not $dependencyFactory.Contains("new DummyEngineClient()")) -Message "Default dependency factory must not keep the old dummy lifecycle."
+foreach ($nativeRuntimeSignal in @(
+    "WindowsNativeRuntimeDependencyFactory",
+    "SKYBRIDGE_WINDOWS_RUNTIME",
+    "native",
+    "SKYBRIDGE_WINDOWS_TRANSPORT_ADAPTER",
+    "external",
+    "webrtc-verified",
+    "SKYBRIDGE_WINDOWS_ADAPTER_BINDING",
+    "SKYBRIDGE_WINDOWS_LOCAL_ENDPOINT",
+    "SKYBRIDGE_WINDOWS_REMOTE_ENDPOINT",
+    "SKYBRIDGE_WINDOWS_SELECTED_CANDIDATE_PAIR",
+    "SKYBRIDGE_WINDOWS_TRANSPORT_SECRET_FP_HEX",
+    "SKYBRIDGE_WINDOWS_CAPABILITY_DIGEST_HEX",
+    "SKYBRIDGE_WINDOWS_RELAY_ID",
+    "SKYBRIDGE_WINDOWS_ADAPTER_KIND",
+    "SKYBRIDGE_WINDOWS_TIMESTAMP_WINDOW_MS",
+    "SKYBRIDGE_WINDOWS_WEBRTC_PROOF_PATH",
+    "SKYBRIDGE_WINDOWS_WEBRTC_PROOF_MAX_AGE_MS",
+    "SKYBRIDGE_WINDOWS_SETTINGS_SYSTEM_PREFERENCES",
+    "CreateSettingsWorkspaceClientFromEnvironment",
+    "new WindowsSystemPreferencesLauncher()",
+    "new FfiEngineClient()",
+    "new NativeWindowsDnsSdBrowseClient()",
+    "new ExternalWindowsTransportAdapterClient",
+    "new VerifiedWebRtcDataChannelTransportAdapterClient",
+    "new PendingWindowsTransportAdapterClient()",
+    "ConnectionPreflightClient(coreBridge, transportAdapterClient)"
+)) {
+    Assert-Contains -Text $nativeRuntimeFactory -Needle $nativeRuntimeSignal -Message "Native runtime factory missing explicit runtime signal: $nativeRuntimeSignal"
+}
+foreach ($nativeRuntimeSmokeSignal in @(
+    "windows-native-runtime-profile",
+    "SessionViewModelDependencyFactory.CreateConfigured()",
+    "WindowsNativeRuntimeDependencyFactory.IsNativeRuntimeRequested()",
+    "PendingWindowsTransportAdapterClient",
+    "ExternalWindowsTransportAdapterClient",
+    "VerifiedWebRtcDataChannelTransportAdapterClient",
+    "SKYBRIDGE_WINDOWS_WEBRTC_PROOF_PATH",
+    "SKYBRIDGE_WINDOWS_WEBRTC_PROOF_MAX_AGE_MS",
+    "SKYBRIDGE_WINDOWS_RELAY_ID",
+    "SKYBRIDGE_WINDOWS_ADAPTER_KIND",
+    "SKYBRIDGE_WINDOWS_TIMESTAMP_WINDOW_MS",
+    "SKYBRIDGE_WINDOWS_SETTINGS_SYSTEM_PREFERENCES",
+    "DisabledSystemPreferencesLauncher",
+    "WindowsSystemPreferencesLauncher",
+    "Windows verified WebRTC adapter proof is stale or from the future.",
+    "Windows verified WebRTC adapter must not select AppleNative",
+    "SKYBRIDGE_WINDOWS_TRANSPORT_SECRET_FP_HEX must be 64 lowercase hex characters.",
+    "Windows external adapter must not select AppleNative"
+)) {
+    Assert-Contains -Text $nativeRuntimeProfileSmoke -Needle $nativeRuntimeSmokeSignal -Message "Native runtime profile smoke missing signal: $nativeRuntimeSmokeSignal"
+}
+foreach ($portabilitySmokeSignal in @(
+    "windows-portability-smoke: ok",
+    "verify-git-ssh-remote.ps1",
+    "verify-windows-ci-workflow.ps1",
+    "verify-windows-stack-freshness.ps1",
+    "verify-windows-research-evidence.ps1",
+    "verify-windows-portability-acceptance-map.ps1",
+    "verify-windows-ffi-client.ps1",
+    "verify-windows-ui-parity.ps1",
+    "verify-windows-ui-action-order.ps1",
+    "verify-windows-ui-automation-smoke.ps1",
+    "verify-windows-ui-visual-evidence.ps1",
+    "verify-windows-ui-parity-matrix.ps1",
+    "verify-windows-startup-state.ps1",
+    "verify-windows-command-gates.ps1",
+    "verify-windows-file-transfer-qr.ps1",
+    "verify-windows-native-runtime-profile.ps1",
+    "verify-windows-connection-launch.ps1",
+    "verify-windows-webrtc-proof-smoke.ps1",
+    "verify-apple-native-preservation.ps1",
+    "verify-mac-rust-cli-codbg-wrapper.ps1",
+    "probe-mac-ssh.ps1",
+    "verify-windows-native-dns-sd-acceptance.ps1",
+    "verify-windows-webrtc-proof.ps1",
+    "verify-windows-mac-webrtc-interop.ps1",
+    "verify-windows-public-artifact-redaction.ps1",
+    "verify-rust-cli-coverage.ps1",
+    "IncludeRustCliCoverage",
+    "MinimumLineCoverage",
+    "CiMode",
+    "IncludeNativeDnsSdAcceptance",
+    "RequireNativeDnsSdPeer",
+    "CheckOnlineStackFreshness",
+    "StackFreshnessEvidencePath",
+    "stackFreshnessParameters.EvidencePath",
+    "RustCliCoverageEvidencePath",
+    "rustCliCoverageParameters.EvidencePath",
+    "AcceptanceEvidencePath",
+    "Write-AcceptanceEvidence",
+    "acceptance-evidence=",
+    "verify-windows-powershell-ast.ps1",
+    "windows-powershell-ast",
+    "PortabilitySmokeGateResults",
+    "Add-SmokeGateResult",
+    "gateResults",
+    "evidencePaths",
+    "artifactDigests",
+    "RequirePublicArtifactRedaction",
+    "PublicArtifactPath",
+    "PublicArtifactScanEvidencePath",
+    "publicArtifactPaths",
+    "publicArtifactScanEvidencePath",
+    "windows-public-artifact-redaction",
+    "pathSha256",
+    "pathScope",
+    "Test-IsDigestibleEvidencePathProperty",
+    "runId",
+    "sha256",
+    "byteLength",
+    "rustCliCoverageEvidencePath",
+    "generatedAtUtc",
+    "branch = Get-GitText",
+    "head = Get-GitText",
+    'Status "failed"',
+    "ProbeMacSsh",
+    "IncludeWinUiAutomationSmoke",
+    "WinUiEvidenceDir",
+    "windows-ui-visual-evidence",
+    "Pass -WinUiEvidenceDir <dir> with -IncludeWinUiAutomationSmoke",
+    "RequireMacSshReady",
+    "RequireMacRustCliSmoke",
+    "RequireMacWebRtcInterop",
+    "MacAlternateHostNames",
+    "MacExpectedHostAddress",
+    "MacDirectSourceAddress",
+    "MacSshEvidencePath",
+    "MacExpectedHostKeyFingerprint",
+    "ExpectedHostKeyFingerprint",
+    "RequireKnownHost",
+    "MacRemoteRepoRoot",
+    "MacWebRtcProofPath",
+    "MacWebRtcProofMaxAgeMs",
+    "LASTEXITCODE",
+    "Smoke gate failed: `$Name exitCode=`$LASTEXITCODE",
+    "RequireGitRemoteAccess",
+    "RequireConfiguredSshCommand",
+    "RequireKnownHosts",
+    "RequireCredentialHelperReset"
+)) {
+    Assert-Contains -Text $portabilitySmoke -Needle $portabilitySmokeSignal -Message "Portability smoke missing signal: $portabilitySmokeSignal"
+}
+foreach ($appleNativePreservationSignal in @(
+    "apple-native-preservation: ok",
+    "cli_apple_to_apple_selects_apple_native",
+    "cli_ios_to_macos_selects_apple_native",
+    "cli_windows_to_ios_selects_webrtc_interop",
+    "cli_apple_to_apple_connection_plan_keeps_apple_native_channels",
+    "cli_windows_to_apple_same_lan_connection_plan_uses_webrtc",
+    "apple_peers_keep_native_transport_ahead_of_webrtc",
+    "windows_to_apple_same_lan_never_uses_apple_native",
+    "transport=AppleNative",
+    "transport=WebRtcDataChannel",
+    "cross-nat",
+    "channel.control=AppleStream:skybridge.control",
+    "channel.control=WebRtcDataChannel:skybridge.control",
+    "kind=WindowsNativeMsQuic",
+    "Apple-to-Apple cross-NAT transport must stay AppleNative",
+    "Windows-to-Apple cross-NAT connection plan must use WebRTC DataChannel",
+    "Apple-to-Apple transport must not be replaced by WebRTC",
+    "Windows-to-Apple plan must not consume AppleStream bindings"
+)) {
+    Assert-Contains -Text $appleNativePreservationSmoke -Needle $appleNativePreservationSignal -Message "Apple-native preservation smoke missing signal: $appleNativePreservationSignal"
+}
+foreach ($portabilityAcceptanceMapSignal in @(
+    "windows-portability-acceptance-map: ok",
+    "REQ-RESEARCH",
+    "REQ-BEST-PRACTICE-RESEARCH",
+    "REQ-SUBAGENT-SUMMARY",
+    "REQ-STACK",
+    "REQ-MODULARITY",
+    "REQ-UI",
+    "REQ-RUST-CLI",
+    "REQ-BASIC-SMOKE",
+    "REQ-APPLE-PRESERVATION",
+    "REQ-MAC-INTEROP",
+    "REQ-CURRENT-PATH-APPCONTROL",
+    "REQ-CURRENT-PATH-ANSWERER-TRANSPORT",
+    "REQ-CURRENT-PATH-ANSWERER-APPCONTROL",
+    "REQ-OPENSSH-PQ-KEX",
+    "REQ-WINDOWS-REVERSE-SSH-RELAY",
+    "REQ-GITHUB-SSH",
+    "Product Design QA gate",
+    "at or above 90%",
+    "verify-windows-ui-visual-evidence.ps1",
+    "verify-windows-portability-acceptance-evidence.ps1",
+    "verify-rust-cli-coverage.ps1",
+    "verify-apple-native-preservation.ps1",
+    "prepare-mac-rust-cli-codbg.ps1",
+    "verify-windows-mac-webrtc-interop.ps1",
+    "verify-windows-current-path-product-control-appcontrol-live.ps1",
+    "verify-openssh-pq-kex.ps1",
+    "register-windows-reverse-ssh-relay-task.ps1",
+    "start-windows-reverse-ssh-relay.ps1",
+    "verify-windows-reverse-ssh-relay-lifecycle.ps1",
+    "Windows OpenSSH PQ KEX Gate",
+    "Windows Reverse SSH Relay Lifecycle Gate",
+    "negotiatedKexAlgorithm",
+    "pinnedHostKeyFingerprints",
+    "pinnedKnownHostsRecordCount",
+    "-F", "none",
+    "PreferredAuthentications=publickey",
+    "KbdInteractiveAuthentication=no",
+    "BatchMode=yes",
+    "NumberOfPasswordPrompts=0",
+    "StrictHostKeyChecking=yes",
+    "UserKnownHostsFile=",
+    "IdentitiesOnly=yes",
+    "IdentityAgent=none",
+    "UpdateHostKeys=no",
+    "ExitOnForwardFailure=yes",
+    "NT AUTHORITY\LOCAL SERVICE",
+    "RepairPrivateKeyAcl",
+    "InstalledStartScriptPath",
+    "C:\ProgramData\SkyBridge\reverse-ssh-relay\bin",
+    "logs",
+    "taskActionExpected",
+    "taskActionFailClosed",
+    "taskPrincipalExpected",
+    "relayHostKeyPinned",
+    "identityFileAclOk",
+    "knownHostsAclOk",
+    "installedStartScriptAclOk",
+    "runtimeAclOk",
+    "sourceStartScriptSha256",
+    "installedStartScriptSha256",
+    "installedStartScriptPath",
+    "startScriptInstalledAndCurrent",
+    "sshProcessOwnerExpected",
+    "localSshEndpointReachable",
+    "sshProcessCount",
+    "RequireWindowsReverseSshRelayLifecycle",
+    "IncludeWindowsReverseSshRelayLifecycle",
+    "not SkyBridge product transport evidence",
+    "git-remote-https.exe"
+)) {
+    Assert-Contains -Text ($portabilityAcceptanceMap + $portabilityAcceptanceMapSmoke + $opensshPqKex + $opensshPqKexSmoke + $reverseSshRelayLifecycle + $reverseSshRelayStart + $reverseSshRelayRegister + $reverseSshRelayLifecycleSmoke + $portabilitySmoke + $portabilityAcceptanceEvidenceSmoke) -Needle $portabilityAcceptanceMapSignal -Message "Portability acceptance map missing signal: $portabilityAcceptanceMapSignal"
+}
+foreach ($researchEvidenceSignal in @(
+    "windows-research-evidence: ok",
+    "Best-Practice Research Matrix",
+    "Sub-Agent Research Summary",
+    "checkedAtUtc",
+    "sourceUris",
+    "decisionImpact",
+    "staleRisk",
+    "agentRole",
+    "reportId",
+    "019eaabe-015c-7ba1-a82f-ed04ef5295e5",
+    "019eaabe-45ca-7fe2-a24c-83a5bfa02ecb",
+    "019eaabe-7d5b-7c33-9691-ba4765b93287",
+    "Real Windows-to-mac interop remains blocked",
+    "GitHub branch upload is now covered",
+    "Interactive WinUI visual screenshots"
+)) {
+    Assert-Contains -Text ($researchSynthesis + $researchEvidenceSmoke) -Needle $researchEvidenceSignal -Message "Windows research evidence missing signal: $researchEvidenceSignal"
+}
+foreach ($portabilityAcceptanceEvidenceSignal in @(
+    "windows-portability-acceptance-evidence: ok",
+    "AcceptanceEvidencePath",
+    "gateResults",
+    "generatedAtUtc",
+    "windows-powershell-ast",
+    "runId",
+    "artifactDigests",
+    "pathSha256",
+    "pathScope",
+    "pathType",
+    "ExpectedArtifactPaths",
+    "Test-IsDigestibleEvidencePathProperty",
+    "sha256",
+    "byteLength",
+    "ExpectedBranch",
+    "ExpectedHead",
+    "RequireRustCliCoverage",
+    "RequireOnlineStackFreshness",
+    "RequireWinUiVisualEvidence",
+    "AllowStandaloneWinUiVisualEvidence",
+    "ExpectedBranch",
+    "ExpectedHead",
+    "RequireNativeDnsSdAcceptance",
+    "RequireMacInterop",
+    "RequireWindowsReverseSshRelayLifecycle",
+    "RequirePublicArtifactRedaction",
+    "PublicArtifactPath",
+    "PublicArtifactScanEvidencePath",
+    "Invoke-PublicArtifactRedactionVerifier",
+    "windows-public-artifact-redaction",
+    "windowsReverseSshRelayEvidencePath",
+    "windows-reverse-ssh-relay-lifecycle",
+    "totalLineCoverage",
+    "cliLineCoverage",
+    "cargo fmt --all -- --check",
+    "cargo clippy --all-targets --all-features -- -D warnings",
+    "cargo build --lib",
+    "cargo test",
+    "cargo llvm-cov --fail-under-lines",
+    "sourceUris",
+    "directLanLikely",
+    "hostKeyPinned",
+    "RequireCurrentPathProductControlAppControl",
+    "CurrentPathProductControlEvidencePath",
+    "windows-current-path-product-control-appcontrol",
+    "AdmissionLookupBoundSdpIceProductControlHandshakeAppControlPong",
+    "AppControlCryptoFormat",
+    "AppControlSbwcEnvelope",
+    "AppControlSbwcCounterPresent",
+    "AppControlReplayProtection",
+    "sbwc-replay-window",
+    "AppControlLegacyAadLength",
+    "AppControlOutboundCounter",
+    "AppControlInboundCounter",
+    "AppControlSessionHash",
+    "AppControlTranscriptPrefix",
+    "LateRemoteIceCandidateRelayCount",
+    "PeerMlKem768PublicKeySource",
+    "PeerMlKem768PublicKeyServerAttested",
+    "RequireCurrentPathProductControlFileTransfer",
+    "CurrentPathProductControlFileTransferEvidencePath",
+    "windows-current-path-product-control-file-transfer",
+    "AdmissionLookupBoundSdpIceProductControlHandshakeFileTransferReceipt",
+    "FileTransferPacketType",
+    "FileTransferSbwcEnvelope",
+    "FileTransferReplayProtection",
+    "AuthenticatedFileTransferReceiptProof",
+    "ReceiptMatchesSentHash",
+    "RequireCurrentPathProductControlAnswererTransport",
+    "CurrentPathProductControlAnswererEvidencePath",
+    "windows-current-path-product-control-answerer-transport",
+    "AdmissionRegisterBoundSdpIceProductControlAnswererTransportOpen",
+    "RequireCurrentPathProductControlAnswererAppControl",
+    "CurrentPathProductControlAnswererAppControlEvidencePath",
+    "AdmissionRegisterBoundSdpIceProductControlAnswererHandshakeAppControlPong",
+    "RequireCurrentPathProductControlAnswererFileTransfer",
+    "CurrentPathProductControlAnswererFileTransferEvidencePath",
+    "AdmissionRegisterBoundSdpIceProductControlAnswererHandshakeFileTransferReceipt"
+)) {
+    Assert-Contains -Text $portabilityAcceptanceEvidenceSmoke -Needle $portabilityAcceptanceEvidenceSignal -Message "Portability acceptance evidence verifier missing signal: $portabilityAcceptanceEvidenceSignal"
+}
+foreach ($publicArtifactRedactionSignal in @(
+    "windows-public-artifact-redaction: ok",
+    "Public artifact scan refuses reparse-point",
+    "Public artifact scan found no scan-eligible files",
+    "Public artifact package contains denied sensitive artifact path",
+    "Windows public artifacts contain unredacted sensitive content",
+    "MaxFileBytes",
+    "MaxTotalBytes",
+    "MaxFileCount",
+    "denylistVersion",
+    "raw sensitive JSON field",
+    "currentPathProductControlAnswererConnectionCodePath",
+    "currentPathProductControlAnswererTransportConnectionCodePath",
+    "currentPathProductControlAnswererAppControlConnectionCodePath",
+    "currentPathProductControlAnswererFileTransferConnectionCodePath",
+    "raw bearer authorization",
+    "raw Windows path"
+)) {
+    Assert-Contains -Text $publicArtifactRedaction -Needle $publicArtifactRedactionSignal -Message "Windows public artifact redaction scanner missing signal: $publicArtifactRedactionSignal"
+}
+foreach ($powershellAstSignal in @(
+    "System.Management.Automation.Language.Parser",
+    "ParseFile",
+    "CommandAst",
+    "Invoke-Expression",
+    "windows-powershell-ast: parse-ok",
+    "windows-powershell-ast: ok"
+)) {
+    Assert-Contains -Text $powershellAst -Needle $powershellAstSignal -Message "PowerShell AST verifier missing signal: $powershellAstSignal"
+}
+foreach ($currentPathBridgeContractSignal in @(
+    "MaxWebRtcEnvelopeBytes",
+    "MaxSdpBytes",
+    "NearLimitSdpHeadroomBytes",
+    "InboundAnswerSdpBytes",
+    "InboundOfferSdpBytes",
+    "OversizeSdpRejected",
+    "ExceedsLegacy16KiBProbe"
+)) {
+    Assert-Contains -Text ($currentPathBridgeContract + $runtimeSmokeSource) -Needle $currentPathBridgeContractSignal -Message "Current-path bridge contract missing near-limit signal: $currentPathBridgeContractSignal"
+}
+foreach ($appControlBootstrapPayloadSignal in @(
+    "WebRtcAppControlBootstrapPayloadPolicy",
+    "MaxJsonPayloadBytes",
+    "RequireJsonPayloadWithinLimit",
+    "RequirePong",
+    "RequirePing"
+)) {
+    Assert-Contains -Text $webRtcAppControlBootstrap -Needle $appControlBootstrapPayloadSignal -Message "AppControl bootstrap missing payload bound signal: $appControlBootstrapPayloadSignal"
+}
+foreach ($fileTransferRuntimeProofSignal in @(
+    "WebRtcFileTransferProofClient",
+    "WebRtcFileTransferResponderHost",
+    "ExchangeSingleChunkAsync",
+    "ReceiveSingleChunkAndAckAsync",
+    "FileTransfer",
+    "BuildManifestPayload",
+    "BuildChunkPayload",
+    "BuildCompletePayload",
+    "RequireCompleteAck",
+    "ReceiptMatchesSentHash",
+    "ReceiptMatchesReceivedHash",
+    "WebRtcProductControlMessageInbox",
+    "WebRtcAppSecureRole.Initiator",
+    "WebRtcAppSecureRole.Responder"
+)) {
+    Assert-Contains -Text $webRtcFileTransferRuntimeProof -Needle $fileTransferRuntimeProofSignal -Message "WebRTC FileTransfer runtime proof missing signal: $fileTransferRuntimeProofSignal"
+}
+foreach ($currentPathLiveGateEnvironmentSignal in @(
+    "Save-WindowsCurrentPathProcessEnvironment",
+    "Restore-WindowsCurrentPathProcessEnvironment",
+    "GetEnvironmentVariables(`"Process`")",
+    'SetEnvironmentVariable($name, $null, "Process")',
+    "secretEnvironmentSnapshot"
+)) {
+    Assert-Contains -Text ($currentPathLiveGateFileSystem + $currentPathProductControlTransportSmoke + $currentPathProductControlAppControlSmoke + $currentPathProductControlFileTransferSmoke + $currentPathProductControlAnswererSmoke + $currentPathProductControlAnswererAppControlSmoke + $currentPathProductControlAnswererFileTransferSmoke) -Needle $currentPathLiveGateEnvironmentSignal -Message "Current-path live gate missing process-environment restoration signal: $currentPathLiveGateEnvironmentSignal"
+}
+foreach ($portabilityCompletionAuditSignal in @(
+    "windows-portability-completion-audit",
+    "RequireComplete",
+    "CheckRemoteBranch",
+    "AllowStandaloneWinUiVisualEvidence",
+    "REQ-GITHUB-UPLOAD",
+    "REQ-MAC-INTEROP",
+    "REQ-CURRENT-PATH-APPCONTROL",
+    "REQ-CURRENT-PATH-FILE-TRANSFER",
+    "REQ-CURRENT-PATH-ANSWERER-TRANSPORT",
+    "REQ-CURRENT-PATH-ANSWERER-APPCONTROL",
+    "REQ-CURRENT-PATH-ANSWERER-FILE-TRANSFER",
+    "RequireCurrentPathProductControlAppControl",
+    "RequireCurrentPathProductControlFileTransfer",
+    "CurrentPathProductControlFileTransferEvidencePath",
+    "RequireCurrentPathProductControlAnswererTransport",
+    "RequireCurrentPathProductControlAnswererAppControl",
+    "RequireCurrentPathProductControlAnswererFileTransfer",
+    "RequireNativeDnsSdAcceptance",
+    "ls-remote --heads origin"
+)) {
+    Assert-Contains -Text $portabilityCompletionAudit -Needle $portabilityCompletionAuditSignal -Message "Portability completion audit missing signal: $portabilityCompletionAuditSignal"
+}
+foreach ($currentPathAnswererSignal in @(
+    "verify-windows-current-path-product-control-answerer-transport-live.ps1",
+    "Role answer",
+    "ExpectedBoundRole",
+    "RegisteredCodeOutPath",
+    "CurrentPathProductControlAnswererTransportConnectionCodePath",
+    "RemoteOfferTimeoutSeconds",
+    "RemoteSignalWaitType",
+    "RemoteSignalTimeoutSeconds",
+    "LateRemoteIceCandidateRelayCount",
+    "current-path-product-control-answerer-transport",
+    "product-control-answer",
+    "RemoteIdentitySource",
+    "NotRemoteIdentityProof"
+)) {
+    Assert-Contains -Text ($currentPathProductControlAnswererSmoke + $portabilitySmoke + $portabilityAcceptanceMap + $portabilityAcceptanceEvidenceSmoke) -Needle $currentPathAnswererSignal -Message "Current-path answerer transport wrapper missing signal: $currentPathAnswererSignal"
+}
+foreach ($currentPathAnswererAppControlSignal in @(
+    "verify-windows-current-path-product-control-answerer-appcontrol-live.ps1",
+    "RequireCurrentPathProductControlAnswererAppControl",
+    "CurrentPathProductControlAnswererAppControlEvidencePath",
+    "CurrentPathProductControlAnswererAppControlConnectionCodePath",
+    "LocalMlKem768DecapsulationKeyBase64EnvVar",
+    "LocalMlKem768EncapsulationKeyBase64EnvVar",
+    "SkybridgeSecureEnvelopeV1",
+    "AppControlCryptoFormat",
+    "AppControlSbwcEnvelope",
+    "AppControlSbwcCounterPresent",
+    "AppControlReplayProtection",
+    "sbwc-replay-window",
+    "AppControlLegacyAadLength",
+    "AppControlOutboundCounter",
+    "AppControlInboundCounter",
+    "AppControlSessionHash",
+    "AppControlTranscriptPrefix",
+    "AuthenticatedAppControlPingPongProof",
+    "LateRemoteIceCandidateRelayCount",
+    "RemoteProductAppObserved",
+    "PeerTrustPersistenceProof",
+    "LocalMlKem768DecapsulationKeyInputPresent",
+    "LocalMlKem768EncapsulationKeySource",
+    "LocalMlKem768EncapsulationKeyServerPublished",
+    "LocalMlKem768KeyPairVerified",
+    "current-path-product-control-answerer-appcontrol",
+    "AdmissionRegisterBoundSdpIceProductControlAnswererHandshakeAppControlPong",
+    "HandshakeRole",
+    "responder",
+    "InitiatorIdentityFingerprintVerified",
+    "InitiatorSignatureVerified",
+    "ResponderFinishedSent",
+    "InitiatorFinishedVerified",
+    "AppControlReceivedMessageKind",
+    "ping",
+    "AppControlResponseMessageKind",
+    "pong",
+    "operatorExpectedPeerHandshakeVerifiedNotServerAttested"
+)) {
+    Assert-Contains -Text ($currentPathProductControlAnswererAppControlSmoke + $portabilitySmoke + $portabilityAcceptanceMap + $portabilityAcceptanceEvidenceSmoke + $portabilityCompletionAudit) -Needle $currentPathAnswererAppControlSignal -Message "Current-path answerer AppControl wrapper missing signal: $currentPathAnswererAppControlSignal"
+}
+foreach ($currentPathFileTransferSignal in @(
+    "verify-windows-current-path-product-control-file-transfer-live.ps1",
+    "RequireCurrentPathProductControlFileTransfer",
+    "CurrentPathProductControlFileTransferEvidencePath",
+    "current-path-product-control-file-transfer",
+    "AdmissionLookupBoundSdpIceProductControlHandshakeFileTransferReceipt",
+    "fileTransferReceipt",
+    "FileTransferPayloadBytes",
+    "PeerMlKem768PublicKeyBase64EnvVar",
+    "FileTransferPacketType",
+    "FileTransferSbwcEnvelope",
+    "FileTransferReplayProtection",
+    "AuthenticatedFileTransferReceiptProof",
+    "ManifestBytes",
+    "TransferredBytes",
+    "ChunkAckCount",
+    "CompleteAckReceived",
+    "SentFileSha256",
+    "FileSha256Receipt",
+    "ReceiptMatchesSentHash",
+    "runtime-smoke-filetransfer-exchange",
+    "RawPayloadCaptured"
+)) {
+    Assert-Contains -Text ($currentPathProductControlFileTransferSmoke + $runtimeSmokeSource + $portabilitySmoke + $portabilityAcceptanceMap + $portabilityAcceptanceEvidenceSmoke) -Needle $currentPathFileTransferSignal -Message "Current-path FileTransfer live gate missing signal: $currentPathFileTransferSignal"
+}
+foreach ($currentPathAnswererFileTransferSignal in @(
+    "verify-windows-current-path-product-control-answerer-file-transfer-live.ps1",
+    "RequireCurrentPathProductControlAnswererFileTransfer",
+    "CurrentPathProductControlAnswererFileTransferEvidencePath",
+    "CurrentPathProductControlAnswererFileTransferConnectionCodePath",
+    "current-path-product-control-answerer-file-transfer",
+    "AdmissionRegisterBoundSdpIceProductControlAnswererHandshakeFileTransferReceipt",
+    "LocalMlKem768DecapsulationKeyBase64EnvVar",
+    "LocalMlKem768EncapsulationKeyBase64EnvVar",
+    "CompleteAckSent",
+    "ReceivedBytes",
+    "ReceivedFileSha256",
+    "ReceiptMatchesReceivedHash",
+    "operatorExpectedPeerHandshakeVerifiedNotServerAttested"
+)) {
+    Assert-Contains -Text ($currentPathProductControlAnswererFileTransferSmoke + $currentPathProductControlFileTransferSmoke + $runtimeSmokeSource + $portabilitySmoke + $portabilityAcceptanceMap + $portabilityAcceptanceEvidenceSmoke + $portabilityCompletionAudit) -Needle $currentPathAnswererFileTransferSignal -Message "Current-path answerer FileTransfer live gate missing signal: $currentPathAnswererFileTransferSignal"
+}
+foreach ($currentPathSensitiveArtifactIgnorePattern in @(
+    "artifacts/**/skybridge-current-path-product-control-answerer-code-*/",
+    "artifacts/**/skybridge-current-path-product-control-signaling-*/",
+    "**/skybridge-current-path-product-control-signaling-*/",
+    "**/webrtc-signaling/"
+)) {
+    Assert-Contains -Text $gitIgnore -Needle $currentPathSensitiveArtifactIgnorePattern -Message "Current-path sensitive artifact ignore pattern missing: $currentPathSensitiveArtifactIgnorePattern"
+}
+foreach ($macSshProbeSignal in @(
+    "RequireKnownHost",
+    "ExpectedHostKeyFingerprint",
+    "StrictHostKeyChecking=`$strictHostKeyChecking",
+    "ssh-keyscan",
+    "ssh-keygen -l -E sha256",
+    "hostKeyPinned",
+    "hostKeySource",
+    "hostKeyFingerprints",
+    "host-key pinned",
+    "host-key required",
+    "Host key verification failed"
+)) {
+    Assert-Contains -Text $macSshProbe -Needle $macSshProbeSignal -Message "Mac SSH probe missing host-key pinning signal: $macSshProbeSignal"
+}
+foreach ($fileTransferQrSmokeSignal in @("verify-windows-native-runtime-profile.ps1", "-FileTransferOnly")) {
+    Assert-Contains -Text $fileTransferQrSmoke -Needle $fileTransferQrSmokeSignal -Message "File transfer QR capability gate is not wired: $fileTransferQrSmokeSignal"
+}
+
+foreach ($uiAutomationSmokeSignal in @(
+    "windows-ui-automation-smoke: ok",
+    "windows-ui-visual-evidence: ok",
+    "verify-windows-ui-visual-evidence.ps1",
+    "visualEvidenceVerifier",
+    "Assert-UnpackagedDefaultWindowsPackageType",
+    "EvidenceDir",
+    "UIAutomationClient",
+    "System.Drawing",
+    "Wait-ForMainWindow",
+    "Assert-PresentByAutomationId",
+    "Get-NavigationItemByFeatureId",
+    "Assert-SelectedFeature",
+    "Assert-StatusMessageNotEmpty",
+    "Select-DiscoveryMode",
+    "Set-WorkspaceScrollPercent",
+    "Get-FeatureSurfaceGroups",
+    "Get-FirstRuntimeActionAutomationId",
+    "Restore-TestWindow",
+    "Activate-TestWindow",
+    "SetForegroundWindow",
+    "Save-WindowScreenshot",
+    "Get-ActionOrderMatrix",
+    "Get-RuntimeActionSurfaceSnapshot",
+    "Get-RuntimeActionSurfaceGroupSnapshot",
+    "Test-ActionBoundsFollow",
+    "minimumUsableActionWidth",
+    "Action Order Matrix",
+    "runtimeActionBounds",
+    "actionOrderMatrix",
+    "requestedWidth",
+    "requestedHeight",
+    "screenshotWidth",
+    "screenshotHeight",
+    "windows-ui-visual-evidence.json",
+    "featureId",
+    "Skybridge.Navigation.List",
+    "Skybridge.Workspace.ScrollViewer",
+    "Skybridge.DeviceDiscovery.Mode.`$Mode",
+    "WorkspaceAction.TopBarActions.Theme",
+    "Top-bar theme action must remain inside the window",
+    "CrossNetworkQr",
+    "WorkspaceAction.FileTransfer.GenerateQr",
+    "FileTransferShareQrImage",
+    "LAN sessions must not advertise QR sharing without a real share manifest.",
+    "Unsupported QR sharing must never display an empty or unrelated identity."
+)) {
+    Assert-Contains -Text $uiAutomationSmoke -Needle $uiAutomationSmokeSignal -Message "WinUI automation smoke missing signal: $uiAutomationSmokeSignal"
+}
+foreach ($uiVisualEvidenceSmokeSignal in @(
+    "windows-ui-visual-evidence-verify: ok",
+    "Set-StrictMode -Version Latest",
+    "windows-ui-visual-evidence.json",
+    "captureCount",
+    "runtimeActionBounds",
+    "featureId",
+    "Feature id mismatch",
+    "Assert-PngFile",
+    "PNG header",
+    "Evidence anchor has an empty automation id",
+    "Get-ActionOrderMatrix",
+    "docs/windows-ui-parity-matrix.md",
+    "WorkspaceAction.TopBarActions.Notifications",
+    "-MinimumWidth 32 -MinimumHeight 24",
+    "Dashboard",
+    "Device Discovery",
+    "USB Management",
+    "File Transfer",
+    "Remote Desktop",
+    "Quantum",
+    "System Monitor",
+    "Settings"
+)) {
+    Assert-Contains -Text $uiVisualEvidenceSmoke -Needle $uiVisualEvidenceSmokeSignal -Message "WinUI visual evidence verifier missing signal: $uiVisualEvidenceSmokeSignal"
+}
+foreach ($ciWorkflowSmokeSignal in @(
+    "windows-ci-workflow: ok",
+    ".github/workflows/windows-portability.yml",
+    "actions/checkout@v7.0.1",
+    "actions/setup-dotnet@v6.0.0",
+    "global-json-file: global.json",
+    "Fetch mac UI parity baseline",
+    "23ba06343bbaa58c30ef6b9bbddd09bb4e80241c",
+    "Sources/SkyBridgeCompassApp/Dashboard/Navigation/NavigationItem.swift",
+    "Sources/SkyBridgeCompassApp/Dashboard/Sections/DashboardContentView.swift",
+    "Sources/SkyBridgeCompassApp/Dashboard/Sections/QuickActionsPanelView.swift",
+    "Sources/SkyBridgeCompassApp/Dashboard/TopBar/TopNavigationBarView.swift",
+    "rustup toolchain install 1.97.1 --profile minimal --component clippy --component llvm-tools-preview --component rustfmt",
+    "rustup default 1.97.1",
+    "cargo install cargo-llvm-cov --version 0.8.7 --locked",
+    "New-Item -ItemType Directory -Force -Path artifacts",
+    "git remote set-url origin git@github.com:billlza/Skybridge-Compass-Windows.git",
+    "-CiMode -CheckOnlineStackFreshness -IncludeRustCliCoverage",
+    "-StackFreshnessEvidencePath artifacts\windows-stack-freshness.json",
+    "-RustCliCoverageEvidencePath artifacts\rust-cli-coverage.json",
+    "-AcceptanceEvidencePath artifacts\windows-portability-acceptance.json",
+    "verify-windows-portability-acceptance-evidence.ps1",
+    "-RequireRustCliCoverage",
+    "-RequireOnlineStackFreshness",
+    "RequireConfiguredSshCommand",
+    "RequireKnownHosts",
+    "RequireCredentialHelperReset",
+    "git-remote-https.exe"
+)) {
+    Assert-Contains -Text $ciWorkflowSmoke -Needle $ciWorkflowSmokeSignal -Message "Windows CI workflow smoke missing signal: $ciWorkflowSmokeSignal"
+}
+foreach ($githubWorkflowSignal in @(
+    "name: Windows Portability",
+    "windows-latest",
+    "actions/checkout@v7.0.1",
+    "actions/setup-dotnet@v6.0.0",
+    "global-json-file: global.json",
+    "Fetch mac UI parity baseline",
+    "23ba06343bbaa58c30ef6b9bbddd09bb4e80241c",
+    'git fetch --no-tags --depth=1 https://github.com/billlza/Skybridge-Compass.git $baselineCommit',
+    "Sources/SkyBridgeCompassApp/Dashboard/Navigation/NavigationItem.swift",
+    "Sources/SkyBridgeCompassApp/Dashboard/Sections/DashboardContentView.swift",
+    "Sources/SkyBridgeCompassApp/Dashboard/Sections/QuickActionsPanelView.swift",
+    "Sources/SkyBridgeCompassApp/Dashboard/TopBar/TopNavigationBarView.swift",
+    "rustup toolchain install 1.97.1 --profile minimal --component clippy --component llvm-tools-preview --component rustfmt",
+    "rustup default 1.97.1",
+    "cargo install cargo-llvm-cov --version 0.8.7 --locked",
+    "New-Item -ItemType Directory -Force -Path artifacts",
+    "git remote set-url origin git@github.com:billlza/Skybridge-Compass-Windows.git",
+    "git remote set-url --push origin git@github.com:billlza/Skybridge-Compass-Windows.git",
+    "-CiMode -CheckOnlineStackFreshness -IncludeRustCliCoverage",
+    "-StackFreshnessEvidencePath artifacts\windows-stack-freshness.json",
+    "-RustCliCoverageEvidencePath artifacts\rust-cli-coverage.json",
+    "-AcceptanceEvidencePath artifacts\windows-portability-acceptance.json",
+    "verify-windows-portability-acceptance-evidence.ps1",
+    "-RequireRustCliCoverage",
+    "-RequireOnlineStackFreshness",
+    "contents: read"
+)) {
+    Assert-Contains -Text $githubWorkflow -Needle $githubWorkflowSignal -Message "GitHub workflow missing signal: $githubWorkflowSignal"
+}
+foreach ($forbiddenWorkflowSignal in @(
+    "-RequireGitRemoteAccess",
+    "-RequireMacSshReady",
+    "-RequireMacRustCliSmoke",
+    "-RequireMacWebRtcInterop",
+    "-RequireNativeDnsSdPeer",
+    "-IncludeWindowsReverseSshRelayLifecycle",
+    "-RequireWindowsReverseSshRelayLifecycle"
+)) {
+    Assert-True -Condition (-not $githubWorkflow.Contains($forbiddenWorkflowSignal)) -Message "GitHub workflow must not require local-only readiness gate: $forbiddenWorkflowSignal"
+}
+foreach ($macSshProbeSignal in @(
+    'mac-ssh-probe: $Message',
+    "EvidencePath",
+    "Write-ProbeEvidence",
+    "mac-ssh-probe: evidence=",
+    "ToUniversalTime",
+    "windowsLanCandidates",
+    "readyHostName",
+    "readyUserName",
+    "hostCandidates",
+    "proxyTunnelRouteDetected",
+    "localNameProxyResolutionDetected",
+    "sameSubnetLanCandidateDetected",
+    "routeFirstFailureDetected",
+    "directLanLikely",
+    "Resolve-DnsName",
+    "ExpectedHostAddress",
+    "AlternateHostNames",
+    "CurrentHostName",
+    "candidate: host=",
+    "LzadeMacBook-Pro.local",
+    "bill.local",
+    "198.18.0.0/15",
+    "prefer the Mac private LAN IPv4",
+    "DirectSourceAddress",
+    "Write-DirectSourceDiagnostics",
+    "direct-source warning:",
+    "direct-source candidate:",
+    "direct source address is not a validated same-subnet Windows LAN IPv4",
+    "New-LanRemediationEvidence",
+    "reasonCodes",
+    "nextProbeCommand",
+    "recommendedDirectSourceAddresses",
+    "Write-RouteFirstActionIfNeeded",
+    "route action: fix the direct LAN route or proxy bypass",
+    "Test-IsReadyProbeResult",
+    "failed readiness transcript",
+    "Connection closed by",
+    "Mac SSH probe is not ready",
+    "Mac SSH TCP endpoint is not ready",
+    "throw",
+    "timed out during banner exchange",
+    "Permission denied \(publickey\)",
+    "bypass or disable the proxy/tunnel route",
+    "RequireReady",
+    "RequireRustCliSmoke",
+    "RemoteRepoRoot",
+    "rustCliSmoke",
+    "actualSignals",
+    "actualOutputSha256",
+    "RustCliSmokeTimeoutSeconds",
+    "cargo run --quiet --manifest-path core/skybridge-core/Cargo.toml --bin skybridge -- transport select --local macos --remote ios --path same-lan",
+    "kind=AppleNative",
+    "audit=AppleNativeDefault",
+    "relay_allowed=false"
+)) {
+    Assert-Contains -Text $macSshProbe -Needle $macSshProbeSignal -Message "Mac SSH probe missing signal: $macSshProbeSignal"
+}
+foreach ($macRustCliCodbgSignal in @(
+    "mac-rust-cli-codbg: ok",
+    "prepare-mac-rust-cli-codbg.ps1",
+    "Scripts/probe-mac-ssh.ps1",
+    "RequireKnownHost = `$true",
+    "MacExpectedHostKeyFingerprint",
+    "ConvertTo-NormalizedHostKeyFingerprint",
+    "MacExpectedHostAddress",
+    "MacDirectSourceAddress",
+    "RequireDirectLan",
+    "RequireRustCliSmoke",
+    "MacRemoteRepoRoot",
+    "ProbeEvidencePath",
+    "cli_apple_to_apple_selects_apple_native",
+    "probeEvidencePath",
+    "nextInteropCommand",
+    "verify-windows-mac-webrtc-interop.ps1",
+    "directLanLikely",
+    "hostKeyPinned",
+    "proxyTunnelRouteDetected",
+    "remediation",
+    "System.Text.UTF8Encoding",
+    "Missing Mac SSH key"
+)) {
+    Assert-Contains -Text $macRustCliCodbg -Needle $macRustCliCodbgSignal -Message "Mac Rust CLI co-debug wrapper missing signal: $macRustCliCodbgSignal"
+}
+foreach ($macRustCliCodbgWrapperSmokeSignal in @(
+    "mac-rust-cli-codbg-wrapper: ok",
+    "prepare-mac-rust-cli-codbg.ps1",
+    "probe-mac-ssh.ps1",
+    "RequireKnownHost was not passed",
+    "RequireDirectLan was not passed",
+    "RequireRustCliSmoke was not passed",
+    "SHA256:testfingerprint",
+    "ProbeEvidencePath",
+    "/Users/bill/Skybridge-Compass",
+    "summary.probe.ready",
+    "summary.probe.hostKeyPinned",
+    "summary.probe.directLanLikely",
+    "summary.probe.remediation.status",
+    "summary.probe.rustCliSmoke.status",
+    "summary.probe.rustCliSmoke.exitCode",
+    "summary.probe.rustCliSmoke.actualSignals",
+    "transport select --local macos --remote ios --path same-lan",
+    "cli_apple_to_apple_selects_apple_native",
+    "verify-windows-mac-webrtc-interop",
+    "Refusing to remove unexpected test directory"
+)) {
+    Assert-Contains -Text $macRustCliCodbgWrapperSmoke -Needle $macRustCliCodbgWrapperSmokeSignal -Message "Mac Rust CLI co-debug wrapper smoke missing signal: $macRustCliCodbgWrapperSmokeSignal"
+}
+foreach ($stackFreshnessSignal in @(
+    "windows-stack-freshness: ok",
+    "windows-stack-freshness: evidence=",
+    "EvidencePath",
+    "ToUniversalTime",
+    "sourceUris",
+    "generatedAtUtc",
+    "checkOnline",
+    "approvedVersions",
+    "online",
+    "net10.0-windows10.0.22621.0",
+    "TargetPlatformMinVersion",
+    "10.0.19041.0",
+    "Microsoft.WindowsAppSDK",
+    "2.3.1",
+    "Microsoft.Windows.SDK.BuildTools",
+    "10.0.28000.2526",
+    "edition = `"2021`"",
+    "crate-type = [`"rlib`", `"cdylib`"]",
+    "10.0.10",
+    "10.0.302",
+    "2028-11-14",
+    "v2.5.9",
+    "v0.24.5",
+    "CheckOnline",
+    "api.nuget.org",
+    "api.github.com/repos/microsoft/msquic/releases/latest",
+    "api.github.com/repos/paullouisageneau/libdatachannel/releases/latest"
+)) {
+    Assert-Contains -Text $stackFreshnessSmoke -Needle $stackFreshnessSignal -Message "Stack freshness smoke missing signal: $stackFreshnessSignal"
+}
+foreach ($startupStateSmokeSignal in @(
+    "windows-startup-state: ok",
+    "WorkspaceStartupStateBuilder",
+    "SessionViewModelDependencyFactory.CreateConfigured",
+    "FfiEngineClient",
+    "PendingWindowsDnsSdBrowseClient",
+    "PendingWindowsTransportAdapterClient",
+    "DeviceDiscoveryInputDefaultsClient",
+    "_skybridge._udp",
+    "_skybridge._tcp",
+    "_skybridge-xfer._tcp",
+    "_skybridge-rd._tcp",
+    "_skybridge-transfer._tcp",
+    "_skybridge-remote._tcp",
+    "11550",
+    "default discovery TXT input",
+    "default pairing code input",
+    "FeatureEntryId.Dashboard",
+    "skybridge-pair:v1",
+    "startup must not preload sample Bonjour TXT",
+    "startup must not preload pairing material"
+)) {
+    Assert-Contains -Text $startupStateSmoke -Needle $startupStateSmokeSignal -Message "Startup-state smoke missing signal: $startupStateSmokeSignal"
+}
+Assert-Contains -Text $architecture -Needle "verify-windows-portability-smoke.ps1" -Message "Architecture doc missing portability smoke entrypoint."
+Assert-Contains -Text $architecture -Needle "verify-windows-portability-acceptance-map.ps1" -Message "Architecture doc missing portability acceptance map gate."
+Assert-Contains -Text $architecture -Needle "verify-windows-portability-acceptance-evidence.ps1" -Message "Architecture doc missing portability acceptance evidence verifier."
+Assert-Contains -Text $architecture -Needle "-AcceptanceEvidencePath <json>" -Message "Architecture doc missing portability acceptance evidence path."
+Assert-Contains -Text $architecture -Needle "gate manifest" -Message "Architecture doc missing portability gate manifest contract."
+Assert-Contains -Text $architecture -Needle "pass/skip/fail status" -Message "Architecture doc missing portability gate result status contract."
+Assert-Contains -Text $architecture -Needle "linked evidence paths" -Message "Architecture doc missing portability evidence-link contract."
+Assert-Contains -Text $architecture -Needle "verify-apple-native-preservation.ps1" -Message "Architecture doc missing Apple-native preservation smoke entrypoint."
+Assert-Contains -Text $architecture -Needle "verify-windows-stack-freshness.ps1" -Message "Architecture doc missing stack freshness smoke entrypoint."
+Assert-Contains -Text $architecture -Needle "-StackFreshnessEvidencePath <json>" -Message "Architecture doc missing portability stack freshness evidence path."
+Assert-Contains -Text $architecture -Needle "-RustCliCoverageEvidencePath <json>" -Message "Architecture doc missing portability Rust CLI coverage evidence path."
+Assert-Contains -Text $architecture -Needle "online latest-version results" -Message "Architecture doc missing stack freshness online evidence contract."
+Assert-Contains -Text $architecture -Needle "source URIs" -Message "Architecture doc missing stack freshness source URI evidence contract."
+Assert-Contains -Text $architecture -Needle "coverage summary" -Message "Architecture doc missing Rust CLI coverage evidence contract."
+Assert-Contains -Text $architecture -Needle "parsed total" -Message "Architecture doc missing parsed Rust CLI coverage evidence contract."
+Assert-Contains -Text $architecture -Needle "Apple-to-Apple same-LAN/cross-NAT" -Message "Architecture doc missing AppleNative cross-NAT preservation contract."
+Assert-Contains -Text $architecture -Needle "Windows-to-Apple same-LAN/cross-NAT" -Message "Architecture doc missing Windows-to-Apple cross-NAT preservation contract."
+Assert-Contains -Text $architecture -Needle "verify-windows-ui-parity-matrix.ps1" -Message "Architecture doc missing UI parity matrix smoke entrypoint."
+Assert-Contains -Text $architecture -Needle "verify-windows-ui-visual-evidence.ps1" -Message "Architecture doc missing UI visual evidence verifier entrypoint."
+Assert-Contains -Text $architecture -Needle "16 visual evidence PNGs" -Message "Architecture doc missing UI visual evidence screenshot count."
+Assert-Contains -Text $architecture -Needle "windows-ui-visual-evidence" -Message "Architecture doc missing UI visual evidence gate."
+Assert-Contains -Text $architecture -Needle "revalidates that artifact package" -Message "Architecture doc missing standalone visual evidence validation contract."
+Assert-Contains -Text $architecture -Needle "docs/windows-webrtc-proof-schema.md" -Message "Architecture doc missing WebRTC proof schema entrypoint."
+Assert-Contains -Text $architecture -Needle "verify-rust-webrtc-proof-cli.ps1" -Message "Architecture doc missing Rust WebRTC proof CLI gate entrypoint."
+Assert-Contains -Text $architecture -Needle "verify-windows-webrtc-proof-smoke.ps1" -Message "Architecture doc missing WebRTC proof schema smoke entrypoint."
+foreach ($macCurrentPathPolicySignal in @(
+    "CrossNetworkWebRTCPQCHandshakePolicy",
+    "classic_authority_bootstrap",
+    "trusted_kem",
+    "0x1001",
+    "0x0101",
+    "must not silently fall back from PQC to classic",
+    "must not require peer ML-KEM material for a fresh Mac connection code",
+    "must not be used as proof that fresh Mac connection-code bootstrap is implemented",
+    'AppControl `pong` proves an authenticated application channel'
+)) {
+    Assert-Contains -Text $architecture -Needle $macCurrentPathPolicySignal -Message "Architecture doc missing Mac current-path policy signal: $macCurrentPathPolicySignal"
+}
+Assert-Contains -Text $architecture -Needle "shared action templates" -Message "Architecture doc missing shared action-template style contract."
+Assert-Contains -Text $architecture -Needle "WorkspaceActionButtonWithDetailTemplate" -Message "Architecture doc missing action-template detail contract."
+Assert-Contains -Text $architecture -Needle 'must not introduce inline `Button` controls' -Message "Architecture doc missing inline button prohibition."
+Assert-Contains -Text $architecture -Needle "probe-mac-ssh.ps1" -Message "Architecture doc missing Mac SSH probe entrypoint."
+Assert-Contains -Text $architecture -Needle "prepare-mac-rust-cli-codbg.ps1" -Message "Architecture doc missing Mac Rust CLI co-debug wrapper entrypoint."
+Assert-Contains -Text $architecture -Needle "verify-mac-rust-cli-codbg-wrapper.ps1" -Message "Architecture doc missing Mac Rust CLI co-debug wrapper smoke."
+Assert-Contains -Text $architecture -Needle 'prints the next `verify-windows-mac-webrtc-interop.ps1` command shape' -Message "Architecture doc missing Mac Rust CLI co-debug next-gate command."
+Assert-Contains -Text $architecture -Needle "-ProbeEvidencePath <mac-ssh-evidence.json>" -Message "Architecture doc missing explicit Mac probe evidence path."
+Assert-Contains -Text $architecture -Needle "-RequireMacSshReady" -Message "Architecture doc missing Mac SSH readiness gate."
+Assert-Contains -Text $architecture -Needle "-EvidencePath <json>" -Message "Architecture doc missing Mac SSH evidence path."
+Assert-Contains -Text $architecture -Needle "-MacSshEvidencePath <json>" -Message "Architecture doc missing portability Mac SSH evidence path."
+Assert-Contains -Text $architecture -Needle "-MacExpectedHostKeyFingerprint <SHA256:...>" -Message "Architecture doc missing portability Mac SSH host-key fingerprint path."
+Assert-Contains -Text $architecture -Needle "StrictHostKeyChecking=yes" -Message "Architecture doc missing required Mac SSH strict host-key contract."
+Assert-Contains -Text $architecture -Needle "hostKeyPinned" -Message "Architecture doc missing Mac SSH host-key evidence flag."
+Assert-Contains -Text $architecture -Needle "RequireKnownHost" -Message "Architecture doc missing Mac SSH known-host requirement."
+Assert-Contains -Text $architecture -Needle "-RequireMacRustCliSmoke -MacRemoteRepoRoot <path>" -Message "Architecture doc missing Mac Rust CLI smoke gate."
+Assert-Contains -Text $architecture -Needle "cli_apple_to_apple_selects_apple_native" -Message "Architecture doc missing Mac Rust CLI AppleNative smoke."
+Assert-Contains -Text $architecture -Needle "-ExpectedHostAddress" -Message "Architecture doc missing Mac SSH expected-address diagnostic."
+Assert-Contains -Text $architecture -Needle "LzadeMacBook-Pro.local" -Message "Architecture doc missing Mac .local alternate host diagnostic."
+Assert-Contains -Text $architecture -Needle "bill.local" -Message "Architecture doc missing user-provided Mac hostname alternate diagnostic."
+Assert-Contains -Text $architecture -Needle "proxyTunnelRouteDetected" -Message "Architecture doc missing structured Mac SSH proxy-route evidence flag."
+Assert-Contains -Text $architecture -Needle "directLanLikely" -Message "Architecture doc missing structured Mac SSH direct-LAN evidence flag."
+Assert-Contains -Text $architecture -Needle "198.18.0.0/15" -Message "Architecture doc missing proxy-route diagnostic."
+Assert-Contains -Text $architecture -Needle 'final manual action surface is explicitly `Cancel` followed by `Connect`' -Message "Architecture doc missing manual final Cancel/Connect action order."
+Assert-Contains -Text $architecture -Needle "WorkspaceActionCommandId.CancelManualConnection" -Message "Architecture doc missing manual Cancel command role."
+Assert-Contains -Text $architecture -Needle "verify-windows-startup-state.ps1" -Message "Architecture doc missing startup-state smoke entrypoint."
+Assert-Contains -Text $architecture -Needle "FfiEngineClient" -Message "Architecture doc missing FfiEngineClient status."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "var coreBridge = new CoreBridge();" -Message "Runtime composition root should create one explicit CoreBridge for manual Core tools."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "var discoveryClient = new CoreDiscoveryClient(coreBridge);" -Message "Runtime composition root should create one explicit CoreDiscoveryClient for discovery parsing and browsing."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new WindowsDiscoveryBrowserClient(discoveryClient)" -Message "Runtime composition root should wire WindowsDiscoveryBrowserClient for explicit DNS-SD browse boundary snapshots."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new DeviceDiscoveryInputDefaultsClient()" -Message "Runtime composition root should wire DeviceDiscoveryInputDefaultsClient for explicit Device Discovery default inputs."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new ManualConnectionClient()" -Message "Runtime composition root should wire ManualConnectionClient for explicit manual target validation."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new CrossNetworkConnectionClient()" -Message "Runtime composition root should wire CrossNetworkConnectionClient for explicit QR/code envelope validation."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new PairingMaterialClient()" -Message "Runtime composition root should wire PairingMaterialClient for explicit manual pairing-code validation."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new ConnectionPreflightClient(coreBridge, transportAdapterClient)" -Message "Runtime composition root should wire ConnectionPreflightClient for explicit adapter-aware connection preflight."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new ConnectionWorkspaceStateClient()" -Message "Runtime composition root should wire ConnectionWorkspaceStateClient for explicit connection state gates."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new WorkspaceErrorStatusClient()" -Message "Runtime composition root should wire WorkspaceErrorStatusClient for explicit workspace error routing."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new CoreDiagnosticsClient(coreBridge)" -Message "Runtime composition root should wire CoreDiagnosticsClient for explicit Quantum diagnostics."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "fileTransferClient ?? new UnavailableFileTransferWorkspaceClient()" -Message "Runtime composition must use the supplied window-owned file runtime and keep an absent picker unavailable."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new WorkspaceActionCatalogClient()" -Message "Runtime composition root should wire WorkspaceActionCatalogClient for explicit workspace action order."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new RemoteDesktopWorkspaceClient(coreBridge)" -Message "Runtime composition root should wire RemoteDesktopWorkspaceClient for explicit Remote Desktop diagnostics."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new RemoteDesktopProfileCatalogClient()" -Message "Runtime composition root should wire RemoteDesktopProfileCatalogClient for explicit Remote Desktop profile parity."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new SystemMonitorWorkspaceClient()" -Message "Runtime composition root should wire SystemMonitorWorkspaceClient for explicit System Monitor diagnostics."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new UsbManagementWorkspaceClient()" -Message "Runtime composition root should wire UsbManagementWorkspaceClient for explicit USB Management diagnostics."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "CreateSettingsWorkspaceClientFromEnvironment()" -Message "Runtime composition root should wire SettingsWorkspaceClient through the explicit Settings provider selector."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new DashboardMetricsClient()" -Message "Runtime composition root should wire DashboardMetricsClient for explicit dashboard metrics parity."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new FeatureCatalogClient()" -Message "Runtime composition root should wire FeatureCatalogClient for explicit navigation parity."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new TopBarStatusClient()" -Message "Runtime composition root should wire TopBarStatusClient for explicit top-bar status parity."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new SessionStatusClient()" -Message "Runtime composition root should wire SessionStatusClient for explicit session status text."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new SessionCommandStateClient()" -Message "Runtime composition root should wire SessionCommandStateClient for explicit session command enablement."
+Assert-Contains -Text $nativeRuntimeFactory -Needle "new WorkspaceCommandStateClient()" -Message "Runtime composition root should wire WorkspaceCommandStateClient for explicit workspace command enablement."
+
+foreach ($signal in @(
+    "ParseDiscoveryAdvertisementAsync",
+    "skybridge_parse_discovery_advertisement",
+    "DiscoveryAdvertisement",
+    "NativeDiscoveryAdvertisement",
+    "PeerCapabilities.FromNative"
+)) {
+    Assert-Contains -Text $coreBridge -Needle $signal -Message "CoreBridge missing discovery FFI signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "CoreBridge.ParseDiscoveryAdvertisementAsync" -Message "Architecture doc missing discovery CoreBridge contract."
+
+foreach ($signal in @(
+    "ComputeTransportBindingDigestAsync",
+    "TransportBindingMaterial",
+    "NativeTransportBindingDigest",
+    "skybridge_transport_binding_digest"
+)) {
+    Assert-Contains -Text $coreBridge -Needle $signal -Message "CoreBridge missing transport binding FFI signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "CoreBridge.ComputeTransportBindingDigestAsync" -Message "Architecture doc missing transport binding CoreBridge contract."
+
+foreach ($signal in @(
+    "EncodeFrameAsync",
+    "EncodeSbp2FrameAsync",
+    "DecodeFrameMetadataAsync",
+    "DecodeFramePayloadAsync",
+    "FrameMetadata",
+    "NativeFrameMetadata",
+    "skybridge_encode_frame",
+    "skybridge_encode_sbp2_frame",
+    "skybridge_decode_frame_metadata",
+    "skybridge_decode_frame_payload"
+)) {
+    Assert-Contains -Text $coreBridge -Needle $signal -Message "CoreBridge missing frame codec signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "CoreBridge.EncodeFrameAsync" -Message "Architecture doc missing frame CoreBridge contract."
+
+foreach ($signal in @(
+    "public interface IDiscoveryClient",
+    "public sealed class CoreDiscoveryClient : IDiscoveryClient",
+    "BuildPendingStatus",
+    "DefaultPendingStatus",
+    "CanParseAdvertisement",
+    "HasParseInputs",
+    "public sealed record DiscoveredPeer",
+    "ParseDiscoveryAdvertisementAsync",
+    "PublicKeyFingerprint",
+    "PeerCapabilities"
+)) {
+    Assert-Contains -Text $discoveryClient -Needle $signal -Message "DiscoveryClient missing modular discovery signal: $signal"
+}
+
+Assert-True -Condition (-not $discoveryClient.Contains("GetPeerPublicKeyAsync")) -Message "DiscoveryClient must not treat pubKeyFP as the peer public key."
+Assert-True -Condition (-not $discoveryClient.Contains("StaticPeerPublicKeyProvider")) -Message "DiscoveryClient must not create static peer-key providers from discovery fingerprints."
+Assert-Contains -Text $architecture -Needle "CoreDiscoveryClient" -Message "Architecture doc missing CoreDiscoveryClient status."
+
+foreach ($signal in @(
+    "internal static class SkyBridgeProtocolConstants",
+    'FileTransferDnsSdService = "_skybridge-xfer._tcp"',
+    'RemoteDesktopDnsSdService = "_skybridge-rd._tcp"',
+    'LegacyFileTransferDnsSdService = "_skybridge-transfer._tcp"',
+    'LegacyRemoteDesktopDnsSdService = "_skybridge-remote._tcp"',
+    'MsQuicAlpn = "skybridge-sbq/1"',
+    "WindowsDnsSdQueryOrder",
+    "TryCanonicalizeDnsSdServiceType",
+    "CanonicalizeDnsSdInstanceName"
+)) {
+    Assert-Contains -Text $protocolConstants -Needle $signal -Message "SkyBridge protocol constants missing canonical protocol signal: $signal"
+}
+Assert-Contains -Text $discoveryBrowser -Needle "SkyBridgeProtocolConstants.WindowsDnsSdQueryOrder" -Message "Discovery browser must consume the shared DNS-SD query order."
+Assert-Contains -Text $routeBindingPayload -Needle "TryCanonicalizeDnsSdServiceType" -Message "Authenticated route-binding decode must canonicalize input service aliases."
+Assert-Contains -Text $routeBindingStore -Needle "SkyBridgeProtocolConstants.FileTransferDnsSdService" -Message "Authenticated route-binding storage must require canonical service names."
+Assert-Contains -Text $msQuicDialer -Needle "SkyBridgeProtocolConstants.MsQuicAlpn" -Message "MsQuic dialer must consume the shared ALPN constant."
+Assert-Contains -Text $msQuicListener -Needle "SkyBridgeProtocolConstants.MsQuicAlpn" -Message "MsQuic listener must consume the shared ALPN constant."
+Assert-Contains -Text $msQuicSecret -Needle "SkyBridgeProtocolConstants.MsQuicAlpn" -Message "MsQuic transport-secret derivation must validate the shared ALPN constant."
+Assert-Contains -Text $msQuicSecret -Needle "StringComparison.Ordinal" -Message "MsQuic ALPN validation must be exact and case-sensitive."
+Assert-Contains -Text $msQuicSecret -Needle "ArgumentNullException.ThrowIfNull(certificate)" -Message "MsQuic transport-secret derivation must reject a missing leaf certificate."
+Assert-True -Condition (-not $msQuicSecret.Contains("no-leaf-cert")) -Message "MsQuic transport-secret derivation must not substitute a sentinel for a missing leaf certificate."
+Assert-True -Condition (-not $msQuicDialer.Contains('private const string SkyBridgeAlpn')) -Message "MsQuic dialer must not define a parallel ALPN constant."
+Assert-True -Condition (-not $msQuicListener.Contains('private const string SkyBridgeAlpn')) -Message "MsQuic listener must not define a parallel ALPN constant."
+
+foreach ($signal in @(
+    "public interface IDiscoveryBrowserClient",
+    "public interface IWindowsDnsSdBrowseClient",
+    "public sealed class WindowsDiscoveryBrowserClient : IDiscoveryBrowserClient",
+    "public sealed class PendingWindowsDnsSdBrowseClient : IWindowsDnsSdBrowseClient",
+    "BuildInputPolicy",
+    "DiscoveryBrowserInputPolicy",
+    "DefaultInputPolicy",
+    "ExtendedSearchDurationSeconds",
+    "BuildPendingStatus",
+    "BuildDefaultPendingStatus",
+    "BuildPeerCandidate",
+    "BuildDefaultPeerCandidate",
+    "DiscoveryBrowserPeerCandidate",
+    "CapabilitiesSummary",
+    "TrustSummary",
+    "BuildReadOnlySnapshotAsync",
+    "DiscoveryBrowserRequest",
+    "DiscoveryBrowserAction",
+    "Start",
+    "Stop",
+    "Refresh",
+    "ExtendedSearch",
+    "DnsServiceBrowse",
+    "DnsServiceResolve",
+    "DnsServiceRegister",
+    "WindowsDnsSdBrowseRequest",
+    "WindowsDnsSdBrowseSnapshot",
+    "WindowsDnsSdResolvedTxtRecord",
+    "IWindowsDnsSdBrowseClient dnsSdBrowseClient",
+    "_dnsSdBrowseClient.BrowseAsync",
+    "CoreDiscoveryClient",
+    "pubKeyFP remains fingerprint-only"
+)) {
+    Assert-Contains -Text $discoveryBrowser -Needle $signal -Message "DiscoveryBrowserClient missing browse boundary signal: $signal"
+}
+foreach ($signal in @(
+    "public sealed class NativeWindowsDnsSdBrowseClient : IWindowsDnsSdBrowseClient",
+    "OperatingSystem.IsWindowsVersionAtLeast(10)",
+    "DnsServiceBrowse",
+    "DnsServiceBrowseCancel",
+    "DnsServiceResolve",
+    "DnsServiceResolveCancel",
+    "DnsRecordListFree",
+    "DnsServiceFreeInstance",
+    "Marshal.StringToHGlobalUni",
+    "Marshal.GetFunctionPointerForDelegate",
+    "GCHandle.Alloc",
+    "CancellationToken cancellationToken",
+    "CallbackCompleted",
+    "CompleteCallbackBarrier",
+    "status == ErrorCancelled",
+    "WindowsDnsSdResolvedTxtRecord",
+    "NativeWindowsDnsSdTxtRecordCodec.TrySerialize",
+    "DnsServiceBrowse callback failed",
+    "TXT is still parsed by CoreDiscoveryClient."
+)) {
+    Assert-Contains -Text $nativeDnsSdBrowse -Needle $signal -Message "NativeWindowsDnsSdBrowseClient missing Win32 DNS-SD signal: $signal"
+}
+Assert-True -Condition (-not $nativeDnsSdBrowse.Contains("DnssdServiceWatcher")) -Message "NativeWindowsDnsSdBrowseClient must not use unsupported WinRT DnssdServiceWatcher."
+Assert-True -Condition (-not $nativeDnsSdBrowse.Contains("Math.Min(native.PropertyCount")) -Message "NativeWindowsDnsSdBrowseClient must reject oversized native TXT property sets instead of truncating them."
+Assert-True -Condition (-not $nativeDnsSdBrowse.Contains("CallbackDrainDelay")) -Message "NativeWindowsDnsSdBrowseClient must await its native callback completion barrier instead of using a fixed drain delay."
+Assert-True -Condition (-not $nativeDnsSdBrowse.Contains("FromMilliseconds(250)")) -Message "NativeWindowsDnsSdBrowseClient must not use a fixed 250ms callback drain."
+foreach ($signal in @(
+    "internal static class NativeWindowsDnsSdTxtRecordCodec",
+    "TrySerialize",
+    "MaxTxtRecordBytes",
+    "MaxTxtKeyBytes",
+    "MaxTxtValueBytes",
+    "MaxTxtProperties",
+    "StringComparer.Ordinal",
+    "Encoding.UTF8.GetByteCount",
+    "ContainsTxtKeySeparatorOrControl",
+    "ContainsTxtValueSeparatorOrControl",
+    "DNS-SD TXT property count exceeds",
+    "DNS-SD TXT key is empty.",
+    "DNS-SD TXT key",
+    "DNS-SD TXT value for"
+)) {
+    Assert-Contains -Text $nativeDnsSdTxtCodec -Needle $signal -Message "NativeWindowsDnsSdTxtRecordCodec missing TXT validation signal: $signal"
+}
+foreach ($signal in @(
+    "windows-native-dns-sd-acceptance: ok",
+    "NativeWindowsDnsSdBrowseClient",
+    "NativeWindowsDnsSdTxtRecordCodec.cs",
+    "NativeWindowsDnsSdTxtRecordCodec.TrySerialize",
+    "CoreDiscoveryClient(new CoreBridge())",
+    "DnsServiceBrowse",
+    "DnsServiceResolve",
+    "DnsServiceBrowseCancel",
+    "DnsServiceResolveCancel",
+    "DnsRecordListFree",
+    "DnsServiceFreeInstance",
+    "--require-peer",
+    "--expected-device-id",
+    "--expected-fingerprint",
+    "fingerprint-only trust summary"
+)) {
+    Assert-Contains -Text $nativeDnsSdAcceptance -Needle $signal -Message "Windows native DNS-SD acceptance missing signal: $signal"
+}
+foreach ($signal in @(
+    "windows-webrtc-proof: ok",
+    "VerifiedWebRtcDataChannelTransportAdapterClient",
+    "WindowsVerifiedWebRtcDataChannelOptions",
+    "--proof",
+    "--expected-device-id",
+    "--expected-fingerprint",
+    "--max-age-ms",
+    'RepoRoot = ""',
+    "PSCommandPath",
+    "RepoRoot must be supplied when the script path cannot be resolved.",
+    "SBF1",
+    "Windows verified WebRTC adapter must not select AppleNative"
+)) {
+    Assert-Contains -Text $webrtcProofSmoke -Needle $signal -Message "Windows WebRTC proof gate missing signal: $signal"
+}
+foreach ($signal in @(
+    "rust-webrtc-proof-cli: ok",
+    "core/skybridge-core/Cargo.toml",
+    "webrtc-proof validate",
+    "cargoExitCode",
+    "Get-Command cargo",
+    "System.Diagnostics.ProcessStartInfo",
+    "RedirectStandardError",
+    "ReadToEndAsync",
+    "ExitCode",
+    "--proof",
+    "--expected-device-id",
+    "--expected-fingerprint",
+    "--max-age-ms",
+    'RepoRoot = ""',
+    "PSCommandPath",
+    "RepoRoot must be supplied when the script path cannot be resolved."
+)) {
+    Assert-Contains -Text $rustWebRtcProofCli -Needle $signal -Message "Rust WebRTC proof CLI gate missing signal: $signal"
+}
+foreach ($signal in @(
+    "windows-webrtc-proof-smoke: ok",
+    "verify-rust-webrtc-proof-cli.ps1",
+    "rust-webrtc-proof-cli",
+    "docs/windows-webrtc-proof-schema.md",
+    "verify-windows-webrtc-proof.ps1",
+    "peerDeviceId",
+    "peerPublicKeyFingerprint",
+    "dataChannelOpen",
+    "sbf1EchoVerified",
+    "sbf1FrameMagic",
+    "transportSecretFingerprintHex",
+    "capabilityDigestHex",
+    "capturedAtUnixMs",
+    "System.Text.UTF8Encoding",
+    "WriteAllText",
+    "schema-smoke-webrtc-helper"
+)) {
+    Assert-Contains -Text $webrtcProofSchemaSmoke -Needle $signal -Message "Windows WebRTC proof schema smoke missing signal: $signal"
+}
+foreach ($signal in @(
+    "Windows WebRTC Proof Schema",
+    "SKYBRIDGE_WINDOWS_TRANSPORT_ADAPTER=webrtc-verified",
+    "VerifiedWebRtcDataChannelTransportAdapterClient",
+    "peerDeviceId",
+    "peerPublicKeyFingerprint",
+    "dataChannelOpen",
+    "sbf1EchoVerified",
+    "sbf1FrameMagic",
+    "adapterBinding",
+    "localEndpoint",
+    "remoteEndpoint",
+    "selectedCandidatePair",
+    "transportSecretFingerprintHex",
+    "capabilityDigestHex",
+    "sameLan",
+    "crossNat",
+    "path=same-lan",
+    "path=cross-nat",
+    "timestampWindowMs",
+    "capturedAtUnixMs",
+    "must not replace the AppleNative path",
+    'rejects `-KeepArtifacts` when `-IceServerCredentialsPath` is supplied',
+    "fails closed if cleanup cannot remove the remote run directory after credentials were copied",
+    "Scripts\prepare-mac-rust-cli-codbg.ps1",
+    "-MacDirectSourceAddress",
+    "-RequireDirectLan",
+    "-RequireRustCliSmoke",
+    "Scripts\verify-windows-webrtc-proof-smoke.ps1",
+    "Scripts\verify-rust-webrtc-proof-cli.ps1",
+    "Scripts\verify-windows-portability-smoke.ps1"
+)) {
+    Assert-Contains -Text $webrtcProofSchema -Needle $signal -Message "Windows WebRTC proof schema missing signal: $signal"
+}
+foreach ($signal in @(
+    "--network-path",
+    "same-lan",
+    "cross-nat",
+    "sameLan={FormatBool(networkPath.SameLan)}",
+    "crossNat={FormatBool(networkPath.CrossNat)}",
+    "path={networkPath.Name}",
+    "GetRtpChannel()?.NominatedEntry",
+    "NominatedCandidatePair.From",
+    "local={LocalType}:{LocalEndpoint};remote={RemoteType}:{RemoteEndpoint};path={networkPath.Name}",
+    "--ice-servers",
+    "--ice-server-credentials",
+    "ReadIceServerCredentials",
+    "TURN URLs without a credential file",
+    "must not include inline TURN credentials"
+)) {
+    Assert-Contains -Text $webrtcHelperProgram -Needle $signal -Message "Windows WebRTC helper program missing cross-network proof signal: $signal"
+}
+foreach ($signal in @(
+    "AllowCrossNetworkIce",
+    "IceServers",
+    "IceServerCredentialsPath",
+    "ice-server-credentials",
+    "ice-include-all-interfaces",
+    "path=cross-nat",
+    "typ\s+(srflx|relay)",
+    "Test-CrossNetworkSelectedPairEvidence",
+    "public host candidate",
+    "KeepArtifacts cannot be used with -IceServerCredentialsPath",
+    "chmod 600 --",
+    "Mac cleanup failed after copying ICE server credentials",
+    "proof-runStartedAtUnixMs",
+    "proof-capturedAtUnixMs",
+    "proof-sha256",
+    "proof-lastWriteUtc",
+    "Fresh proof was not generated by this helper-live run",
+    "Direct-LAN helper proof requires -WindowsBindAddress",
+    "-IceServerCredentialsPath <turn-credentials.json>",
+    "-AllowCrossNetworkIce -IceServers <stun:...>"
+)) {
+    Assert-Contains -Text $macWebRtcHelperLive -Needle $signal -Message "Windows/mac WebRTC helper live gate missing cross-network signal: $signal"
+}
+foreach ($signal in @(
+    "windows-mac-webrtc-interop: ok",
+    "windows-mac-webrtc-interop: check ok",
+    "CheckOnly",
+    "mac-ssh-direct-lan-rust-cli",
+    "windows-native-dns-sd-peer",
+    "rust-webrtc-proof-cli",
+    "verify-rust-webrtc-proof-cli.ps1",
+    "windows-webrtc-proof",
+    "windows-connection-launch",
+    "RequireDirectLan",
+    "RequireRustCliSmoke",
+    "RequireKnownHost",
+    "MacExpectedHostKeyFingerprint",
+    "MacRemoteRepoRoot",
+    "WebRtcProofPath",
+    "ExpectedFingerprint"
+)) {
+    Assert-Contains -Text $macWebRtcInterop -Needle $signal -Message "Windows/mac WebRTC interop gate missing signal: $signal"
+}
+Assert-True -Condition (-not $macWebRtcInterop.Contains("[Parameter(Mandatory = `$true)]")) -Message "Windows/mac WebRTC interop CheckOnly gate must not require external Mac/proof parameters."
+
+Assert-Contains -Text $architecture -Needle "WindowsDiscoveryBrowserClient" -Message "Architecture doc missing WindowsDiscoveryBrowserClient status."
+
+foreach ($signal in @(
+    "public interface IDeviceDiscoveryInputDefaultsClient",
+    "public sealed class DeviceDiscoveryInputDefaultsClient : IDeviceDiscoveryInputDefaultsClient",
+    "BuildReadOnlySnapshot",
+    "DeviceDiscoveryInputDefaultsSnapshot",
+    "DiscoveryService",
+    "ManualConnectionPort",
+    "DiscoveryTxtRecord",
+    "PairingConnectionCode",
+    # BATCH 2 (B1) — smart-connection-code lease default carried in the input-defaults snapshot.
+    "ConnectionCodeLeaseMode",
+    "shortLived",
+    "_skybridge._udp",
+    "11550"
+)) {
+    Assert-Contains -Text $deviceDiscoveryInputDefaults -Needle $signal -Message "DeviceDiscoveryInputDefaultsClient missing default-input signal: $signal"
+}
+
+foreach ($sampleDefault in @(
+    "deviceId=mac-1",
+    "Desk Mac",
+    "skybridge-pair:v1",
+    "SampleFingerprint",
+    "SamplePairingPublicKey"
+)) {
+    Assert-True -Condition (-not $deviceDiscoveryInputDefaults.Contains($sampleDefault)) -Message "DeviceDiscoveryInputDefaultsClient must not prefill production inputs with sample pairing material: $sampleDefault"
+}
+
+Assert-Contains -Text $architecture -Needle "DeviceDiscoveryInputDefaultsClient" -Message "Architecture doc missing DeviceDiscoveryInputDefaultsClient status."
+
+foreach ($signal in @(
+    "public interface IManualConnectionClient",
+    "public sealed class ManualConnectionClient : IManualConnectionClient",
+    "BuildPendingStatus",
+    "DefaultPendingStatus",
+    "CanPrepareTarget",
+    "HasManualTargetInputs",
+    "BuildReadOnlySnapshotAsync",
+    "ManualConnectionRequest",
+    "ManualConnectionTarget",
+    "ManualConnectionSnapshot",
+    "NormalizeHost",
+    "ParsePort",
+    "11550",
+    "_skybridge._tcp",
+    "Code is routing or pairing input only; it is never treated as a peer public key.",
+    "no connection started",
+    "FfiEngineClient"
+)) {
+    Assert-Contains -Text $manualConnection -Needle $signal -Message "ManualConnectionClient missing manual boundary signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "ManualConnectionClient" -Message "Architecture doc missing ManualConnectionClient status."
+
+foreach ($signal in @(
+    "CrossNetworkConnectionCodePolicy",
+    "public interface ICrossNetworkConnectionClient",
+    "public sealed class CrossNetworkConnectionClient : ICrossNetworkConnectionClient",
+    "BuildCodeInputPolicy",
+    "CrossNetworkCodeInputPolicy",
+    "DefaultCodeInputPolicy",
+    "NormalizeCodeInput",
+    "CanConnectWithCode",
+    "CanScanQrCode",
+    "CanCopyCode",
+    "CanConnectWithDefaultCodePolicy",
+    "HasQrInput",
+    "HasGeneratedCode",
+    "TryNormalizeConnectionCode",
+    "LegacyCodeLength",
+    "PreferredCodeLength",
+    "MaximumCodeLength",
+    "SupportedLengthDescription",
+    "Alphabet",
+    "BuildPendingStatus",
+    "BuildDefaultPendingStatus",
+    "BuildReadOnlySnapshotAsync",
+    "CrossNetworkConnectionAction",
+    "GenerateQrCode",
+    "ScanQrCode",
+    "GenerateCode",
+    "RegenerateCode",
+    "CopyCode",
+    "ConnectWithCode",
+    "NormalizeConnectionCode",
+    "ExtractQrPayload",
+    "DecodeBase64Payload",
+    "AnalyzeQrPayload",
+    "AnalyzeSignedQrPayload",
+    "AnalyzeDynamicQrCodeData",
+    "AnalyzeCanonicalQrPayload",
+    "skybridge://connect/",
+    "skybridge://connect?data=",
+    "SignedQRPayload",
+    "DynamicQRCodeData",
+    "QRCodeSignatureEnvelope",
+    "QRCodeSignatureQuery",
+    "sessionID",
+    "deviceFingerprint",
+    "publicKey",
+    "signingPublicKey",
+    "signature",
+    "signatureTimestamp",
+    "expiresAt",
+    "signatureBase64",
+    "publicKeyBase64",
+    "publicKeyFingerprint",
+    "ABCDEFGHJKLMNPQRSTUVWXYZ23456789",
+    "5 minutes",
+    "10 minutes",
+    "sig/pk/ts/fp required",
+    "QR signature verified",
+    "QR payload validated",
+    "Scan Error: QR code expired.",
+    "P256 raw signature verified",
+    "P256 canonical signature verified",
+    "P256 dynamic canonical signature verified",
+    "BuildQrCanonicalSignaturePayload",
+    "TryGetDynamicQrSignedOsVersion",
+    "generator osVersion",
+    "unverifiable",
+    "Scan Error: QR dynamic canonical signature verification failed.",
+    "DSASignatureFormat.IeeeP1363FixedFieldConcatenation",
+    "QrSignatureChallengeLifetimeSeconds",
+    "CrossNetworkReadiness",
+    "no WebRTC offerer started",
+    "no WebRTC answerer started",
+    "no signaling room registered",
+    "FfiEngineClient"
+)) {
+    Assert-Contains -Text $crossNetworkCodeBoundary -Needle $signal -Message "Cross-network QR/code boundary missing signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "CrossNetworkConnectionClient" -Message "Architecture doc missing CrossNetworkConnectionClient status."
+
+foreach ($signal in @(
+    "public interface IPairingMaterialClient",
+    "public sealed class PairingMaterialClient : IPairingMaterialClient",
+    "BuildPendingStatus",
+    "DefaultPendingStatus",
+    "CanValidate",
+    "HasConnectionCode",
+    "BuildReadOnlySnapshotAsync",
+    "PairingMaterialSnapshot",
+    "PairingFact",
+    "skybridge-pair:v1",
+    "pubKeyFP",
+    "DecodeBase64Url",
+    "SHA256.HashData",
+    "expectedPublicKeyFingerprint",
+    "Pairing code public key does not match pubKeyFP.",
+    "ToPeerPublicKeyProvider",
+    "StaticPeerPublicKeyProvider"
+)) {
+    Assert-Contains -Text $pairing -Needle $signal -Message "PairingMaterialClient missing pairing signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "PairingMaterialClient" -Message "Architecture doc missing PairingMaterialClient status."
+
+foreach ($signal in @(
+    "public interface IConnectionPreflightClient",
+    "public sealed class ConnectionPreflightClient : IConnectionPreflightClient",
+    "BuildPendingStatus",
+    "DefaultPendingStatus",
+    "BuildReadOnlySnapshotAsync",
+    "Pairing material must be validated against the discovered peer before connection preflight.",
+    "ConnectionPreflightPlan",
+    "IWindowsTransportAdapterClient",
+    "PendingWindowsTransportAdapterClient",
+    "_transportAdapterClient.PrepareAsync",
+    "WindowsTransportAdapterRequest",
+    "WindowsTransportAdapterSnapshot",
+    "Adapter binding",
+    "BuildTransportBindingMaterial",
+    "ConnectionLaunchAdapterKind",
+    "ResolveAdapterKind",
+    "PlanConnectionAsync",
+    "ComputeTransportBindingDigestAsync",
+    "TransportBindingMaterial",
+    "TransportBindingDigest",
+    "IsLiveAdapterReady",
+    "adapter pending",
+    "LocalEndpoint",
+    "RemoteEndpoint",
+    "SelectedCandidatePair",
+    "TimestampWindowMs",
+    "ChannelMappings",
+    "CoreChannelMappingResolver",
+    "TrafficPaddingPlan.Sbp2Fixed",
+    "ToPeerPublicKeyProvider",
+    "No connection attempt is started"
+)) {
+    Assert-Contains -Text ($connectionPreflight + $connectionLaunchRequest + $windowsTransportAdapter) -Needle $signal -Message "ConnectionPreflightClient missing preflight signal: $signal"
+}
+foreach ($signal in @(
+    "public interface IWindowsTransportAdapterClient",
+    "public sealed class PendingWindowsTransportAdapterClient : IWindowsTransportAdapterClient",
+    "public sealed class VerifiedWebRtcDataChannelTransportAdapterClient : IWindowsTransportAdapterClient",
+    "public sealed class WindowsVerifiedWebRtcDataChannelOptions",
+    "public sealed class WindowsVerifiedWebRtcDataChannelProof",
+    "public sealed record WindowsTransportAdapterRequest",
+    "public sealed record WindowsTransportAdapterSnapshot",
+    "BuildTransportBindingMaterial",
+    "No WebRTC, MsQuic, relay, or TCP adapter has supplied live endpoint",
+    "Windows verified WebRTC adapter requires the Core-selected transport to be WebRtcDataChannel.",
+    "Windows verified WebRTC adapter requires the Core transport audit to be WebRtcInterop.",
+    "Windows verified WebRTC adapter proof must confirm the DataChannel opened.",
+    "Windows verified WebRTC adapter proof must confirm an SBF1 echo frame.",
+    "Windows verified WebRTC adapter proof is stale or from the future.",
+    "windows-preflight.local:443",
+    "TransportSecretFingerprint",
+    "CapabilityDigest",
+    "ConnectionPreflightPlan.ResolveAdapterKind",
+    "Windows transport adapter must not select AppleNative"
+)) {
+    Assert-Contains -Text $windowsTransportAdapter -Needle $signal -Message "WindowsTransportAdapterClient missing adapter boundary signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "ConnectionPreflightClient" -Message "Architecture doc missing ConnectionPreflightClient status."
+
+foreach ($signal in @(
+    "public interface IConnectionWorkspaceStateClient",
+    "public sealed class ConnectionWorkspaceStateClient : IConnectionWorkspaceStateClient",
+    "BuildInitialStatusPatch",
+    "DefaultReadyStatus",
+    "BuildInputResetPatch",
+    "BuildInputInvalidatedState",
+    "BuildDiscoveryBrowserValidatedState",
+    "BuildDiscoveryPeerValidatedState",
+    "BuildPairingValidatedState",
+    "BuildPairingInputResetState",
+    "BuildDiscoveryBrowserResultPatch",
+    "BuildManualTargetPreparedPatch",
+    "BuildCrossNetworkPreparedPatch",
+    "BuildDiscoveryPeerValidatedPatch",
+    "BuildPairingValidatedPatch",
+    "BuildPreflightReadiness",
+    "CanPreparePreflight",
+    "BuildPreflightValidatedState",
+    "BuildPreflightInputResetState",
+    "BuildConnectionLaunchReadiness",
+    "BuildLiveConnectionLaunchReadiness",
+    "BuildConnectionLaunchRequest",
+    "BuildPreflightPreparedPatch",
+    "ConnectionWorkspaceResetReason",
+    "ConnectionWorkspaceStatusPatch",
+    "ConnectionWorkspaceValidatedState",
+    "ConnectionLaunchRequest",
+    "ConnectionPreflightSnapshot? PreflightSnapshot",
+    "ConnectionWorkspacePreflightReadiness",
+    "Parse a Core-validated discovery TXT record before connection preflight.",
+    "Validate pairing material before connection preflight.",
+    "Prepare Core connection preflight before connection launch.",
+    "Connection launch requires a live Windows transport adapter; the current request is preflight-only."
+)) {
+    Assert-Contains -Text $connectionWorkspaceState -Needle $signal -Message "ConnectionWorkspaceStateClient missing connection state signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "ConnectionWorkspaceStateClient" -Message "Architecture doc missing ConnectionWorkspaceStateClient status."
+Assert-True -Condition (-not $connectionWorkspaceState.Contains("BuildErrorPatch")) -Message "ConnectionWorkspaceStateClient must not own busy-state error routing; use WorkspaceErrorStatusClient."
+Assert-True -Condition (-not $connectionWorkspaceState.Contains("FfiEngineClient")) -Message "ConnectionWorkspaceStateClient must not call or reference FfiEngineClient."
+Assert-True -Condition (-not $connectionWorkspaceState.Contains("WebRTC")) -Message "ConnectionWorkspaceStateClient must not start or own WebRTC adapters."
+Assert-True -Condition (-not $connectionWorkspaceState.Contains("signaling")) -Message "ConnectionWorkspaceStateClient must not own signaling side effects."
+
+foreach ($signal in @(
+    "public interface IWorkspaceErrorStatusClient",
+    "public sealed class WorkspaceErrorStatusClient : IWorkspaceErrorStatusClient",
+    "BuildErrorPatch",
+    "WorkspaceErrorScope",
+    "WorkspaceErrorStatusPatch",
+    "ConnectionWorkspacePatch",
+    "WorkspaceErrorScope.DeviceDiscovery",
+    "WorkspaceErrorScope.CoreDiagnostics",
+    "WorkspaceErrorScope.FileTransfer",
+    "WorkspaceErrorScope.RemoteDesktop",
+    "WorkspaceErrorScope.SystemMonitor",
+    "WorkspaceErrorScope.Settings"
+)) {
+    Assert-Contains -Text $workspaceErrorStatus -Needle $signal -Message "WorkspaceErrorStatusClient missing error routing signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "WorkspaceErrorStatusClient" -Message "Architecture doc missing WorkspaceErrorStatusClient status."
+Assert-True -Condition (-not $workspaceErrorStatus.Contains("FfiEngineClient")) -Message "WorkspaceErrorStatusClient must not call or reference FfiEngineClient."
+Assert-True -Condition (-not $workspaceErrorStatus.Contains("WebRTC")) -Message "WorkspaceErrorStatusClient must not start or own WebRTC adapters."
+Assert-True -Condition (-not $workspaceErrorStatus.Contains("signaling")) -Message "WorkspaceErrorStatusClient must not own signaling side effects."
+
+foreach ($signal in @(
+    "internal sealed class UnavailableDiscoveryClient",
+    "internal sealed class UnavailableDiscoveryBrowserClient",
+    "internal sealed class UnavailableManualConnectionClient",
+    "internal sealed class UnavailableCrossNetworkConnectionClient",
+    "internal sealed class UnavailablePairingMaterialClient",
+    "internal sealed class UnavailableConnectionPreflightClient",
+    "internal sealed class UnavailableCoreDiagnosticsClient",
+    "internal sealed class UnavailableFileTransferWorkspaceClient",
+    "internal sealed class UnavailableRemoteDesktopWorkspaceClient",
+    "internal sealed class UnavailableSystemMonitorWorkspaceClient",
+    "internal sealed class UnavailableUsbManagementWorkspaceClient",
+    "internal sealed class UnavailableSettingsWorkspaceClient",
+    "BuildCompletedStatus",
+    "BuildCompletedStatusMessage",
+    "BuildDefaultCompletedStatus",
+    "DefaultCompletedStatusMessage",
+    "Discovery client is not configured.",
+    "Settings workspace client is not configured."
+)) {
+    Assert-Contains -Text $unavailableClientStubs -Needle $signal -Message "UnavailableClientStubs missing fallback signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "UnavailableClientStubs" -Message "Architecture doc missing UnavailableClientStubs status."
+Assert-True -Condition (-not $unavailableClientStubs.Contains("DummyEngineClient")) -Message "UnavailableClientStubs must not switch to DummyEngineClient."
+Assert-True -Condition (-not $unavailableClientStubs.Contains("FfiEngineClient")) -Message "UnavailableClientStubs must not call or reference FfiEngineClient."
+Assert-True -Condition (-not $unavailableClientStubs.Contains("WebRTC")) -Message "UnavailableClientStubs must not start or own WebRTC adapters."
+Assert-True -Condition (-not $unavailableClientStubs.Contains("signaling")) -Message "UnavailableClientStubs must not own signaling side effects."
+
+foreach ($signal in @(
+    "public interface IUsbManagementWorkspaceClient",
+    "public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient",
+    "BuildInitialStatus",
+    "DefaultInitialStatus",
+    "BuildPendingStatus",
+    "DefaultPendingStatus",
+    "BuildCompletedStatus",
+    "BuildCompletedStatusMessage",
+    "BuildDefaultCompletedStatus",
+    "DefaultCompletedStatusMessage",
+    "BuildReadOnlySnapshotAsync",
+    "DeviceInformation.FindAllAsync",
+    "System.Devices.InterfaceClassGuid",
+    "UsbInformationProperties",
+    "DriveInfo.GetDrives",
+    "DriveType.Removable",
+    "MergeDevices",
+    "UsbDeviceStat",
+    "UsbDeviceItem",
+    "no placeholder/fake rows",
+    "IReadOnlyList<string> Capabilities"
+)) {
+    Assert-Contains -Text $usbManagement -Needle $signal -Message "UsbManagementWorkspaceClient missing Windows USB signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "UsbManagementWorkspaceClient" -Message "Architecture doc missing UsbManagementWorkspaceClient status."
+
+foreach ($signal in @(
+    "public interface ICoreDiagnosticsClient",
+    "public sealed class CoreDiagnosticsClient : ICoreDiagnosticsClient",
+    "BuildInitialStatus",
+    "DefaultInitialStatus",
+    "BuildPendingStatus",
+    "DefaultPendingStatus",
+    "BuildCompletedStatus",
+    "BuildCompletedStatusMessage",
+    "BuildDefaultCompletedStatus",
+    "DefaultCompletedStatusMessage",
+    "BuildInteropSnapshotAsync",
+    "PlanConnectionAsync",
+    "ComputeTransportBindingDigestAsync",
+    "Transport binding digest",
+    "ChannelMappings",
+    "CoreChannelMappingResolver",
+    "Core channel map",
+    "EncodeSbp2FrameAsync",
+    "DecodeFrameMetadataAsync",
+    "DecodeFramePayloadAsync"
+)) {
+    Assert-Contains -Text $coreDiagnostics -Needle $signal -Message "CoreDiagnosticsClient missing Core diagnostic signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "CoreDiagnosticsClient" -Message "Architecture doc missing CoreDiagnosticsClient status."
+
+foreach ($signal in @(
+    "Docs/ADR-0001-SkyBridge-Core-Transport-Matrix.md",
+    "version 1.1, reviewed 2026-09-08",
+    "Docs/ADR-0002-Remote-Control-Authority-and-Sessions.md",
+    '`SkyBridgeProtocolCore` owns shared contracts without platform UI or networking dependencies',
+    'Apple transport implementations remain in `SkyBridgeAppleTransport`',
+    "binary product handshake remains the only handshake wire",
+    "must not become a second JSON handshake or identity system",
+    "Shared protocol ownership and current implementation evidence take precedence over historical paper claims",
+    "Docs/CrossPlatformDiscoveryDesign.md",
+    "lower precedence than the ADR",
+    "MsQuic v2.5.9"
+)) {
+    Assert-Contains -Text $architecture -Needle $signal -Message "Architecture doc missing current ADR source-hierarchy signal: $signal"
+}
+
+foreach ($signal in @(
+    "public interface IFileTransferWorkspaceClient",
+    "IFileTransferSelectionClient",
+    "WindowsDeviceWorkspace",
+    "ConnectControlAsync",
+    "AuthorizeFileTransfer",
+    "ClassicFileTransferSender.SendAsync",
+    "ClassicFileTransferListener",
+    "BuildReadOnlySnapshotAsync",
+    "FileTransferWorkspaceSnapshot",
+    "CanGenerateShareQr() => false",
+    "DisconnectControlSessionsAsync",
+    "CryptographicOperations.ZeroMemory"
+)) {
+    Assert-Contains -Text $fileTransfer -Needle $signal -Message "FileTransferWorkspaceClient missing live transfer integration: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "FileTransferWorkspaceClient" -Message "Architecture doc missing FileTransferWorkspaceClient status."
+
+foreach ($signal in @(
+    "public interface IWorkspaceActionCatalogClient",
+    "public sealed class WorkspaceActionCatalogClient : IWorkspaceActionCatalogClient",
+    "BuildInitialSurfaces",
+    "BuildDynamicRefreshSurfaces",
+    "InitialSurfaces",
+    "DynamicRefreshSurfaces",
+    "BuildReadOnlySnapshot",
+    "BuildResolvedSnapshot",
+    "ResolveEnabled",
+    "ResolveDetail",
+    "WorkspaceActionSurface.SidebarSession",
+    "WorkspaceActionSurface.TopBarActions",
+    "WorkspaceActionSurface.SessionControls",
+    "WorkspaceActionSurface.DeviceDiscoveryPrimary",
+    "WorkspaceActionSurface.DeviceDiscoveryScan",
+    "WorkspaceActionSurface.DeviceDiscoveryManualConnectFinal",
+    "WorkspaceActionSurface.CrossNetworkQr",
+    "WorkspaceActionSurface.CrossNetworkCodePrimary",
+    "WorkspaceActionSurface.CrossNetworkCodeConnect",
+    "WorkspaceActionSurface.UsbManagementHeader",
+    "WorkspaceActionSurface.FileTransferHeader",
+    "WorkspaceActionSurface.FileTransfer",
+    "WorkspaceActionSurface.RemoteDesktopHeader",
+    "WorkspaceActionSurface.RemoteDesktop",
+    "WorkspaceActionSurface.QuantumDiagnosticsHeader",
+    "WorkspaceActionSurface.SystemMonitorHeader",
+    "WorkspaceActionSurface.SystemMonitorControls",
+    "WorkspaceActionSurface.SettingsHeader",
+    "WorkspaceActionSurface.SettingsToolbar",
+    "WorkspaceActionSurface.SettingsMaintenance",
+    "WorkspaceActionCatalogRequest",
+    "WorkspaceActionCatalogSnapshot",
+    "WorkspaceActionGateSnapshot",
+    "WorkspaceActionDetailSnapshot",
+    "WorkspaceActionItem",
+    "WorkspaceActionCommandId",
+    "WorkspaceActionCommandId.CancelManualConnection",
+    "WorkspaceActionGateId",
+    "WorkspaceActionDetailSlot",
+    "WorkspaceActionGateId.CanUseDiscoveryBrowser",
+    "WorkspaceActionGateId.CanPrepareManualConnection",
+    "WorkspaceActionGateId.CanParseAdvertisement",
+    "WorkspaceActionGateId.CanValidatePairing",
+    "WorkspaceActionGateId.CanPrepareConnection",
+    "WorkspaceActionGateId.CanUseCrossNetworkConnection",
+    "WorkspaceActionGateId.CanScanQrCode",
+    "WorkspaceActionGateId.CanCopyConnectionCode",
+    "WorkspaceActionGateId.CanConnectConnectionCode",
+    "GateId: WorkspaceActionGateId.CanParseAdvertisement",
+    "GateId: WorkspaceActionGateId.CanUseDiscoveryBrowser",
+    "CommandId: WorkspaceActionCommandId.CancelManualConnection",
+    "GateId: WorkspaceActionGateId.CanUseCrossNetworkConnection",
+    "CommandId",
+    "GateId",
+    "DetailSlot",
+    "BuildSidebarSessionActions",
+    "BuildTopBarActions",
+    "BuildSessionControlActions",
+    "Notifications",
+    "Theme",
+    "Heartbeat",
+    "ParseTxt",
+    "Parse TXT",
+    "ValidatePairing",
+    "Validate Pairing",
+    "PrepareConnection",
+    "Prepare Connection",
+    "ExtendedSearch",
+    "Extended Search",
+    "ManualConnect",
+    "Manual Connect",
+    "Cancel",
+    "StartScan",
+    "Start Scan",
+    "StopScan",
+    "Stop Scan",
+    "GenerateQrCode",
+    "Generate QR Code",
+    "ScanQrCode",
+    "Scan QR Code",
+    "GenerateCode",
+    "Generate Code",
+    "CopyCode",
+    "Copy",
+    "RegenerateCode",
+    "Regenerate",
+    "ConnectWithCode",
+    "Connect",
+    "BuildUsbManagementHeaderActions",
+    "RefreshDevices",
+    "Refresh Devices",
+    "BuildFileTransferHeaderActions",
+    "RefreshPlan",
+    "Refresh Plan",
+    "SelectFiles",
+    "Select Files",
+    "SelectFolder",
+    "Select Folder",
+    "GenerateQr",
+    "Generate QR",
+    "BuildRemoteDesktopHeaderActions",
+    "RefreshSessions",
+    "Refresh Sessions",
+    "RecommendedConnect",
+    "Recommended Connect",
+    "AdvancedConnect",
+    "Advanced Connect",
+    "PerformanceOverlay",
+    "Performance Overlay",
+    "FullScreen",
+    "Full Screen",
+    "DisconnectSession",
+    "Disconnect Session",
+    "BuildQuantumDiagnosticsHeaderActions",
+    "RunDiagnostics",
+    "Run Diagnostics",
+    "BuildSystemMonitorHeaderActions",
+    "BuildSystemMonitorControlActions",
+    "RefreshMetrics",
+    "Refresh Metrics",
+    "Monitoring",
+    "StopMonitoring",
+    "Stop Monitoring",
+    "EnableAdvancedMonitoring",
+    "Enable Advanced Monitoring",
+    "BuildSettingsHeaderActions",
+    "RefreshStatus",
+    "Refresh Status",
+    "ExportSettings",
+    "Export",
+    "ImportSettings",
+    "Import",
+    "ResetSettings",
+    "Reset",
+    "RequestPermission",
+    "Request Permission",
+    "OpenSystemPreferences",
+    "Open System Preferences",
+    "ApplySettings",
+    "Apply Settings",
+    "RestoreDefaults",
+    "Restore Defaults",
+    "ResetMonitorData",
+    "Reset Monitor Data",
+    "Visible mac-parity quick action"
+)) {
+    Assert-Contains -Text $workspaceActionCatalog -Needle $signal -Message "WorkspaceActionCatalogClient missing action-catalog signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "WorkspaceActionCatalogClient" -Message "Architecture doc missing WorkspaceActionCatalogClient status."
+
+foreach ($signal in @(
+    "public interface IRemoteDesktopWorkspaceClient",
+    "public interface IRemoteDesktopControlPanelClient",
+    "public sealed class InMemoryRemoteDesktopControlPanelClient : IRemoteDesktopControlPanelClient",
+    "public sealed class RemoteDesktopWorkspaceClient : IRemoteDesktopWorkspaceClient",
+    "RemoteDesktopControlPanelSnapshot",
+    "BuildSnapshot",
+    "BuildInitialStatus",
+    "DefaultInitialStatus",
+    "BuildPendingStatus",
+    "DefaultPendingStatus",
+    "BuildCompletedStatus",
+    "BuildCompletedStatusMessage",
+    "BuildDefaultCompletedStatus",
+    "DefaultCompletedStatusMessage",
+    "BuildReadOnlySnapshotAsync",
+    "CanShowPerformanceOverlay() => _controlPanelClient.CanShowPerformanceOverlay()",
+    "CanApplyQuality() => _controlPanelClient.CanApplyQuality()",
+    "CanOpenSettings() => _controlPanelClient.CanOpenSettings()",
+    "BuildPerformanceOverlayReadyActionResult",
+    "BuildQualityAppliedActionResult",
+    "BuildSettingsReadyActionResult",
+    "DefaultPerformanceOverlayReadyStatus",
+    "DefaultQualityAppliedStatus",
+    "DefaultSettingsReadyStatus",
+    "PlanConnectionAsync",
+    "ChannelMappings",
+    "CoreChannelMappingResolver",
+    "CoreChannelKind.Realtime",
+    "CoreChannelKind.Telemetry",
+    "CoreChannelKind.Control",
+    "EncodeSbp2FrameAsync",
+    "RemoteDesktopControlFact",
+    # BATCH 2 (B2) — honest fail-closed Near/Far connection-mode status sourced from the
+    # backend (not a VM-local literal, not a transport claim).
+    "BuildNearFieldPendingStatus",
+    "DefaultNearFieldPendingStatus",
+    "BuildAdvancedConnectModeStatus"
+)) {
+    Assert-Contains -Text $remoteDesktop -Needle $signal -Message "RemoteDesktopWorkspaceClient missing Core remote desktop signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "RemoteDesktopWorkspaceClient" -Message "Architecture doc missing RemoteDesktopWorkspaceClient status."
+
+foreach ($signal in @(
+    "public interface IRemoteDesktopProfileCatalogClient",
+    "public sealed class RemoteDesktopProfileCatalogClient : IRemoteDesktopProfileCatalogClient",
+    "BuildReadOnlySnapshot",
+    "RemoteDesktopProfileCatalogSnapshot",
+    "DefaultBitrateProfile",
+    "DefaultFramerateProfile",
+    "BuildBitrateSelectionStatus",
+    "BuildFramerateSelectionStatus"
+)) {
+    Assert-Contains -Text $remoteDesktopProfileCatalog -Needle $signal -Message "RemoteDesktopProfileCatalogClient missing profile catalog signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "RemoteDesktopProfileCatalogClient" -Message "Architecture doc missing RemoteDesktopProfileCatalogClient status."
+
+foreach ($signal in @(
+    "public interface ISystemMonitorWorkspaceClient",
+    "public interface ISystemMonitorAdvancedModeClient",
+    "public sealed class InMemorySystemMonitorAdvancedModeClient : ISystemMonitorAdvancedModeClient",
+    "public sealed class SystemMonitorWorkspaceClient : ISystemMonitorWorkspaceClient",
+    "new InMemorySystemMonitorAdvancedModeClient()",
+    "BuildInitialStatus",
+    "DefaultInitialStatus",
+    "BuildPendingStatus",
+    "DefaultPendingStatus",
+    "BuildCompletedStatus",
+    "BuildCompletedStatusMessage",
+    "BuildDefaultCompletedStatus",
+    "DefaultCompletedStatusMessage",
+    "BuildReadOnlySnapshotAsync",
+    "Process.GetCurrentProcess",
+    "GC.GetGCMemoryInfo",
+    "DriveInfo.GetDrives",
+    "NetworkInterface.GetAllNetworkInterfaces",
+    "RuntimeInformation",
+    "MonitoringSessionSnapshot",
+    "SystemMonitorAdvancedModeSnapshot",
+    "DefaultStartMonitoringStartedStatus",
+    "DefaultStopMonitoringStoppedStatus",
+    "DefaultAdvancedMonitoringEnabledStatus",
+    "BuildStartMonitoringStartedActionResult",
+    "BuildStopMonitoringStoppedActionResult",
+    "BuildAdvancedMonitoringEnabledActionResult",
+    "CaptureMonitoringSample",
+    "BuildMonitoringDetail",
+    "BuildAdvancedMonitoringDetail",
+    "SystemMonitorMetric",
+    "SystemMonitorIndicator",
+    # BATCH 2 (B4) — REAL two-sample NetworkInterface byte-rate bandwidth sampler (Mbps), the
+    # honest unavailable Thermal tile (C14), and the partial-honest Insight rows (B5).
+    "CaptureBandwidthSample",
+    "GetIPv4Statistics",
+    "BytesReceived",
+    "BytesSent",
+    "Mbps",
+    "SystemMonitorInsight"
+)) {
+    Assert-Contains -Text $systemMonitor -Needle $signal -Message "SystemMonitorWorkspaceClient missing Windows diagnostics signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "SystemMonitorWorkspaceClient" -Message "Architecture doc missing SystemMonitorWorkspaceClient status."
+
+foreach ($signal in @(
+    "public interface ISettingsWorkspaceClient",
+    "public interface ISettingsExportPreviewClient",
+    "public interface ISettingsActionIntentClient",
+    "public sealed class InMemorySettingsExportPreviewClient : ISettingsExportPreviewClient",
+    "public sealed class InMemorySettingsActionIntentClient : ISettingsActionIntentClient",
+    "public sealed class SettingsWorkspaceClient : ISettingsWorkspaceClient",
+    "new InMemorySettingsExportPreviewClient()",
+    "new InMemorySettingsActionIntentClient()",
+    "_actionIntentClient",
+    "BuildInitialStatus",
+    "DefaultInitialStatus",
+    "BuildPendingStatus",
+    "DefaultPendingStatus",
+    "BuildCompletedStatus",
+    "BuildCompletedStatusMessage",
+    "BuildDefaultCompletedStatus",
+    "DefaultCompletedStatusMessage",
+    "BuildReadOnlySnapshotAsync",
+    "SettingsWorkspaceSnapshot",
+    "SettingsExportPreviewSnapshot",
+    "SettingsActionIntentSnapshot",
+    "SettingsTabItem",
+    "SettingsActionItem",
+    "SettingsDetailItem",
+    "DefaultExportSettingsPreviewReadyStatus",
+    "DefaultImportSettingsIntentReadyStatus",
+    "DefaultResetSettingsIntentReadyStatus",
+    "DefaultPermissionRequestIntentReadyStatus",
+    "DefaultApplySettingsIntentReadyStatus",
+    "DefaultRestoreDefaultsIntentReadyStatus",
+    "DefaultResetMonitorDataIntentReadyStatus",
+    "BuildExportPreviewReadyActionResult",
+    "BuildActionIntentReadyActionResult",
+    "BuildExportPreviewDetail",
+    "BuildActionIntentDetail",
+    "BuildLatestActionIntentDetail",
+    "NormalizeSettingsActionIntentId",
+    "NormalizeExportPreviewId",
+    "public interface ISystemPreferencesLauncher",
+    "public sealed class DisabledSystemPreferencesLauncher : ISystemPreferencesLauncher",
+    "public sealed class WindowsSystemPreferencesLauncher : ISystemPreferencesLauncher",
+    "CanOpenSystemPreferences() => _systemPreferencesLauncher.CanOpenSystemPreferences()",
+    "_systemPreferencesLauncher.OpenSystemPreferencesAsync()",
+    "ProcessStartInfo(SettingsUri)",
+    "ms-settings:",
+    "UseShellExecute = true",
+    "ExportSettings",
+    "ImportSettings",
+    "ResetSettings",
+    "ApplyFileTransferSettings",
+    "ApplyRemoteDesktopSettings",
+    "RestoreDefaults",
+    "ResetMonitorData",
+    "ClearHistoryData",
+    "defaultTransferPath",
+    "maxConcurrentConnections",
+    "currentConfig",
+    "videoQuality",
+    "refreshInterval",
+    "Disabled",
+    "Request Permission",
+    "Open System Preferences",
+    "Restore Defaults",
+    "PQC policy",
+    "Rust Core"
+)) {
+    Assert-Contains -Text $settings -Needle $signal -Message "SettingsWorkspaceClient missing Settings signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "SettingsWorkspaceClient" -Message "Architecture doc missing SettingsWorkspaceClient status."
+foreach ($signal in @(
+    "ISystemPreferencesLauncher",
+    "DisabledSystemPreferencesLauncher",
+    "WindowsSystemPreferencesLauncher",
+    "SKYBRIDGE_WINDOWS_SETTINGS_SYSTEM_PREFERENCES=enabled",
+    "ms-settings:"
+)) {
+    Assert-Contains -Text $architecture -Needle $signal -Message "Architecture doc missing Settings system-preferences launcher signal: $signal"
+}
+
+foreach ($signal in @(
+    "public interface IDashboardMetricsClient",
+    "public sealed class DashboardMetricsClient : IDashboardMetricsClient",
+    "BuildReadOnlySnapshot",
+    "DashboardMetricsRequest",
+    "DashboardMetricsSnapshot",
+    "DashboardMetric",
+    "Online Devices",
+    "Active Sessions",
+    "Transfer Tasks",
+    "Performance"
+)) {
+    Assert-Contains -Text $dashboardMetrics -Needle $signal -Message "DashboardMetricsClient missing dashboard parity signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "DashboardMetricsClient" -Message "Architecture doc missing DashboardMetricsClient status."
+
+foreach ($signal in @(
+    "public interface IFeatureCatalogClient",
+    "public sealed class FeatureCatalogClient : IFeatureCatalogClient",
+    "BuildReadOnlySnapshot",
+    "ResolveDefaultSelection",
+    "IsSelected",
+    "FeatureEntryId",
+    "public sealed record FeatureEntry",
+    "Entries",
+    "FeatureEntryId.Dashboard",
+    "FeatureEntryId.DeviceDiscovery",
+    "FeatureEntryId.UsbManagement",
+    "FeatureEntryId.FileTransfer",
+    "FeatureEntryId.RemoteDesktop",
+    "FeatureEntryId.SystemMonitor",
+    "FeatureEntryId.Settings"
+)) {
+    Assert-Contains -Text $featureCatalog -Needle $signal -Message "FeatureCatalogClient missing navigation parity signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "FeatureCatalogClient" -Message "Architecture doc missing FeatureCatalogClient status."
+
+foreach ($signal in @(
+    "public interface ITopBarStatusClient",
+    "public interface ITopBarNotificationCenterClient",
+    "public sealed class InMemoryTopBarNotificationCenterClient : ITopBarNotificationCenterClient",
+    "public interface ITopBarThemePreferenceClient",
+    "public sealed class InMemoryTopBarThemePreferenceClient : ITopBarThemePreferenceClient",
+    "public sealed class TopBarStatusClient : ITopBarStatusClient",
+    "NormalizeNotificationsStatus",
+    "OpenNotifications",
+    "BuildNextThemeStatus",
+    "NormalizeThemeStatus",
+    "BuildReadOnlySnapshot",
+    "BuildResolvedStatusSnapshot",
+    "BuildStatusUpdate",
+    "BuildDefaultStatusValue",
+    "ResolveStatusValue",
+    "BuildWorkspaceActionDetailSnapshot",
+    "DefaultNotificationsStatus",
+    "NotificationsViewedStatus",
+    "DefaultThemeStatus",
+    "DarkThemeStatus",
+    "LightThemeStatus",
+    "DefaultNotificationsOpenedMessage",
+    "BuildNotificationsOpenedActionResult",
+    "DefaultThemeUpdatedMessage",
+    "BuildThemeUpdatedActionResult",
+    "CanOpenNotifications() => _notificationCenterClient.CanOpenNotifications()",
+    "CanToggleTheme() => true",
+    "TopBarStatusRequest",
+    "TopBarStatusSnapshot",
+    "TopBarResolvedStatusSnapshot",
+    "TopBarStatusUpdateSnapshot",
+    "TopBarStatusItem",
+    "TopBarStatusSlot",
+    "TopBarStatusSlot.Connection",
+    "TopBarStatusSlot.Diagnostics",
+    "TopBarStatusSlot.Notifications",
+    "TopBarStatusSlot.Theme",
+    "NotificationsStatus",
+    "ThemeStatus",
+    "WorkspaceActionDetailSnapshot",
+    "ResolvedStatus",
+    "ActionDetails",
+    "Connection",
+    "FPS / Diagnostics",
+    "Notifications",
+    "Theme"
+)) {
+    Assert-Contains -Text $topBarStatus -Needle $signal -Message "TopBarStatusClient missing top-bar parity signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "TopBarStatusClient" -Message "Architecture doc missing TopBarStatusClient status."
+
+foreach ($signal in @(
+    "public interface ISessionStatusClient",
+    "public sealed class SessionStatusClient : ISessionStatusClient",
+    "SessionStatusAction",
+    "BuildInitialStatusMessage",
+    "BuildPendingStatus",
+    "BuildCompletedStatus",
+    "BuildEngineStateStatus",
+    "DefaultInitialStatusMessage",
+    "BuildDefaultPendingStatus",
+    "BuildDefaultCompletedStatus",
+    "BuildDefaultEngineStateStatus",
+    "EngineConnectionState.Connecting",
+    "EngineConnectionState.Connected",
+    "EngineConnectionState.Reconnecting",
+    "EngineConnectionState.ShuttingDown",
+    "Heartbeat acknowledged"
+)) {
+    Assert-Contains -Text $sessionStatus -Needle $signal -Message "SessionStatusClient missing session status signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "SessionStatusClient" -Message "Architecture doc missing SessionStatusClient status."
+
+foreach ($signal in @(
+    "public interface ISessionCommandStateClient",
+    "public sealed class SessionCommandStateClient : ISessionCommandStateClient",
+    "CanConnect",
+    "CanDisconnect",
+    "CanSendHeartbeat",
+    "BuildGateSnapshot",
+    "SessionCommandGateSnapshot",
+    "EngineConnectionState.Disconnected",
+    "EngineConnectionState.Connected",
+    "EngineConnectionState.Reconnecting"
+)) {
+    Assert-Contains -Text $sessionCommandState -Needle $signal -Message "SessionCommandStateClient missing session command gate signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "SessionCommandStateClient" -Message "Architecture doc missing SessionCommandStateClient status."
+
+foreach ($signal in @(
+    "public interface IWorkspaceCommandStateClient",
+    "public sealed class WorkspaceCommandStateClient : IWorkspaceCommandStateClient",
+    "WorkspaceCommandGateRequest",
+    "SessionCommandGateSnapshot",
+    "SessionGates",
+    "CanUseDeviceDiscovery",
+    "CanUseDeviceDiscoveryAction",
+    "CanUseCrossNetworkConnection",
+    "CanUseCrossNetworkConnectionAction",
+    "CanUseWorkspaceFeature",
+    "BuildActionGateSnapshot",
+    "WorkspaceActionGateSnapshot",
+    "request.CanUseDiscoveryBrowser",
+    "request.CanPrepareManualConnection",
+    "request.CanParseAdvertisement",
+    "request.CanValidatePairing",
+    "request.CanPrepareConnection",
+    "request.CanUseCrossNetworkConnection",
+    "request.CanScanQrCode",
+    "request.CanCopyConnectionCode",
+    "request.CanConnectConnectionCode"
+)) {
+    Assert-Contains -Text $workspaceCommandState -Needle $signal -Message "WorkspaceCommandStateClient missing workspace command gate signal: $signal"
+}
+
+Assert-Contains -Text $architecture -Needle "WorkspaceCommandStateClient" -Message "Architecture doc missing WorkspaceCommandStateClient status."
+
+Write-Output "windows-ffi-client: ok"

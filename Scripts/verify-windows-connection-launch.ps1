@@ -1,0 +1,973 @@
+param(
+    [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+)
+
+$ErrorActionPreference = "Stop"
+$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+
+function Assert-True {
+    param(
+        [bool]$Condition,
+        [string]$Message
+    )
+
+    if (-not $Condition) {
+        throw $Message
+    }
+}
+
+function Join-ProcessArguments {
+    param([string[]]$Arguments)
+
+    return ($Arguments | ForEach-Object {
+        if ($_ -match '[\s"]') {
+            '"' + ($_ -replace '"', '\"') + '"'
+        }
+        else {
+            $_
+        }
+    }) -join " "
+}
+
+function Invoke-NativeTool {
+    param(
+        [string]$FilePath,
+        [string[]]$Arguments,
+        [string]$FailureMessage
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.Arguments = Join-ProcessArguments -Arguments $Arguments
+    $startInfo.WorkingDirectory = (Get-Location).Path
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $process.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+
+    if (-not [string]::IsNullOrWhiteSpace($stdout)) {
+        Write-Output $stdout.TrimEnd()
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($stderr)) {
+        Write-Output $stderr.TrimEnd()
+    }
+
+    Assert-True -Condition ($process.ExitCode -eq 0) -Message $FailureMessage
+}
+
+$winClientProject = Join-Path $RepoRoot "windows/Skybridge.WinClient/Skybridge.WinClient.csproj"
+Assert-True -Condition (Test-Path -LiteralPath $winClientProject) -Message "Missing Windows client project: $winClientProject"
+$winClientProjectText = Get-Content -Raw -LiteralPath $winClientProject
+Assert-True -Condition $winClientProjectText.Contains('<Import Project="..\NativeCore.targets" />') -Message "WinClient must import the shared native Core build."
+$winClientProjectText += Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "windows/NativeCore.targets")
+foreach ($nativeArtifactSignal in @(
+    "BuildSkybridgeCoreNativeDll",
+    "cargo build --manifest-path",
+    "skybridge_core.dll",
+    "CopyToOutputDirectory=""PreserveNewest""",
+    "CopyToPublishDirectory=""PreserveNewest"""
+)) {
+    Assert-True `
+        -Condition $winClientProjectText.Contains($nativeArtifactSignal) `
+        -Message "WinClient project must build/copy the product skybridge_core.dll artifact; missing signal: $nativeArtifactSignal"
+}
+
+$sourceFiles = @(
+    "windows/Skybridge.WinClient/Services/CoreBridge.cs",
+    "windows/Skybridge.WinClient/Services/IEngineClient.cs",
+    "windows/Skybridge.WinClient/Services/FfiEngineClient.cs",
+    "windows/Skybridge.WinClient/Services/SkybridgeNativeLibraryResolver.cs",
+    "windows/Skybridge.WinClient/Services/DiscoveryClient.cs",
+    "windows/Skybridge.WinClient/Services/DiscoveryBrowserClient.cs",
+    "windows/Skybridge.WinClient/Services/DiscoveryPeerRoutes.cs",
+    "windows/Skybridge.WinClient/Services/ProductSessionActionTargetProjection.cs",
+    "windows/Skybridge.WinClient/Services/SkyBridgeProtocolConstants.cs",
+    "windows/Skybridge.WinClient/Services/NativeWindowsDnsSdBrowseClient.cs",
+    "windows/Skybridge.WinClient/Services/NativeWindowsDnsSdTxtRecordCodec.cs",
+    "windows/Skybridge.WinClient/Services/ManualConnectionClient.cs",
+    "windows/Skybridge.WinClient/Services/CrossNetworkConnectionCodePolicy.cs",
+    "windows/Skybridge.WinClient/Services/CrossNetworkConnectionClient.cs",
+    "windows/Skybridge.WinClient/Services/PairingMaterialClient.cs",
+    "windows/Skybridge.WinClient/Services/ConnectionLaunchRequest.cs",
+    "windows/Skybridge.WinClient/Services/WindowsTransportAdapterClient.cs",
+    "windows/Skybridge.WinClient/Services/ConnectionPreflightClient.cs",
+    "windows/Skybridge.WinClient/Services/ConnectionWorkspaceStateClient.cs"
+) | ForEach-Object { Join-Path $RepoRoot $_ }
+
+foreach ($sourceFile in $sourceFiles) {
+    Assert-True -Condition (Test-Path -LiteralPath $sourceFile) -Message "Missing Windows connection launch source file: $sourceFile"
+}
+
+$tempParent = [System.IO.Path]::GetTempPath()
+$tempRoot = Join-Path $tempParent ("skybridge-win-launch-smoke-" + [guid]::NewGuid().ToString("N"))
+$testProject = Join-Path $tempRoot "Skybridge.WinLaunchSmoke.csproj"
+$testProgram = Join-Path $tempRoot "Program.cs"
+
+try {
+    New-Item -ItemType Directory -Path $tempRoot | Out-Null
+
+    $programXml = [System.Security.SecurityElement]::Escape($testProgram)
+    $compileItems = @("    <Compile Include=""$programXml"" />")
+    foreach ($sourceFile in $sourceFiles) {
+        $sourceFileXml = [System.Security.SecurityElement]::Escape($sourceFile)
+        $compileItems += "    <Compile Include=""$sourceFileXml"" />"
+    }
+    $compileItemText = $compileItems -join "`r`n"
+
+    Set-Content -LiteralPath $testProject -Encoding UTF8 -Value @"
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+$compileItemText
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="QRCoder" Version="1.8.0" />
+  </ItemGroup>
+</Project>
+"@
+
+    Set-Content -LiteralPath $testProgram -Encoding UTF8 -Value @'
+using System.Globalization;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Skybridge.WinClient.Services;
+
+const string Fingerprint = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+
+var stateClient = new ConnectionWorkspaceStateClient();
+var peer = new DiscoveredPeer(
+    CoreDiscoveryServiceKind.QuicPrimary,
+    "mac-1",
+    "Desk Mac",
+    CorePeerPlatform.Apple,
+    "macOS",
+    Fingerprint,
+    "apple,webrtc,tcp,relay",
+    "1",
+    PeerCapabilities.Apple());
+var pairingMaterial = new PairingMaterial(
+    "mac-1",
+    "Desk Mac",
+    "macOS",
+    Fingerprint,
+    new byte[] { 1, 2, 3, 4, 5 },
+    true,
+    "smoke");
+
+ExpectThrows<InvalidOperationException>(
+    () => stateClient.BuildConnectionLaunchRequest(stateClient.BuildInputInvalidatedState()),
+    "Parse a Core-validated discovery TXT record before connection launch.");
+
+var candidate = WindowsDiscoveryBrowserClient.BuildDefaultPeerCandidate(peer);
+var discoveredState = stateClient.BuildDiscoveryPeerValidatedState(candidate);
+ExpectThrows<InvalidOperationException>(
+    () => stateClient.BuildConnectionLaunchRequest(discoveredState),
+    "Validate pairing material before connection launch.");
+
+var pairedState = stateClient.BuildPairingValidatedState(discoveredState, pairingMaterial);
+ExpectThrows<InvalidOperationException>(
+    () => stateClient.BuildConnectionLaunchRequest(pairedState),
+    "Prepare Core connection preflight before connection launch.");
+
+ExpectThrows<InvalidOperationException>(
+    () => stateClient.BuildConnectionLaunchRequest(
+        stateClient.BuildPreflightValidatedState(
+            pairedState,
+            BuildSnapshot(BuildPlan(peerDeviceId: "other-mac", fingerprint: Fingerprint, liveReady: false)))),
+    "Connection launch request peer does not match pairing material.");
+
+ExpectThrows<InvalidOperationException>(
+    () => stateClient.BuildConnectionLaunchRequest(
+        stateClient.BuildPreflightValidatedState(
+            pairedState,
+            BuildSnapshot(BuildPlan(peerDeviceId: "mac-1", fingerprint: "bad-fingerprint", liveReady: false)))),
+    "Connection launch request fingerprint does not match pairing material.");
+
+ExpectThrows<InvalidOperationException>(
+    () => stateClient.BuildConnectionLaunchRequest(
+        stateClient.BuildPreflightValidatedState(
+            pairedState,
+            BuildSnapshot(BuildPlan(peerDeviceId: "mac-1", fingerprint: Fingerprint, liveReady: false, digestLength: 31)))),
+    "Connection launch requires a 32-byte transport binding digest from Core preflight.");
+
+ExpectThrows<InvalidOperationException>(
+    () => stateClient.BuildConnectionLaunchRequest(
+        stateClient.BuildPreflightValidatedState(
+            pairedState,
+            BuildSnapshot(BuildPlan(peerDeviceId: "mac-1", fingerprint: Fingerprint, liveReady: false, channelMappings: Array.Empty<ChannelMapping>())))),
+    "Connection launch requires all five Core channel mappings from preflight.");
+
+ExpectThrows<InvalidOperationException>(
+    () => stateClient.BuildConnectionLaunchRequest(
+        stateClient.BuildPreflightValidatedState(
+            pairedState,
+            BuildSnapshot(BuildPlan(peerDeviceId: "mac-1", fingerprint: Fingerprint, liveReady: false, channelMappings: DuplicateChannelMappings())))),
+    "Connection launch Core channel mappings must not contain duplicate channels.");
+
+ExpectThrows<InvalidOperationException>(
+    () => stateClient.BuildConnectionLaunchRequest(
+        stateClient.BuildPreflightValidatedState(
+            pairedState,
+            BuildSnapshot(BuildPlan(peerDeviceId: "mac-1", fingerprint: Fingerprint, liveReady: false, channelMappings: AppleChannelMappings())))),
+    "which does not match WebRtcDataChannel.");
+
+ExpectThrows<InvalidOperationException>(
+    () => stateClient.BuildConnectionLaunchRequest(
+        stateClient.BuildPreflightValidatedState(
+            pairedState,
+            BuildSnapshot(BuildPlan(peerDeviceId: "mac-1", fingerprint: Fingerprint, liveReady: false, localEndpoint: "")))),
+    "Connection launch requires a local transport endpoint.");
+
+ExpectThrows<InvalidOperationException>(
+    () => stateClient.BuildConnectionLaunchRequest(
+        stateClient.BuildPreflightValidatedState(
+            pairedState,
+            BuildSnapshot(BuildPlan(peerDeviceId: "mac-1", fingerprint: Fingerprint, liveReady: false, timestampWindowMs: 0)))),
+    "Connection launch requires a non-zero transport timestamp window.");
+
+ExpectThrows<InvalidOperationException>(
+    () => stateClient.BuildConnectionLaunchRequest(
+        stateClient.BuildPreflightValidatedState(
+            pairedState,
+            BuildSnapshot(BuildPlan(
+                peerDeviceId: "mac-1",
+                fingerprint: Fingerprint,
+                liveReady: true,
+                transportKind: CoreTransportKind.AppleNative,
+                adapterKind: ConnectionLaunchAdapterKind.AppleNative,
+                adapterBinding: "apple native bypass")))),
+    "Windows connection launch must not use AppleNative transport; Apple-to-Apple stays on the Apple native path.");
+
+var preflightOnlyState = stateClient.BuildPreflightValidatedState(
+    pairedState,
+    BuildSnapshot(BuildPlan(peerDeviceId: "mac-1", fingerprint: Fingerprint, liveReady: false)));
+var preflightOnlyReadiness = stateClient.BuildLiveConnectionLaunchReadiness(preflightOnlyState);
+AssertEqual(false, preflightOnlyReadiness.IsReady, "preflight live launch readiness");
+AssertEqual(
+    "Connection launch requires a live Windows transport adapter; the current request is preflight-only.",
+    preflightOnlyReadiness.ErrorMessage,
+    "preflight live launch readiness message");
+var preflightOnlyRequest = stateClient.BuildConnectionLaunchRequest(preflightOnlyState);
+AssertEqual(ConnectionLaunchAdapterKind.WebRtcDataChannel, preflightOnlyRequest.Plan.AdapterKind, "adapter kind");
+AssertEqual("adapter pending", preflightOnlyRequest.Plan.AdapterBinding, "preflight adapter binding");
+AssertEqual(5, preflightOnlyRequest.Plan.ChannelMappings.Count, "preflight channel mapping count");
+AssertEqual(CoreChannelKind.Clipboard, preflightOnlyRequest.Plan.ChannelMappings[2].Channel, "preflight clipboard mapping");
+
+using (var preflightOnlyEngine = new FfiEngineClient())
+{
+    await ExpectThrowsAsync<NotSupportedException>(
+        () => preflightOnlyEngine.ConnectAsync(preflightOnlyRequest),
+        "Connection launch requires a live Windows transport adapter; the current request is preflight-only.");
+}
+
+var liveState = stateClient.BuildPreflightValidatedState(
+    pairedState,
+    BuildSnapshot(BuildPlan(peerDeviceId: "mac-1", fingerprint: Fingerprint, liveReady: true, adapterBinding: "smoke live adapter")));
+var liveReadiness = stateClient.BuildLiveConnectionLaunchReadiness(liveState);
+AssertEqual(true, liveReadiness.IsReady, "live adapter launch readiness");
+AssertEqual("", liveReadiness.ErrorMessage, "live adapter launch readiness message");
+stateClient.BuildConnectionLaunchRequest(liveState);
+
+using (var ffiEngine = new FfiEngineClient())
+using (var ffiPeerEngine = new FfiEngineClient())
+{
+    var ffiStates = new List<EngineConnectionState>();
+    ffiEngine.ConnectionStateChanged += (_, state) => ffiStates.Add(state);
+    var ffiPeerPublicKey = await ffiPeerEngine.GetLocalPublicKeyAsync();
+    var ffiFingerprint = Convert.ToHexString(SHA256.HashData(ffiPeerPublicKey)).ToLowerInvariant();
+    var ffiPairingMaterial = pairingMaterial with
+    {
+        PublicKeyFingerprint = ffiFingerprint,
+        PeerPublicKey = ffiPeerPublicKey,
+        Source = "ffi live smoke"
+    };
+    var ffiPairedState = stateClient.BuildPairingValidatedState(discoveredState, ffiPairingMaterial);
+    var ffiLiveState = stateClient.BuildPreflightValidatedState(
+        ffiPairedState,
+        BuildSnapshot(BuildPlan(
+            peerDeviceId: "mac-1",
+            fingerprint: ffiFingerprint,
+            liveReady: true,
+            adapterBinding: "ffi smoke live adapter",
+            localEndpoint: "windows-ffi.example:5443",
+            remoteEndpoint: "mac-ffi.example:5443",
+            selectedCandidatePair: "webrtc/ffi-smoke-selected",
+            relayId: "ffi-relay",
+            timestampWindowMs: 12_000)));
+    var ffiLiveRequest = stateClient.BuildConnectionLaunchRequest(ffiLiveState);
+
+    await ffiEngine.ConnectAsync(ffiLiveRequest);
+    AssertEqual(EngineConnectionState.Connected, ffiEngine.State, "ffi live adapter state");
+    await ffiEngine.SendHeartbeatAsync();
+    AssertEqual(EngineConnectionState.Connected, ffiEngine.State, "ffi heartbeat state");
+    await ffiEngine.DisconnectAsync();
+    AssertEqual(EngineConnectionState.Disconnected, ffiEngine.State, "ffi disconnect state");
+    AssertEqual(true, ffiStates.Contains(EngineConnectionState.Connecting), "ffi connecting event");
+    AssertEqual(true, ffiStates.Contains(EngineConnectionState.Connected), "ffi connected event");
+    AssertEqual(true, ffiStates.Contains(EngineConnectionState.Disconnected), "ffi disconnected event");
+}
+
+var recordingDiscovery = new RecordingDiscoveryClient(peer);
+var recordingDnsSd = new RecordingDnsSdBrowseClient(new WindowsDnsSdBrowseSnapshot(
+    new[]
+    {
+        new WindowsDnsSdResolvedTxtRecord(
+            "_skybridge._udp",
+            "deviceId=mac-1;pubKeyFP=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff;platform=macOS;capabilities=webrtc,tcp;name=Desk Mac;version=v1",
+            "Desk Mac",
+            "desk-mac.local",
+            11550)
+    },
+    new[]
+    {
+        new DiscoveryBrowserFact(
+            "Native browse",
+            "resolved",
+            "Injected DNS-SD smoke record; production provider must use DnsServiceBrowse/DnsServiceResolve.")
+    }));
+var discoveryBrowser = new WindowsDiscoveryBrowserClient(recordingDiscovery, recordingDnsSd);
+AssertEqual(true, typeof(IWindowsDnsSdBrowseClient).IsAssignableFrom(typeof(NativeWindowsDnsSdBrowseClient)), "native DNS-SD provider interface");
+var browserSnapshot = await discoveryBrowser.BuildReadOnlySnapshotAsync(
+    new DiscoveryBrowserRequest(
+        DiscoveryBrowserAction.Start,
+        "",
+        "",
+        "desk",
+        CompatibilityMode: false,
+        ExtendedSearchSeconds: 15));
+AssertEqual(1, recordingDnsSd.Requests.Count, "DNS-SD browse request count");
+AssertEqual(1, recordingDnsSd.CancellationTokens.Count, "DNS-SD browse cancellation token count");
+AssertEqual(true, recordingDnsSd.CancellationTokens[0].CanBeCanceled, "DNS-SD browse receives an owner-scoped cancellation token");
+AssertEqual("_skybridge._udp,_skybridge._tcp,_skybridge-xfer._tcp,_skybridge-rd._tcp,_skybridge-transfer._tcp,_skybridge-remote._tcp", string.Join(",", recordingDnsSd.Requests[0].QueryOrder), "DNS-SD query order");
+AssertEqual(1, recordingDiscovery.ParseCalls.Count, "discovery parser call count");
+AssertEqual("_skybridge._udp", recordingDiscovery.ParseCalls[0].Service, "discovery parser service");
+AssertEqual(1, browserSnapshot.Peers.Count, "DNS-SD Core-validated peer count");
+AssertContains(browserSnapshot.Peers[0].TrustSummary, "fingerprint only", "browser trust summary");
+AssertContains(
+    DiscoveryFact(browserSnapshot, "Core TXT parse").Detail,
+    "desk-mac.local:11550",
+    "Core TXT parse fact source");
+
+var macDiscoveredState = stateClient.BuildDiscoveryPeerValidatedState(browserSnapshot.Peers[0]);
+var macPairedState = stateClient.BuildPairingValidatedState(macDiscoveredState, pairingMaterial);
+var macPreflightSnapshot = await new ConnectionPreflightClient(new CoreBridge())
+    .BuildReadOnlySnapshotAsync(browserSnapshot.Peers[0].Peer, pairingMaterial);
+AssertEqual(CoreTransportKind.WebRtcDataChannel, macPreflightSnapshot.Plan.TransportKind, "mac DNS-SD preflight transport");
+AssertEqual(CoreTransportAuditCode.WebRtcInterop, macPreflightSnapshot.Plan.TransportAudit, "mac DNS-SD preflight transport audit");
+AssertEqual(ConnectionLaunchAdapterKind.WebRtcDataChannel, macPreflightSnapshot.Plan.AdapterKind, "mac DNS-SD preflight adapter");
+AssertEqual(false, macPreflightSnapshot.Plan.IsLiveAdapterReady, "mac DNS-SD preflight live adapter");
+AssertEqual("adapter pending", macPreflightSnapshot.Plan.AdapterBinding, "mac DNS-SD preflight adapter binding");
+AssertEqual(5, macPreflightSnapshot.Plan.ChannelMappings.Count, "mac DNS-SD preflight channel mapping count");
+AssertEqual(
+    false,
+    macPreflightSnapshot.Plan.ChannelMappings.Any(mapping =>
+        mapping.BindingKind == CoreAdapterBindingKind.AppleStream
+        || mapping.BindingKind == CoreAdapterBindingKind.AppleDatagram),
+    "mac DNS-SD preflight Apple-native channel mapping");
+AssertContains(PreflightFact(macPreflightSnapshot, "Transport plan").Detail, "WebRtcInterop", "mac DNS-SD preflight transport fact");
+var macLaunchState = stateClient.BuildPreflightValidatedState(macPairedState, macPreflightSnapshot);
+var macLaunchReadiness = stateClient.BuildLiveConnectionLaunchReadiness(macLaunchState);
+AssertEqual(false, macLaunchReadiness.IsReady, "mac DNS-SD live adapter launch readiness");
+AssertEqual(
+    "Connection launch requires a live Windows transport adapter; the current request is preflight-only.",
+    macLaunchReadiness.ErrorMessage,
+    "mac DNS-SD live adapter launch readiness message");
+
+var adapterRequest = new WindowsTransportAdapterRequest(
+    peer,
+    pairingMaterial,
+    CoreTransportKind.WebRtcDataChannel,
+    CoreTransportAuditCode.WebRtcInterop,
+    RelayRequired: false,
+    RelayAllowed: true,
+    PeerCapabilities.Windows(),
+    peer.Capabilities,
+    NetworkPath.CrossNatPath());
+var pendingAdapter = await new PendingWindowsTransportAdapterClient().PrepareAsync(adapterRequest);
+AssertEqual(false, pendingAdapter.IsLiveAdapterReady, "pending adapter live readiness");
+AssertEqual("adapter pending", pendingAdapter.AdapterBinding, "pending adapter binding");
+AssertEqual("windows-preflight.local:443", pendingAdapter.LocalEndpoint, "pending adapter local endpoint");
+AssertEqual("WebRtcDataChannel/preflight-candidate", pendingAdapter.SelectedCandidatePair, "pending adapter candidate");
+AssertEqual(32, pendingAdapter.TransportSecretFingerprint.Length, "pending adapter secret fingerprint length");
+AssertEqual(32, pendingAdapter.CapabilityDigest.Length, "pending adapter capability digest length");
+var pendingBindingMaterial = pendingAdapter.BuildTransportBindingMaterial(CoreTransportKind.WebRtcDataChannel);
+AssertEqual("windows-preflight.local:443", pendingBindingMaterial.LocalEndpoint, "pending binding local endpoint");
+
+await ExpectThrowsAsync<InvalidOperationException>(
+    () => new PendingWindowsTransportAdapterClient().PrepareAsync(
+        adapterRequest with
+        {
+            TransportKind = CoreTransportKind.AppleNative,
+            TransportAudit = CoreTransportAuditCode.AppleNativeDefault
+        }),
+    "Windows transport adapter must not select AppleNative");
+
+ExpectThrows<InvalidOperationException>(
+    () => pendingAdapter.BuildTransportBindingMaterial(CoreTransportKind.AppleNative),
+    "Windows transport adapter must not select AppleNative");
+
+ExpectThrows<InvalidOperationException>(
+    () => (pendingAdapter with { AdapterKind = ConnectionLaunchAdapterKind.AppleNative })
+        .BuildTransportBindingMaterial(CoreTransportKind.WebRtcDataChannel),
+    "Windows transport adapter must not select AppleNative");
+
+var externalAdapter = await new ExternalWindowsTransportAdapterClient(
+    new WindowsExternalTransportAdapterOptions(
+        ConnectionLaunchAdapterKind.WebRtcDataChannel,
+        "external webrtc datachannel",
+        "windows.example:5443",
+        "mac.example:5443",
+        "webrtc/dtls/sctp-selected",
+        Enumerable.Repeat((byte)0x42, 32).ToArray(),
+        Enumerable.Repeat((byte)0x24, 32).ToArray(),
+        "relay-1",
+        12_000)).PrepareAsync(adapterRequest);
+AssertEqual(true, externalAdapter.IsLiveAdapterReady, "external adapter live readiness");
+AssertEqual("external webrtc datachannel", externalAdapter.AdapterBinding, "external adapter binding");
+AssertEqual("windows.example:5443", externalAdapter.LocalEndpoint, "external adapter local endpoint");
+AssertEqual("mac.example:5443", externalAdapter.RemoteEndpoint, "external adapter remote endpoint");
+AssertEqual("webrtc/dtls/sctp-selected", externalAdapter.SelectedCandidatePair, "external adapter candidate");
+AssertEqual("relay-1", externalAdapter.RelayId, "external adapter relay");
+AssertEqual((ulong)12_000, externalAdapter.TimestampWindowMs, "external adapter timestamp window");
+AssertEqual(32, externalAdapter.TransportSecretFingerprint.Length, "external adapter secret fingerprint length");
+AssertEqual(32, externalAdapter.CapabilityDigest.Length, "external adapter capability digest length");
+var externalBindingMaterial = externalAdapter.BuildTransportBindingMaterial(CoreTransportKind.WebRtcDataChannel);
+AssertEqual("windows.example:5443", externalBindingMaterial.LocalEndpoint, "external binding local endpoint");
+
+var verifiedProofPath = WriteVerifiedWebRtcProof("webrtc-proof-valid.json", Fingerprint);
+var verifiedAdapter = await new VerifiedWebRtcDataChannelTransportAdapterClient(
+    new WindowsVerifiedWebRtcDataChannelOptions(verifiedProofPath, 60_000))
+    .PrepareAsync(adapterRequest);
+AssertEqual(true, verifiedAdapter.IsLiveAdapterReady, "verified WebRTC adapter live readiness");
+AssertEqual(ConnectionLaunchAdapterKind.WebRtcDataChannel, verifiedAdapter.AdapterKind, "verified WebRTC adapter kind");
+AssertEqual("verified webrtc datachannel helper", verifiedAdapter.AdapterBinding, "verified WebRTC adapter binding");
+AssertEqual("windows.lan:5443", verifiedAdapter.LocalEndpoint, "verified WebRTC local endpoint");
+AssertEqual("mac.lan:5443", verifiedAdapter.RemoteEndpoint, "verified WebRTC remote endpoint");
+AssertEqual("webrtc/dtls/sctp/helper-selected", verifiedAdapter.SelectedCandidatePair, "verified WebRTC selected candidate pair");
+AssertEqual("relay-helper", verifiedAdapter.RelayId, "verified WebRTC relay");
+AssertEqual((ulong)15_000, verifiedAdapter.TimestampWindowMs, "verified WebRTC timestamp window");
+AssertContains(verifiedAdapter.Facts[0].Detail, "SBF1", "verified WebRTC SBF1 proof fact");
+var verifiedBindingMaterial = verifiedAdapter.BuildTransportBindingMaterial(CoreTransportKind.WebRtcDataChannel);
+AssertEqual("windows.lan:5443", verifiedBindingMaterial.LocalEndpoint, "verified WebRTC binding local endpoint");
+
+await ExpectThrowsAsync<InvalidOperationException>(
+    () => new VerifiedWebRtcDataChannelTransportAdapterClient(
+        new WindowsVerifiedWebRtcDataChannelOptions(verifiedProofPath, 60_000))
+        .PrepareAsync(
+            adapterRequest with
+            {
+                TransportKind = CoreTransportKind.AppleNative,
+                TransportAudit = CoreTransportAuditCode.AppleNativeDefault
+            }),
+    "Windows verified WebRTC adapter must not select AppleNative");
+
+await ExpectThrowsAsync<InvalidOperationException>(
+    () => new VerifiedWebRtcDataChannelTransportAdapterClient(
+        new WindowsVerifiedWebRtcDataChannelOptions(
+            WriteVerifiedWebRtcProof("webrtc-proof-stale.json", Fingerprint, capturedAtUnixMs: DateTimeOffset.UtcNow.AddMinutes(-2).ToUnixTimeMilliseconds()),
+            1_000))
+        .PrepareAsync(adapterRequest),
+    "Windows verified WebRTC adapter proof is stale or from the future.");
+
+await ExpectThrowsAsync<InvalidOperationException>(
+    () => new VerifiedWebRtcDataChannelTransportAdapterClient(
+        new WindowsVerifiedWebRtcDataChannelOptions(
+            WriteVerifiedWebRtcProof("webrtc-proof-bad-fingerprint.json", new string('f', 64)),
+            60_000))
+        .PrepareAsync(adapterRequest),
+    "Windows verified WebRTC adapter proof fingerprint does not match pairing material.");
+
+await ExpectThrowsAsync<InvalidOperationException>(
+    () => new VerifiedWebRtcDataChannelTransportAdapterClient(
+        new WindowsVerifiedWebRtcDataChannelOptions(
+            WriteVerifiedWebRtcProof("webrtc-proof-no-sbf1.json", Fingerprint, sbf1EchoVerified: false),
+            60_000))
+        .PrepareAsync(adapterRequest),
+    "Windows verified WebRTC adapter proof must confirm an SBF1 echo frame.");
+
+ExpectThrows<InvalidOperationException>(
+    () => new WindowsVerifiedWebRtcDataChannelOptions("", 60_000),
+    "Windows verified WebRTC adapter requires a proof file path.");
+
+ExpectThrows<InvalidOperationException>(
+    () => new WindowsExternalTransportAdapterOptions(
+        ConnectionLaunchAdapterKind.AppleNative,
+        "apple native is forbidden",
+        "windows.example:5443",
+        "mac.example:5443",
+        "apple-native",
+        Enumerable.Repeat((byte)0x42, 32).ToArray(),
+        Enumerable.Repeat((byte)0x24, 32).ToArray(),
+        null,
+        12_000),
+    "Windows external adapter must not select AppleNative");
+
+await ExpectThrowsAsync<InvalidOperationException>(
+    () => new ExternalWindowsTransportAdapterClient(
+        new WindowsExternalTransportAdapterOptions(
+            ConnectionLaunchAdapterKind.None,
+            "apple native selected by core is forbidden",
+            "windows.example:5443",
+            "mac.example:5443",
+            "apple-native",
+            Enumerable.Repeat((byte)0x42, 32).ToArray(),
+            Enumerable.Repeat((byte)0x24, 32).ToArray(),
+            null,
+            12_000)).PrepareAsync(
+                adapterRequest with
+                {
+                    TransportKind = CoreTransportKind.AppleNative,
+                    TransportAudit = CoreTransportAuditCode.AppleNativeDefault
+                }),
+    "Windows external adapter must not select AppleNative");
+
+var crossNetworkClient = new CrossNetworkConnectionClient();
+var generatedQrSnapshot = await crossNetworkClient.BuildReadOnlySnapshotAsync(
+    new CrossNetworkConnectionRequest(
+        CrossNetworkConnectionAction.GenerateQrCode,
+        "",
+        "",
+        ""));
+AssertEqual("Waiting for connection...", generatedQrSnapshot.Status, "generated QR status");
+AssertEqual(true, !string.IsNullOrWhiteSpace(generatedQrSnapshot.GeneratedQrCodePayload), "generated QR payload");
+AssertEqual(true, generatedQrSnapshot.GeneratedQrCodePayload!.StartsWith("skybridge://connect?data=", StringComparison.Ordinal), "generated QR payload URI");
+AssertEqual(true, !string.IsNullOrWhiteSpace(generatedQrSnapshot.GeneratedQrCodePngBase64), "generated QR PNG base64");
+var generatedQrPng = Convert.FromBase64String(generatedQrSnapshot.GeneratedQrCodePngBase64!);
+AssertEqual(true, generatedQrPng.Length > 32, "generated QR PNG length");
+AssertEqual((byte)0x89, generatedQrPng[0], "generated QR PNG signature byte 0");
+AssertEqual((byte)0x50, generatedQrPng[1], "generated QR PNG signature byte 1");
+AssertEqual((byte)0x4E, generatedQrPng[2], "generated QR PNG signature byte 2");
+AssertEqual((byte)0x47, generatedQrPng[3], "generated QR PNG signature byte 3");
+AssertEqual("ready", Fact(generatedQrSnapshot, "Dynamic Encrypted QR Code").Value, "generated QR readiness fact");
+AssertContains(Fact(generatedQrSnapshot, "QR bitmap").Detail, "QRCoder", "generated QR bitmap detail");
+AssertEqual("idle", Fact(generatedQrSnapshot, "CrossNetworkReadiness").Value, "generated QR transport readiness");
+AssertContains(Fact(generatedQrSnapshot, "Safety").Detail, "No signaling WebSocket", "generated QR safety");
+var scannedGeneratedQrSnapshot = await crossNetworkClient.BuildReadOnlySnapshotAsync(
+    new CrossNetworkConnectionRequest(
+        CrossNetworkConnectionAction.ScanQrCode,
+        generatedQrSnapshot.GeneratedQrCodePayload!,
+        "",
+        ""));
+AssertEqual("QR signature verified", scannedGeneratedQrSnapshot.Status, "generated QR scan status");
+AssertEqual("QRCodeSignatureEnvelope", Fact(scannedGeneratedQrSnapshot, "QR schema").Value, "generated QR scan schema");
+AssertEqual("verified", Fact(scannedGeneratedQrSnapshot, "Signature").Value, "generated QR scan signature fact");
+
+var verifiedDynamicSnapshot = await crossNetworkClient.BuildReadOnlySnapshotAsync(
+    new CrossNetworkConnectionRequest(
+        CrossNetworkConnectionAction.ScanQrCode,
+        BuildDynamicQrInput(includeSignedOsVersion: true, tamperDeviceName: false),
+        "",
+        ""));
+AssertEqual("QR signature verified", verifiedDynamicSnapshot.Status, "dynamic QR verified status");
+AssertEqual("DynamicQRCodeData", Fact(verifiedDynamicSnapshot, "QR schema").Value, "dynamic QR schema");
+AssertEqual("verified", Fact(verifiedDynamicSnapshot, "Signature").Value, "dynamic QR signature fact");
+AssertContains(Fact(verifiedDynamicSnapshot, "Signature").Detail, "P256 dynamic canonical signature verified", "dynamic QR signature detail");
+
+var unverifiableDynamicSnapshot = await crossNetworkClient.BuildReadOnlySnapshotAsync(
+    new CrossNetworkConnectionRequest(
+        CrossNetworkConnectionAction.ScanQrCode,
+        BuildDynamicQrInput(includeSignedOsVersion: false, tamperDeviceName: false),
+        "",
+        ""));
+AssertEqual("QR payload validated", unverifiableDynamicSnapshot.Status, "dynamic QR unverifiable status");
+AssertEqual("unverifiable", Fact(unverifiableDynamicSnapshot, "Signature").Value, "dynamic QR unverifiable signature fact");
+AssertContains(Fact(unverifiableDynamicSnapshot, "Signature").Detail, "generator osVersion", "dynamic QR unverifiable detail");
+
+await ExpectThrowsAsync<InvalidOperationException>(
+    () => crossNetworkClient.BuildReadOnlySnapshotAsync(
+        new CrossNetworkConnectionRequest(
+            CrossNetworkConnectionAction.ScanQrCode,
+            BuildDynamicQrInput(includeSignedOsVersion: true, tamperDeviceName: true),
+            "",
+            "")),
+    "QR dynamic canonical signature verification failed.");
+
+AssertEqual("Validating code...", crossNetworkClient.BuildPendingStatus(CrossNetworkConnectionAction.ConnectWithCode), "smart-code connect pending status");
+AssertEqual(true, crossNetworkClient.CanConnectWithCode("abc234"), "smart-code connect readiness");
+AssertEqual(true, crossNetworkClient.CanConnectWithCode("abc234de"), "preferred smart-code connect readiness");
+AssertEqual(false, crossNetworkClient.CanConnectWithCode("abc23"), "short smart-code connect readiness");
+AssertEqual(false, crossNetworkClient.CanConnectWithCode("abc234d"), "unsupported seven-character smart-code connect readiness");
+AssertEqual(true, crossNetworkClient.CanConnectWithCode("abc234defghjklmno"), "mac-compatible max-length smart-code truncation readiness");
+var codeConnectSnapshot = await crossNetworkClient.BuildReadOnlySnapshotAsync(
+    new CrossNetworkConnectionRequest(
+        CrossNetworkConnectionAction.ConnectWithCode,
+        "",
+        "abc234",
+        ""));
+AssertEqual("Code envelope validated", codeConnectSnapshot.Status, "smart-code connect status");
+AssertEqual("ABC234", codeConnectSnapshot.GeneratedCode, "smart-code connect normalized code");
+AssertEqual("idle", Fact(codeConnectSnapshot, "CrossNetworkReadiness").Value, "smart-code connect readiness fact");
+AssertContains(Fact(codeConnectSnapshot, "CrossNetworkReadiness").Detail, "No transportReady", "smart-code connect readiness detail");
+AssertContains(Fact(codeConnectSnapshot, "Connect").Detail, "no WebRTC join is started", "smart-code connect detail");
+AssertContains(Fact(codeConnectSnapshot, "Safety").Detail, "No signaling room join", "smart-code connect safety");
+AssertContains(Fact(codeConnectSnapshot, "Safety").Detail, "FfiEngineClient", "smart-code connect ffi safety");
+await ExpectThrowsAsync<InvalidOperationException>(
+    () => crossNetworkClient.BuildReadOnlySnapshotAsync(
+        new CrossNetworkConnectionRequest(
+            CrossNetworkConnectionAction.ConnectWithCode,
+            "",
+            "abc23",
+            "")),
+    "Connection Code must be 6 or 8-16 characters from ABCDEFGHJKLMNPQRSTUVWXYZ23456789.");
+
+Console.WriteLine("windows-connection-launch-smoke: ok");
+
+static ConnectionPreflightSnapshot BuildSnapshot(ConnectionPreflightPlan plan) =>
+    new(DateTimeOffset.UnixEpoch, plan, Array.Empty<ConnectionPreflightFact>());
+
+static string WriteVerifiedWebRtcProof(
+    string fileName,
+    string fingerprint,
+    bool dataChannelOpen = true,
+    bool sbf1EchoVerified = true,
+    long? capturedAtUnixMs = null)
+{
+    var proofPath = Path.Combine(AppContext.BaseDirectory, fileName);
+    File.WriteAllText(
+        proofPath,
+        $$"""
+        {
+          "helperName": "skybridge-webrtc-helper-smoke",
+          "peerDeviceId": "mac-1",
+          "peerPublicKeyFingerprint": "{{fingerprint}}",
+          "dataChannelOpen": {{dataChannelOpen.ToString().ToLowerInvariant()}},
+          "sbf1EchoVerified": {{sbf1EchoVerified.ToString().ToLowerInvariant()}},
+          "sbf1FrameMagic": "SBF1",
+          "adapterBinding": "verified webrtc datachannel helper",
+          "localEndpoint": "windows.lan:5443",
+          "remoteEndpoint": "mac.lan:5443",
+          "selectedCandidatePair": "webrtc/dtls/sctp/helper-selected",
+          "transportSecretFingerprintHex": "{{new string('6', 64)}}",
+          "capabilityDigestHex": "{{new string('7', 64)}}",
+          "relayId": "relay-helper",
+          "timestampWindowMs": 15000,
+          "capturedAtUnixMs": {{capturedAtUnixMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}}
+        }
+        """);
+    return proofPath;
+}
+
+static ConnectionPreflightPlan BuildPlan(
+    string peerDeviceId,
+    string fingerprint,
+    bool liveReady,
+    int digestLength = 32,
+    string adapterBinding = "adapter pending",
+    string localEndpoint = "windows-preflight.local:443",
+    string remoteEndpoint = "mac-1.skybridge-preflight.local:443",
+    string selectedCandidatePair = "WebRtcDataChannel/preflight-candidate",
+    string? relayId = null,
+    ulong timestampWindowMs = 10_000,
+    CoreTransportKind transportKind = CoreTransportKind.WebRtcDataChannel,
+    ConnectionLaunchAdapterKind adapterKind = ConnectionLaunchAdapterKind.WebRtcDataChannel,
+    IReadOnlyList<ChannelMapping>? channelMappings = null) =>
+    new(
+        peerDeviceId,
+        fingerprint,
+        transportKind,
+        CoreTransportAuditCode.WebRtcInterop,
+        RelayRequired: false,
+        RelayAllowed: true,
+        CoreCryptoSuiteKind.XWingHybrid,
+        0x0001,
+        CoreCryptoSuiteAuditCode.HybridPqcPreferred,
+        Sbp2Enabled: true,
+        (nuint)1024,
+        (nuint)20,
+        channelMappings ?? DefaultChannelMappings(),
+        Enumerable.Range(0, digestLength).Select(value => (byte)value).ToArray(),
+        adapterKind,
+        liveReady,
+        adapterBinding,
+        localEndpoint,
+        remoteEndpoint,
+        selectedCandidatePair,
+        relayId,
+        timestampWindowMs);
+
+static IReadOnlyList<ChannelMapping> DefaultChannelMappings() =>
+    new[]
+    {
+        new ChannelMapping(CoreChannelKind.Control, CoreReliabilityKind.ReliableOrdered, 0, CoreAdapterBindingKind.WebRtcDataChannel, true),
+        new ChannelMapping(CoreChannelKind.File, CoreReliabilityKind.ReliableOrdered, 0, CoreAdapterBindingKind.WebRtcDataChannel, true),
+        new ChannelMapping(CoreChannelKind.Clipboard, CoreReliabilityKind.ReliableOrdered, 0, CoreAdapterBindingKind.WebRtcDataChannel, true),
+        new ChannelMapping(CoreChannelKind.Telemetry, CoreReliabilityKind.ReliableUnordered, 0, CoreAdapterBindingKind.WebRtcDataChannel, true),
+        new ChannelMapping(CoreChannelKind.Realtime, CoreReliabilityKind.PartialReliable, 1, CoreAdapterBindingKind.WebRtcDataChannel, true)
+    };
+
+static IReadOnlyList<ChannelMapping> DuplicateChannelMappings()
+{
+    var mappings = DefaultChannelMappings().ToArray();
+    mappings[4] = mappings[0];
+    return mappings;
+}
+
+static IReadOnlyList<ChannelMapping> AppleChannelMappings() =>
+    new[]
+    {
+        new ChannelMapping(CoreChannelKind.Control, CoreReliabilityKind.ReliableOrdered, 0, CoreAdapterBindingKind.AppleStream, false),
+        new ChannelMapping(CoreChannelKind.File, CoreReliabilityKind.ReliableOrdered, 0, CoreAdapterBindingKind.AppleStream, false),
+        new ChannelMapping(CoreChannelKind.Clipboard, CoreReliabilityKind.ReliableOrdered, 0, CoreAdapterBindingKind.AppleStream, false),
+        new ChannelMapping(CoreChannelKind.Telemetry, CoreReliabilityKind.ReliableUnordered, 0, CoreAdapterBindingKind.AppleDatagram, true),
+        new ChannelMapping(CoreChannelKind.Realtime, CoreReliabilityKind.PartialReliable, 1, CoreAdapterBindingKind.AppleDatagram, true)
+    };
+
+static string BuildDynamicQrInput(bool includeSignedOsVersion, bool tamperDeviceName)
+{
+    const string sessionId = "smoke-session";
+    const string deviceName = "Desk Mac";
+    const string deviceFingerprint = "0011223344556677";
+    const string osVersion = "Version 15.5 (Build 24F74)";
+    var timestampText = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0)
+        .ToString("F3", CultureInfo.InvariantCulture);
+    var expiresText = ((DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeMilliseconds() / 1000.0) - 978_307_200.0)
+        .ToString("F3", CultureInfo.InvariantCulture);
+    var agreementPublicKey = Enumerable.Range(1, 32).Select(value => (byte)value).ToArray();
+
+    using var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+    var signingPublicKey = ExportP256PublicKey(signingKey);
+    var signingFingerprint = Convert.ToHexString(SHA256.HashData(signingPublicKey)).ToLowerInvariant();
+    var canonical = BuildMacDynamicQrCanonical(
+        deviceFingerprint,
+        deviceName,
+        osVersion,
+        timestampText,
+        signingFingerprint);
+    var signature = signingKey.SignData(
+        Encoding.UTF8.GetBytes(canonical),
+        HashAlgorithmName.SHA256,
+        DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+
+    using var jsonStream = new MemoryStream();
+    using (var writer = new Utf8JsonWriter(jsonStream))
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("version", 2);
+        writer.WriteString("sessionID", sessionId);
+        writer.WriteString("deviceName", tamperDeviceName ? "Desk Mac Tampered" : deviceName);
+        writer.WriteString("deviceFingerprint", deviceFingerprint);
+        writer.WriteString("publicKey", Convert.ToBase64String(agreementPublicKey));
+        writer.WriteString("signingPublicKey", Convert.ToBase64String(signingPublicKey));
+        writer.WriteString("signature", Convert.ToBase64String(signature));
+        writer.WritePropertyName("signatureTimestamp");
+        writer.WriteRawValue(timestampText);
+        writer.WriteStartArray("iceServers");
+        writer.WriteStringValue("stun:stun.l.google.com:19302");
+        writer.WriteEndArray();
+        writer.WritePropertyName("expiresAt");
+        writer.WriteRawValue(expiresText);
+        if (includeSignedOsVersion)
+        {
+            writer.WriteString("osVersion", osVersion);
+        }
+
+        writer.WriteEndObject();
+    }
+
+    return "skybridge://connect/" + Base64UrlEncode(jsonStream.ToArray());
+}
+
+static string BuildMacDynamicQrCanonical(
+    string deviceFingerprint,
+    string deviceName,
+    string osVersion,
+    string timestampText,
+    string signingFingerprint) =>
+    $"id={deviceFingerprint}|name={deviceName}|type=macOS|address=0.0.0.0|port=0|os={osVersion}|cap=p2p,cross-network|ts={timestampText}|fp={signingFingerprint}";
+
+static byte[] ExportP256PublicKey(ECDsa signingKey)
+{
+    var parameters = signingKey.ExportParameters(false);
+    if (parameters.Q.X is null || parameters.Q.Y is null)
+    {
+        throw new InvalidOperationException("P256 smoke key is missing public coordinates.");
+    }
+
+    var publicKey = new byte[65];
+    publicKey[0] = 0x04;
+    parameters.Q.X.CopyTo(publicKey.AsSpan(1, 32));
+    parameters.Q.Y.CopyTo(publicKey.AsSpan(33, 32));
+    return publicKey;
+}
+
+static string Base64UrlEncode(byte[] value) =>
+    Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+static CrossNetworkConnectionFact Fact(CrossNetworkConnectionSnapshot snapshot, string label) =>
+    snapshot.Facts.Single(fact => string.Equals(fact.Label, label, StringComparison.Ordinal));
+
+static DiscoveryBrowserFact DiscoveryFact(DiscoveryBrowserSnapshot snapshot, string label) =>
+    snapshot.Facts.Single(fact => string.Equals(fact.Label, label, StringComparison.Ordinal));
+
+static ConnectionPreflightFact PreflightFact(ConnectionPreflightSnapshot snapshot, string label) =>
+    snapshot.Facts.Single(fact => string.Equals(fact.Label, label, StringComparison.Ordinal));
+
+static void ExpectThrows<T>(Action action, string messageFragment)
+    where T : Exception
+{
+    try
+    {
+        action();
+    }
+    catch (T ex) when (ex.Message.Contains(messageFragment, StringComparison.Ordinal))
+    {
+        return;
+    }
+    catch (Exception ex)
+    {
+        throw new InvalidOperationException(
+            $"Expected {typeof(T).Name} containing '{messageFragment}', got {ex.GetType().Name}: {ex.Message}");
+    }
+
+    throw new InvalidOperationException($"Expected {typeof(T).Name} containing '{messageFragment}'.");
+}
+
+static async Task ExpectThrowsAsync<T>(Func<Task> action, string messageFragment)
+    where T : Exception
+{
+    try
+    {
+        await action();
+    }
+    catch (T ex) when (ex.Message.Contains(messageFragment, StringComparison.Ordinal))
+    {
+        return;
+    }
+    catch (Exception ex)
+    {
+        throw new InvalidOperationException(
+            $"Expected {typeof(T).Name} containing '{messageFragment}', got {ex.GetType().Name}: {ex.Message}");
+    }
+
+    throw new InvalidOperationException($"Expected {typeof(T).Name} containing '{messageFragment}'.");
+}
+
+static void AssertEqual<T>(T expected, T actual, string label)
+{
+    if (!EqualityComparer<T>.Default.Equals(expected, actual))
+    {
+        throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
+    }
+}
+
+static void AssertContains(string text, string expected, string label)
+{
+    if (!text.Contains(expected, StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException($"{label}: expected '{text}' to contain '{expected}'.");
+    }
+}
+
+sealed class RecordingDnsSdBrowseClient : IWindowsDnsSdBrowseClient
+{
+    private readonly WindowsDnsSdBrowseSnapshot _snapshot;
+
+    public RecordingDnsSdBrowseClient(WindowsDnsSdBrowseSnapshot snapshot)
+    {
+        _snapshot = snapshot;
+    }
+
+    public List<WindowsDnsSdBrowseRequest> Requests { get; } = new();
+
+    public List<CancellationToken> CancellationTokens { get; } = new();
+
+    public Task<WindowsDnsSdBrowseSnapshot> BrowseAsync(
+        WindowsDnsSdBrowseRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Requests.Add(request);
+        CancellationTokens.Add(cancellationToken);
+        return Task.FromResult(_snapshot);
+    }
+}
+
+sealed class RecordingDiscoveryClient : IDiscoveryClient
+{
+    private readonly DiscoveredPeer _peer;
+
+    public RecordingDiscoveryClient(DiscoveredPeer peer)
+    {
+        _peer = peer;
+    }
+
+    public List<(string Service, string TxtRecord)> ParseCalls { get; } = new();
+
+    public string BuildPendingStatus() => "Parsing...";
+
+    public bool CanParseAdvertisement(string service, string txtRecord) =>
+        !string.IsNullOrWhiteSpace(service) && !string.IsNullOrWhiteSpace(txtRecord);
+
+    public Task<DiscoveredPeer> ParseAdvertisementAsync(string service, string txtRecord)
+    {
+        ParseCalls.Add((service, txtRecord));
+        return Task.FromResult(_peer);
+    }
+}
+'@
+
+    $nativeCoreManifest = Join-Path $RepoRoot "core/skybridge-core/Cargo.toml"
+    $nativeCoreTargetDir = Join-Path $tempRoot "cargo-target"
+    $nativeCoreDebugDir = Join-Path $nativeCoreTargetDir "debug"
+    $nativeCoreDll = Join-Path $nativeCoreDebugDir "skybridge_core.dll"
+    Assert-True -Condition (Test-Path -LiteralPath $nativeCoreManifest) -Message "Missing Rust core manifest: $nativeCoreManifest"
+    if (-not (Test-Path -LiteralPath $nativeCoreDll)) {
+        Invoke-NativeTool `
+            -FilePath "cargo" `
+            -Arguments @("build", "--locked", "--manifest-path", $nativeCoreManifest, "--target-dir", $nativeCoreTargetDir) `
+            -FailureMessage "Rust core native DLL build failed."
+        Assert-True -Condition (Test-Path -LiteralPath $nativeCoreDll) -Message "Rust core native DLL missing after build: $nativeCoreDll"
+    }
+
+    Invoke-NativeTool `
+        -FilePath "dotnet" `
+        -Arguments @("restore", $testProject) `
+        -FailureMessage "Windows connection launch smoke restore failed."
+
+    Invoke-NativeTool `
+        -FilePath "dotnet" `
+        -Arguments @("build", $testProject, "--no-restore") `
+        -FailureMessage "Windows connection launch smoke build failed."
+
+    $testOutputDir = Join-Path $tempRoot "bin/Debug/net10.0"
+    $nativeCoreOutputDll = Join-Path $testOutputDir "skybridge_core.dll"
+    Assert-True -Condition (Test-Path -LiteralPath $testOutputDir) -Message "Windows connection launch smoke output directory missing: $testOutputDir"
+    Copy-Item -LiteralPath $nativeCoreDll -Destination $nativeCoreOutputDll -Force
+    Assert-True -Condition (Test-Path -LiteralPath $nativeCoreOutputDll) -Message "Windows connection launch smoke native DLL copy failed: $nativeCoreOutputDll"
+
+    Invoke-NativeTool `
+        -FilePath "dotnet" `
+        -Arguments @("run", "--project", $testProject, "--no-restore", "--no-build") `
+        -FailureMessage "Windows connection launch smoke run failed."
+}
+finally {
+    if (Test-Path -LiteralPath $tempRoot) {
+        $resolvedTempRoot = (Resolve-Path -LiteralPath $tempRoot).Path
+        $resolvedTempParent = (Resolve-Path -LiteralPath $tempParent).Path.TrimEnd('\')
+        $leaf = Split-Path -Leaf $resolvedTempRoot
+        $isOwnedSmokeDir = $resolvedTempRoot.StartsWith(
+            $resolvedTempParent,
+            [StringComparison]::OrdinalIgnoreCase) -and $leaf.StartsWith(
+            "skybridge-win-launch-smoke-",
+            [StringComparison]::Ordinal)
+
+        Assert-True -Condition $isOwnedSmokeDir -Message "Refusing to remove unexpected temp directory: $resolvedTempRoot"
+        Remove-Item -LiteralPath $resolvedTempRoot -Recurse -Force
+    }
+}

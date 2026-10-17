@@ -1,0 +1,25 @@
+<Project>
+  <!-- Build from checksum-bound Xiph source and the shared strict decoder boundary.
+       No global installation and no system codec fallback. Unsupported architectures fail. -->
+  <PropertyGroup Condition="'$(OS)'=='Windows_NT'">
+    <SkybridgeFlacArchitecture Condition="'$(RuntimeIdentifier)'=='win-arm64' or ('$(RuntimeIdentifier)'=='' and '$(NETCoreSdkRuntimeIdentifier)'=='win-arm64')">ARM64</SkybridgeFlacArchitecture>
+    <SkybridgeFlacArchitecture Condition="'$(SkybridgeFlacArchitecture)'==''">x64</SkybridgeFlacArchitecture>
+    <SkybridgeFlacGenerator Condition="'$(SkybridgeFlacGenerator)'==''">Visual Studio 18 2026</SkybridgeFlacGenerator>
+    <SkybridgeFlacSource>$(MSBuildThisFileDirectory)..\native\audio-flac</SkybridgeFlacSource>
+    <SkybridgeFlacBuild>$(MSBuildProjectDirectory)\obj\skybridge-flac\$(SkybridgeFlacArchitecture)</SkybridgeFlacBuild>
+    <SkybridgeFlacDll>$(SkybridgeFlacBuild)\Release\skybridge_flac.dll</SkybridgeFlacDll>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(OS)'=='Windows_NT'">
+    <Content Include="$(SkybridgeFlacDll)" Link="skybridge_flac.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    <Content Include="$(SkybridgeFlacSource)\COPYING.Xiph" Link="Licenses\libFLAC.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(SkybridgeFlacSource)\LICENSE.SkyBridge" Link="Licenses\SkyBridge-FLAC-bridge.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(SkybridgeFlacSource)\source-lock.json" Link="Licenses\libFLAC-source-lock.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="BuildSkybridgeFlacNativeDll" BeforeTargets="PrepareForBuild" Condition="'$(OS)'=='Windows_NT' and '$(DesignTimeBuild)'!='true'">
+    <Error Condition="'$(RuntimeIdentifier)'=='win-x86' or '$(PlatformTarget)'=='x86' or ('$(RuntimeIdentifier)'=='' and '$(NETCoreSdkRuntimeIdentifier)'=='win-x86')" Text="Strict FLAC decoding requires the supported x64 or ARM64 native build." />
+    <Exec Command="cmake -S &quot;$(SkybridgeFlacSource)&quot; -B &quot;$(SkybridgeFlacBuild)&quot; -G &quot;$(SkybridgeFlacGenerator)&quot; -A $(SkybridgeFlacArchitecture)" />
+    <Exec Command="cmake --build &quot;$(SkybridgeFlacBuild)&quot; --config Release --target skybridge_flac test_libFLAC" />
+    <Exec Command="ctest --test-dir &quot;$(SkybridgeFlacBuild)&quot; -C Release --output-on-failure -R ^skybridge_libFLAC$ --no-tests=error" />
+    <Error Condition="!Exists('$(SkybridgeFlacDll)')" Text="The strict FLAC native build did not produce its decoder DLL." />
+  </Target>
+</Project>

@@ -1,0 +1,10 @@
+LIBRARY skybridge_flac
+EXPORTS
+    sbflac_decoder_create
+    sbflac_decoder_next
+    sbflac_decoder_destroy
+    sbflac_linked_version
+    sbflac_bridge_abi_version
+    sbflac_source_description_size
+    sbflac_read_access_size
+    sbflac_result_size

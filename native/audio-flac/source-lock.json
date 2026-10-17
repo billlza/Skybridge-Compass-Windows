@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "bridgeSourceRepository": "SkyBridge Compass Pro release",
+  "bridgeFiles": {
+    "SkyBridgeFLACDecoder.c": {
+      "source": "Sources/CSkyBridgeFLAC/SkyBridgeFLACDecoder.c",
+      "sha256": "306c23e9642cd336b70662aa71d0dfd2a0e6acd08755eedd5868d5fffea23702"
+    },
+    "include/SkyBridgeFLACDecoder.h": {
+      "source": "Sources/CSkyBridgeFLAC/include/SkyBridgeFLACDecoder.h",
+      "sha256": "1885a4ef62ba4210b61e29737e1007fcf05935f8e1ff8b92fcffbf9f7ba41f13"
+    },
+    "LICENSE.SkyBridge": {
+      "source": "LICENSE",
+      "sha256": "32e4cb968aa8ff27fbdf946102b530020fd150ad38670fab746dd6aa315e5899"
+    },
+    "COPYING.Xiph": {
+      "source": "Sources/Vendor/NativeLicenses/libflac/COPYING.Xiph",
+      "sha256": "7866ee98760fc1f0156b4fe6bf530257e02be487ab3fd94e2b63799dd32d6b2c"
+    },
+    "libflac-1.5.0-crc-fixture-alignment.patch": {
+      "source": "Scripts/Patches/libflac-1.5.0-crc-fixture-alignment.patch",
+      "sha256": "a9cc31d1c061281eed68c1696c9c8b7d77c8772e6bdf3f68b626ce56ac1f25a8"
+    }
+  },
+  "libflac": {
+    "version": "1.5.0",
+    "commit": "1507800de4b70e21be71f38caa0d9079d0bc6e45",
+    "url": "https://downloads.xiph.org/releases/flac/flac-1.5.0.tar.xz",
+    "sha256": "f2c1c76592a82ffff8413ba3c4a1299b6c7ab06c734dee03fd88630485c2b920"
+  }
+}
