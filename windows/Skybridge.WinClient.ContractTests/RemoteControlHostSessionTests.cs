@@ -858,7 +858,12 @@ internal static class RemoteControlHostSessionTests
             {
                 sendFailure = failure;
                 Console.WriteLine($"TCP diagnostic: completedFrames={completedFrames} elapsedSeconds={elapsed.Elapsed.TotalSeconds:F3} failure={failure}");
-                Require(failure.Message.Contains("writing the frame body", StringComparison.Ordinal) &&
+                // A zero-buffer Windows overlapped send can block even on the
+                // prefix. Both wire-write phases must retire this transport;
+                // queue/admission timeouts and the outer test deadline do not qualify.
+                bool wirePhase = failure.Message.Contains("while writing the frame prefix ", StringComparison.Ordinal) ||
+                    failure.Message.Contains("while writing the frame body ", StringComparison.Ordinal);
+                Require(failure.Message.StartsWith("Remote-control send timed out ", StringComparison.Ordinal) && wirePhase &&
                     failure.InnerException is OperationCanceledException,
                     $"Write timeout lost its phase or was confused with the test deadline: {failure}");
             }
