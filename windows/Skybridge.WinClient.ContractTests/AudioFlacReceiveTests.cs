@@ -59,7 +59,7 @@ internal static class AudioFlacReceiveTests
         {
             Console.WriteLine($"FLAC progress: name={name} phase={phase} elapsedSeconds={elapsed.Elapsed.TotalSeconds:F3} " +
                 $"modelSeconds={TimeSpan.FromTicks(f.Main.Clock.GetTimestamp()).TotalSeconds:F3} " +
-                $"waitCalls={f.Main.Native.WaitCalls} starts={f.Main.Native.StartCalls} queuedFrames={f.Main.Native.QueuedFrames} " +
+                $"waitCalls={f.Main.Native.WaitCalls} starts={f.Main.Native.StartCalls} capacityFrames={f.Main.Native.BufferFrames} queuedFrames={f.Main.Native.QueuedFrames} " +
                 $"receiverStatus={f.Main.Run?.Status} fixtureCancelled={f.Main.Lan.Token.IsCancellationRequested}");
         }
     }

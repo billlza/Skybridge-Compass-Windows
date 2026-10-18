@@ -38,7 +38,7 @@ jobs:
             dotnet run --project $project --configuration Debug --no-build --no-restore -- --audio-flac-product 2>&1 | Tee-Object "artifacts/flac-timeout-$attempt.log"
             $results += @{ selector = 'audio-flac-product'; attempt = $attempt; exitCode = $LASTEXITCODE }
           }
-          foreach ($selector in @('audio-capture-receive', 'audio-file-product', 'audio-original-file', 'audio-product-reception')) {
+          foreach ($selector in @('exclusive-pcm-output', 'audio-file-playback', 'audio-capture-receive', 'audio-file-product', 'audio-original-file', 'audio-product-reception')) {
             dotnet run --project $project --configuration Debug --no-build --no-restore -- "--$selector" 2>&1 | Tee-Object "artifacts/flac-fixture-$selector.log"
             $results += @{ selector = $selector; attempt = 1; exitCode = $LASTEXITCODE }
           }
