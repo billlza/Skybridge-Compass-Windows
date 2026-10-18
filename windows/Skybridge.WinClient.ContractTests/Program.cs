@@ -6,6 +6,15 @@ using System.Text.Json;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.ViewModels;
 
+if (args.SequenceEqual(["--tcp-transport"]))
+{
+    var tcpContracts = RemoteControlHostSessionTests.Cases.Where(candidate => candidate.Name.StartsWith("TCP ", StringComparison.Ordinal))
+        .Concat(TcpProductControlTransportTests.Cases).ToArray();
+    if (tcpContracts.Length == 0) throw new InvalidOperationException("No TCP transport contracts were selected.");
+    foreach (var test in tcpContracts) { await test.Run(); Console.WriteLine("PASS " + test.Name); }
+    return;
+}
+
 if (args.SequenceEqual(["--tcp-write-timeout"]))
 {
     var test = RemoteControlHostSessionTests.Cases.Single(candidate => candidate.Name == "TCP write timeout preserves the cause when it cancels the active reader");

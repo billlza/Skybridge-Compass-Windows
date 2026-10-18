@@ -29,17 +29,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Contract restore failed.' }
           dotnet build $project --configuration Debug --no-restore /p:TreatWarningsAsErrors=true 2>&1 | Tee-Object artifacts/tcp-contracts-build.log
           if ($LASTEXITCODE -ne 0) { throw 'Contract build failed.' }
-      - name: Observe the existing timeout assertion three times
+      - name: Verify TCP transport contracts three times
         shell: pwsh
         run: |
           $results = @()
           $project = 'windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj'
           foreach ($attempt in 1..3) {
-            dotnet run --project $project --configuration Debug --no-build --no-restore -- --tcp-write-timeout 2>&1 | Tee-Object "artifacts/tcp-timeout-$attempt.log"
+            dotnet run --project $project --configuration Debug --no-build --no-restore -- --tcp-transport 2>&1 | Tee-Object "artifacts/tcp-timeout-$attempt.log"
             $results += @{ attempt = $attempt; exitCode = $LASTEXITCODE }
           }
           $results | ConvertTo-Json | Set-Content -Encoding utf8 artifacts/tcp-timeout-results.json
-          if ($results.Where({ $_.exitCode -ne 0 }).Count -gt 0) { throw 'The original TCP timeout assertion failed; inspect the captured cause and phase.' }
+          if ($results.Where({ $_.exitCode -ne 0 }).Count -gt 0) { throw 'A TCP transport contract failed; inspect the captured cause and phase.' }
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:

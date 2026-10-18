@@ -48,6 +48,7 @@ internal static class RemoteControlHostSessionTests
         ("TCP transport enables bounded idle peer liveness on the actual socket", IdlePeerLiveness),
         ("TCP disposal cancels and drains an active reader", DisposeActiveReader),
         ("TCP write timeout preserves the cause when it cancels the active reader", WriteTimeoutPreservesCause),
+        ("TCP malformed input does not wait for a blocked writer", MalformedInputDoesNotWaitForWriter),
         ("TCP cancellation before writing preserves the transport and framing", CancelledUnstartedSendPreservesTransport)
     ];
 
@@ -874,6 +875,43 @@ internal static class RemoteControlHostSessionTests
                     failure.InnerExceptions[1] is OperationCanceledException or IOException or ObjectDisposedException,
                     $"The read-side interruption hid the write timeout that ended the session: {failure}");
             }
+        }
+        finally { listener.Stop(); }
+    }
+
+    private static async Task MalformedInputDoesNotWaitForWriter()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            using var peer = new TcpClient { ReceiveBufferSize = 4096 };
+            await peer.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
+            using var accepted = await listener.AcceptTcpClientAsync();
+            accepted.SendBufferSize = OperatingSystem.IsWindows() ? 0 : 4096;
+            await using var transport = new TcpProductControlTransport(accepted,
+                RemoteControlWire.MaximumInboundFrameBytes, RemoteControlWire.MaximumOutboundFrameBytes, TimeSpan.FromSeconds(10));
+            var sending = transport.SendAsync(new byte[RemoteControlWire.MaximumOutboundFrameBytes], default);
+            var reading = transport.ReadAsync(default);
+            bool readReady = false, writerStillBlocked = false;
+            try
+            {
+                Require(!sending.IsCompleted, "The fixture did not establish an active blocked write.");
+                var prefix = new byte[4];
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(prefix,
+                    checked((uint)RemoteControlWire.MaximumInboundFrameBytes + 1));
+                await peer.GetStream().WriteAsync(prefix).AsTask().WaitAsync(TimeSpan.FromSeconds(3));
+                readReady = ReferenceEquals(await Task.WhenAny(reading, Task.Delay(TimeSpan.FromSeconds(3))), reading);
+                writerStillBlocked = !sending.IsCompleted;
+            }
+            finally { await transport.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3)); }
+            Exception? readFailure = null, writeFailure = null;
+            try { await reading; } catch (Exception failure) { readFailure = failure; }
+            try { await sending; } catch (Exception failure) { writeFailure = failure; }
+            Require(readReady && readFailure is InvalidDataException,
+                $"Malformed input waited for, or was replaced by, a writer outcome: ready={readReady}, failure={readFailure}");
+            Require(writerStillBlocked && writeFailure is OperationCanceledException or IOException or ObjectDisposedException,
+                $"Protocol rejection did not retain the independent writer until explicit close: blocked={writerStillBlocked}, failure={writeFailure}");
         }
         finally { listener.Stop(); }
     }
