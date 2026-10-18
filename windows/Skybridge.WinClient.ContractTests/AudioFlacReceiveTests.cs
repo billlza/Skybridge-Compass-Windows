@@ -16,7 +16,11 @@ internal static class AudioFlacReceiveTests
     ];
     private static async Task Complete(string name)
     {
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
         await using var f = await AudioOriginalFileReceiveSessionTests.Fixture.Create();
+        string phase = "metadata";
+        try
+        {
         f.Bytes = AudioFlacDecoderTests.Bytes(name);
         var pcm = AudioFlacDecoderTests.Bytes(name, ".pcm");
         var metadata = await AudioFlacFile.InspectAsync(f.Bytes.Length,
@@ -24,7 +28,9 @@ internal static class AudioFlacReceiveTests
         long frames = metadata.TotalFrames ?? throw new Exception("Missing fixture sample count.");
         f.Main.Native.ExpectedFormat = metadata.DecodedFormat.RequireExactOutputFormat();
         f.Main.Native.AllowRetirement = true;
-        await f.Offer(); await f.Transfer();
+        phase = "offer"; await f.Offer();
+        phase = "transfer"; await f.Transfer();
+        phase = "output ready";
         var output = await f.Main.Read();
         if (output.Body is AudioStreamingBody.Stop)
         {
@@ -33,6 +39,7 @@ internal static class AudioFlacReceiveTests
         }
         Require(output.Body is AudioStreamingBody.OutputReady ready && ready.Format == metadata.DecodedFormat,
             "OutputReady substituted FLAC precision, rate, channel order or container.");
+        phase = "playback receipt";
         Require((await f.Main.Read()).Body is AudioStreamingBody.PlaybackComplete complete &&
             complete.SourceFrames == metadata.TotalFrames && complete.TrailingPaddingFrames == 0, "Incorrect FLAC playback receipt.");
         var received = await f.Main.Run!.WaitAsync(f.Main.Lan.Token);
@@ -41,6 +48,20 @@ internal static class AudioFlacReceiveTests
             file.Output.SourceFrames == (ulong)frames, "File, format and rendered extent were not bound.");
         Require(f.Main.Native.Submissions.SelectMany(bytes => bytes).SequenceEqual(pcm), "FLAC decoding changed reference sample bytes.");
         f.Released(); f.Main.NativeReleased(); await f.Main.Lan.Barrier();
+        phase = "complete";
+        }
+        catch (Exception failure)
+        {
+            Console.Error.WriteLine($"FLAC primary failure: name={name} phase={phase} failure={failure}");
+            throw;
+        }
+        finally
+        {
+            Console.WriteLine($"FLAC progress: name={name} phase={phase} elapsedSeconds={elapsed.Elapsed.TotalSeconds:F3} " +
+                $"modelSeconds={TimeSpan.FromTicks(f.Main.Clock.GetTimestamp()).TotalSeconds:F3} " +
+                $"waitCalls={f.Main.Native.WaitCalls} starts={f.Main.Native.StartCalls} queuedFrames={f.Main.Native.QueuedFrames} " +
+                $"receiverStatus={f.Main.Run?.Status} fixtureCancelled={f.Main.Lan.Token.IsCancellationRequested}");
+        }
     }
     private static async Task Reject(string name)
     {
