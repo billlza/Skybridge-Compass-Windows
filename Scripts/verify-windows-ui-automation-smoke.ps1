@@ -7,10 +7,14 @@ param(
     [string]$EvidenceBranch = "",
     [string]$EvidenceHead = "",
     [switch]$RequireAccountDeviceService,
+    [switch]$AllowLocationConsentForCi,
     [ValidatePattern("^[A-Fa-f0-9]{64}$")][string]$ExistingAssemblySha256
 )
 
 $ErrorActionPreference = "Stop"
+if ($AllowLocationConsentForCi -and $env:GITHUB_ACTIONS -ne 'true') {
+    throw 'Automatic location consent is only available in the owned CI UI test.'
+}
 
 
 . (Join-Path $PSScriptRoot "windows-ui-automation-helpers.ps1")
@@ -56,6 +60,9 @@ $inputDpiContext = [NativeMethods]::SetThreadDpiAwarenessContext([IntPtr](-4))
 Assert-True ($inputDpiContext -ne [IntPtr]::Zero) "Physical UI verification DPI context is unavailable."
 
 $process = $null
+$window = $null
+$stage = 'startup'
+$locationConsentEvents = [System.Collections.Generic.List[object]]::new()
 $stdoutTask = $null
 $stderrTask = $null
 try {
@@ -143,6 +150,7 @@ try {
     $stderrTask = $process.StandardError.ReadToEndAsync()
     $window = Wait-ForMainWindow -Process $process -TimeoutSeconds $TimeoutSeconds
     Restore-TestWindow -Window $window
+    if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Process $process -Events $locationConsentEvents }
     try {
         $windowPattern = $window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
         $windowPattern.SetWindowVisualState([System.Windows.Automation.WindowVisualState]::Normal)
@@ -172,6 +180,8 @@ try {
     Set-WorkspaceScrollPercent -Window $window -VerticalPercent 0
 
     foreach ($feature in $features) {
+        $stage = "runtime-actions/$($feature.Id)"
+        if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Process $process -Events $locationConsentEvents }
         Select-Feature -Window $window -FeatureId $feature.Id -AnchorAutomationId $feature.Anchor
         [void](Get-FeatureRuntimeActionSurfaceSnapshot -Window $window -ActionOrderBySurface $actionOrderBySurface -Feature $feature -ContextSuffix "runtime")
     }
@@ -191,6 +201,8 @@ try {
             Set-WorkspaceScrollPercent -Window $window -VerticalPercent 0
 
             foreach ($feature in $features) {
+                $stage = "visual/$($size.Width)x$($size.Height)/$($feature.Id)"
+                if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Process $process -Events $locationConsentEvents }
                 Select-Feature -Window $window -FeatureId $feature.Id -AnchorAutomationId $feature.Anchor
                 $featureActionBounds = Get-FeatureRuntimeActionSurfaceSnapshot -Window $window -ActionOrderBySurface $actionOrderBySurface -Feature $feature -ContextSuffix "$($size.Width)x$($size.Height)"
                 if ($feature.ContainsKey("EvidenceScrollPercent")) {
@@ -209,6 +221,7 @@ try {
                 }
                 $fileName = "{0}x{1}-{2}.png" -f $size.Width, $size.Height, (ConvertTo-SafeFileName -Value $feature.Title)
                 $screenshotPath = Join-Path $resolvedEvidenceDir $fileName
+                if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Process $process -Events $locationConsentEvents }
                 $screenshot = Save-WindowScreenshot -Window $window -Path $screenshotPath
                 Assert-True -Condition (Test-Path -LiteralPath $screenshotPath) -Message "Missing evidence screenshot: $screenshotPath"
 
@@ -257,6 +270,7 @@ try {
         Write-Output "windows-ui-visual-evidence: ok dir=$resolvedEvidenceDir manifest=$manifestPath captures=$($captures.Count)"
     }
 
+    $stage = 'file-transfer-policy'
     Select-Feature -Window $window -FeatureId "FileTransfer" -AnchorAutomationId "WorkspaceAction.FileTransfer.GenerateQr"
     $generateQr = Assert-VisibleByAutomationId -Root $window -AutomationId "WorkspaceAction.FileTransfer.GenerateQr"
     Assert-True -Condition (-not $generateQr.Current.IsEnabled) -Message "LAN sessions must not advertise QR sharing without a real share manifest."
@@ -264,6 +278,7 @@ try {
     $qrImage = Find-ByAutomationId -Root $window -AutomationId "FileTransferShareQrImage"
     Assert-True -Condition ($null -eq $qrImage -or $qrImage.Current.IsOffscreen) -Message "Unsupported QR sharing must never display an empty or unrelated identity."
 
+    $stage = 'account-device-modal'
     $accountEntry = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId "AccountDevices.OpenFooter"
     $accountEntry.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     [void](Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId "AccountDevices.Close")
@@ -293,6 +308,12 @@ try {
     Write-Output "windows-ui-automation-smoke: ok"
 }
 catch {
+    $primaryFailure = $_
+    if ($window -and -not [string]::IsNullOrWhiteSpace($EvidenceDir)) {
+        [void](New-Item -ItemType Directory -Path $EvidenceDir -Force)
+        try { Save-UiFailureDiagnostics -Window $window -Failure $primaryFailure -EvidenceDir $EvidenceDir -Stage $stage }
+        catch { Write-Output "windows-ui-automation-smoke: failure diagnostics could not be saved: $($_.Exception.Message)" }
+    }
     if ($process -and -not $process.HasExited) {
         try { $process.Kill() } catch { }
     }
@@ -310,9 +331,14 @@ catch {
         }
     }
 
-    throw
+    throw $primaryFailure
 }
 finally {
+    if ($AllowLocationConsentForCi -and -not [string]::IsNullOrWhiteSpace($EvidenceDir)) {
+        [void](New-Item -ItemType Directory -Path $EvidenceDir -Force)
+        @{ policy = 'allow-identified-Skybridge-location-prompt-in-CI'; events = @($locationConsentEvents) } |
+            ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'location-consent.json')
+    }
     if ($process -and -not $process.HasExited) {
         Stop-Process -Id $process.Id -Force
     }

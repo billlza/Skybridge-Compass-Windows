@@ -158,6 +158,106 @@ function Wait-ForMainWindow {
     throw "Timed out waiting for Skybridge.WinClient main window."
 }
 
+function Resolve-CiLocationConsent {
+    param(
+        [System.Diagnostics.Process]$Process,
+        [System.Collections.Generic.List[object]]$Events
+    )
+
+    Assert-True ($env:GITHUB_ACTIONS -eq 'true') 'Location consent handling is restricted to the owned CI UI test.'
+    $Process.Refresh()
+    Assert-True (-not $Process.HasExited) 'The candidate exited before the location consent check.'
+    $caption = 'Let Windows and apps access your location?'
+    $captionCondition = [System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::NameProperty, $caption)
+    $captions = @([System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants, $captionCondition) |
+        Where-Object { -not $_.Current.IsOffscreen })
+    if ($captions.Count -eq 0) { return }
+    Assert-True ($captions.Count -le 4) 'The location prompt is ambiguous.'
+
+    $targets = @{}
+    foreach ($title in $captions) {
+        $container = $title
+        for ($depth = 0; $depth -lt 10 -and $null -ne $container; $depth++) {
+            $elements = @($container.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                [System.Windows.Automation.Condition]::TrueCondition))
+            Assert-True ($elements.Count -le 512) 'The location prompt lookup exceeded its bound.'
+            $identity = @($elements | Where-Object {
+                ([regex]::Replace($_.Current.Name, '\s+', ' ')).StartsWith(
+                    'Skybridge.WinClient needs permission to use signals like GPS or Wi-Fi', [StringComparison]::Ordinal)
+            })
+            if ($identity.Count -gt 0) {
+                $yes = @($elements | Where-Object {
+                    $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+                    $_.Current.Name -eq 'Yes' -and $_.Current.IsEnabled -and -not $_.Current.IsOffscreen
+                })
+                $no = @($elements | Where-Object {
+                    $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+                    $_.Current.Name -eq 'No' -and $_.Current.IsEnabled -and -not $_.Current.IsOffscreen
+                })
+                if ($yes.Count -eq 1 -and $no.Count -eq 1) {
+                    $key = $yes[0].GetRuntimeId() -join ','
+                    $targets[$key] = $yes[0]
+                    break
+                }
+            }
+            $container = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($container)
+        }
+    }
+    Assert-True ($targets.Count -eq 1) 'The visible location prompt cannot be uniquely bound to Skybridge.WinClient.'
+    Assert-True ($Events.Count -eq 0) 'The system repeated the location prompt after the CI response.'
+    $event = [pscustomobject]@{ application = 'Skybridge.WinClient'; action = 'allow'; status = 'invoked'; at = [DateTime]::UtcNow.ToString('o') }
+    $Events.Add($event)
+    $button = @($targets.Values)[0]
+    $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    do {
+        Start-Sleep -Milliseconds 100
+        $visible = @([System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants, $captionCondition) |
+            Where-Object { -not $_.Current.IsOffscreen })
+        if ($visible.Count -eq 0) { $event.status = 'dismissed'; return }
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'The location consent dialog did not close after the explicit CI response.'
+}
+
+function Save-UiFailureDiagnostics {
+    param(
+        [System.Windows.Automation.AutomationElement]$Window,
+        [System.Management.Automation.ErrorRecord]$Failure,
+        [string]$EvidenceDir,
+        [string]$Stage
+    )
+
+    $diagnostic = [ordered]@{
+        stage = $Stage
+        message = $Failure.Exception.Message
+        scriptStackTrace = $Failure.ScriptStackTrace
+        captureError = $null
+        treeError = $null
+    }
+    try { $diagnostic.capture = Save-WindowScreenshot -Window $Window -Path (Join-Path $EvidenceDir 'failure-window.png') }
+    catch { $diagnostic.captureError = $_.Exception.Message }
+    try {
+        $elements = $Window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition)
+        $diagnostic.elementCount = $elements.Count
+        $diagnostic.elements = @(for ($index = 0; $index -lt [Math]::Min($elements.Count, 512); $index++) {
+            $current = $elements[$index].Current
+            # Control identities and visibility support missing-anchor diagnosis.
+            # Do not collect user-visible values, account fields or connection text.
+            [pscustomobject]@{
+                automationId = $current.AutomationId
+                controlType = $current.ControlType.ProgrammaticName
+                isOffscreen = $current.IsOffscreen
+                isEnabled = $current.IsEnabled
+            }
+        })
+    } catch { $diagnostic.treeError = $_.Exception.Message }
+    $diagnostic | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'ui-failure.json')
+}
+
 function Close-TestWindow {
     param([System.Windows.Automation.AutomationElement]$Window,[System.Diagnostics.Process]$Process)
     if ($Process.HasExited) { return }
