@@ -35,6 +35,8 @@ The Windows workflow first restores and builds the actual unpackaged WinUI appli
 
 The checksum-bound FLAC source directory is checked out without Git line-ending conversion. Its original hashes remain authoritative on Windows and other hosts; `core.autocrlf` must not rewrite the shared decoder, patch or license bytes before CMake verifies them.
 
+The build's Windows PowerShell 5.1 child processes use the Windows module directory for notification-signature and shader validation. PowerShell 7 module paths inherited through MSBuild can otherwise resolve incompatible Security and Utility modules. The child environment is isolated; global module paths and both validation checks remain unchanged. This follows the [PowerShell process-inheritance boundary](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_psmodulepath).
+
 The dated research synthesis and parity-gap audits retain their original findings and open gates. Refresh source, build identity and real-device receipts before making a current completion claim; the earlier generic macOS/web project description is no longer the Windows entrypoint.
 
 ## Platform repository

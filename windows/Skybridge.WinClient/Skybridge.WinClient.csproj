@@ -156,11 +156,14 @@
     <Content Include="obj\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\NotificationRuntime\Microsoft.WindowsAppRuntime.Insights.Resource.dll"
              Link="Microsoft.WindowsAppRuntime.Insights.Resource.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+  <!-- MSBuild may inherit PowerShell 7's module paths. Its Windows PowerShell 5.1
+       child must resolve the matching engine's modules for signature/hash checks
+       and shader validation; this environment applies only to those children. -->
   <Target Name="PrepareNotificationAssets" BeforeTargets="PrepareForBuild" Condition="'$(OS)'=='Windows_NT' and '$(DesignTimeBuild)'!='true'">
-    <Exec Command="powershell.exe -NoProfile -NonInteractive -File &quot;$(MSBuildProjectDirectory)\..\..\Scripts\prepare-windows-notification-assets.ps1&quot; -RuntimePackage &quot;$(MicrosoftWindowsAppSDKPackageDir)tools\MSIX\win10-x64\Microsoft.WindowsAppRuntime.2.msix&quot; -OutputDirectory &quot;$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\NotificationRuntime&quot;" />
+    <Exec EnvironmentVariables="PSModulePath=$(SystemRoot)\System32\WindowsPowerShell\v1.0\Modules" Command="powershell.exe -NoProfile -NonInteractive -File &quot;$(MSBuildProjectDirectory)\..\..\Scripts\prepare-windows-notification-assets.ps1&quot; -RuntimePackage &quot;$(MicrosoftWindowsAppSDKPackageDir)tools\MSIX\win10-x64\Microsoft.WindowsAppRuntime.2.msix&quot; -OutputDirectory &quot;$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\NotificationRuntime&quot;" />
   </Target>
 
   <Target Name="ValidateWeatherShaders" BeforeTargets="PrepareForBuild" Condition="'$(OS)'=='Windows_NT' and '$(DesignTimeBuild)'!='true'">
-    <Exec Command="powershell.exe -NoProfile -NonInteractive -File &quot;$(MSBuildProjectDirectory)\..\..\Scripts\verify-windows-weather-shaders.ps1&quot; -SourcePath &quot;$(MSBuildProjectDirectory)\WeatherBackdropDX.xaml.cs&quot; -EvidencePath &quot;$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\weather-shader-validation.json&quot;" />
+    <Exec EnvironmentVariables="PSModulePath=$(SystemRoot)\System32\WindowsPowerShell\v1.0\Modules" Command="powershell.exe -NoProfile -NonInteractive -File &quot;$(MSBuildProjectDirectory)\..\..\Scripts\verify-windows-weather-shaders.ps1&quot; -SourcePath &quot;$(MSBuildProjectDirectory)\WeatherBackdropDX.xaml.cs&quot; -EvidencePath &quot;$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\weather-shader-validation.json&quot;" />
   </Target>
 </Project>
