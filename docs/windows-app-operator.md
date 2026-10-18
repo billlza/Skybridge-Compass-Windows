@@ -61,7 +61,26 @@ access. The client retains Tokio's identification-only security level.
 See [Microsoft CreateNamedPipe](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createnamedpipea)
 and [Tokio ClientOptions](https://docs.rs/tokio/1.53.1/tokio/net/windows/named_pipe/struct.ClientOptions.html).
 
+The .NET contract-test client verifies the Windows pipe's owner against
+`WindowsIdentity.User` and checks its explicit single-user ACL before writing a
+request. .NET 10's `PipeOptions.CurrentUserOnly` client instead compares with
+`WindowsIdentity.Owner`, which can be an administrator group rather than the
+actual user ([runtime issue](https://github.com/dotnet/runtime/issues/123903)).
+The Unix test client retains `CurrentUserOnly`. This test-client correction does
+not change the product server's ACL, local-only flag or the public CLI's PID
+verification and identification-only security level.
+
 ## Acceptance status
+
+On 2026-10-18, the complete Debug `win-x64` WinUI application built successfully
+on the native Windows CI runner at `03dadc9627fafffdcf7864dca2f483402390e931`.
+Core and FLAC compiled, the upstream libFLAC test passed, and notification
+signature and shader validation completed. The contract executable also built;
+its run stopped at the .NET test-client owner mismatch described above. This
+closes the native compilation observation for that commit, not interactive
+startup, CLI-to-App acceptance, device audio playback or release admission.
+The [run and retained build receipts](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/39123244349)
+preserve the successful build and the failed contract execution separately.
 
 On 2026-09-13, SSH access to the Windows workstation was verified using its
 existing pinned key. A new source snapshot was staged separately from the
@@ -72,7 +91,7 @@ user's certificate store. The security policy was not changed and the native
 target was not skipped. Therefore this document describes implemented source,
 not a validated Windows release or proven live App control.
 
-Remaining acceptance: trusted native build, real CLI-to-App named-pipe exchange,
+Remaining acceptance: workstation code-integrity admission, real CLI-to-App named-pipe exchange,
 wrong-owner/remote-client rejection, setting mutation and independent UI/store
 readback with restoration, host start/stop with unchanged identity/trust data,
 stale-generation refusal, and shutdown/cancellation on the Windows desktop.

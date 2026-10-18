@@ -1,4 +1,6 @@
 using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -20,6 +22,44 @@ internal static class AppOperatorTests
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static async Task<NamedPipeClientStream> ConnectCurrentUserAsync(string name, CancellationToken token)
+    {
+        // .NET 10's Windows CurrentUserOnly client compares the pipe owner with
+        // WindowsIdentity.Owner (an administrator group for an elevated token),
+        // not WindowsIdentity.User. The product server deliberately uses User.
+        // Retain the same-user requirement explicitly before sending any bytes.
+        var options = PipeOptions.Asynchronous;
+        if (!OperatingSystem.IsWindows()) options |= PipeOptions.CurrentUserOnly;
+        var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, options,
+            TokenImpersonationLevel.Identification);
+        try
+        {
+            await client.ConnectAsync(token);
+            if (OperatingSystem.IsWindows())
+            {
+                using var identity = WindowsIdentity.GetCurrent();
+                var user = identity.User ?? throw new UnauthorizedAccessException("The test client has no user SID.");
+                var security = client.GetAccessControl();
+                if (security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner || !owner.Equals(user))
+                    throw new UnauthorizedAccessException("The operator pipe is not owned by this user.");
+                var rules = security.GetAccessRules(true, true, typeof(SecurityIdentifier));
+                Check(rules.Count == 1 && rules[0] is PipeAccessRule rule &&
+                    rule.IdentityReference.Equals(user) && rule.AccessControlType == AccessControlType.Allow &&
+                    rule.PipeAccessRights == PipeAccessRights.FullControl && !rule.IsInherited,
+                    "The product pipe does not retain its explicit single-user ACL.");
+                string tokenOwnerMatchesUser = identity.Owner is { } tokenOwner ? user.Equals(tokenOwner).ToString() : "unavailable";
+                Console.WriteLine($"INFO operator pipe user SID and ACL verified; token owner matches user: {tokenOwnerMatchesUser}");
+            }
+            token.ThrowIfCancellationRequested();
+            return client;
+        }
+        catch
+        {
+            client.Dispose();
+            throw;
+        }
     }
 
     private static Task RejectEnvelopesAsync()
@@ -107,8 +147,7 @@ internal static class AppOperatorTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         async Task<JsonObject> Call(string input)
         {
-            using var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-            await client.ConnectAsync(timeout.Token);
+            using var client = await ConnectCurrentUserAsync(name, timeout.Token);
             await client.WriteAsync(Encoding.UTF8.GetBytes(input + "\n"), timeout.Token);
             var bytes = await AppOperatorServer.ReadMessageAsync(client, timeout.Token);
             return JsonNode.Parse(bytes)!.AsObject();
@@ -172,9 +211,8 @@ internal static class AppOperatorTests
             catch (OperationCanceledException) { cleaning.SetResult(); await finish.Task; throw; }
             return new JsonObject();
         }, error => throw new InvalidOperationException("Unexpected pipe failure", error), name);
-        using var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await client.ConnectAsync(timeout.Token);
+        using var client = await ConnectCurrentUserAsync(name, timeout.Token);
         string request = JsonSerializer.Serialize(new { protocol = AppOperatorServer.Protocol,
             id = Guid.NewGuid().ToString(), method = "app.status", @params = new { } });
         await client.WriteAsync(Encoding.UTF8.GetBytes(request + "\n"), timeout.Token);
