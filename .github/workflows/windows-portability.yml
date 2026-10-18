@@ -10,6 +10,11 @@ on:
       - main
       - Bill/windows-portability
   workflow_dispatch:
+    inputs:
+      run_ui_smoke:
+        description: Verify actual WinUI launch and UI Automation on this runner
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -76,6 +81,7 @@ jobs:
           @{ schemaVersion = 1; commit = $env:GITHUB_SHA; configuration = 'Debug'; runtimeIdentifier = 'win-x64'; build = 'passed'; interactiveLaunch = 'not-run'; deviceAudioPlayback = 'not-run'; files = $hashes } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 artifacts/native-client-build.json
 
       - name: Run product contracts on Windows
+        id: product-contracts
         if: ${{ !cancelled() && steps.native-client.outcome == 'success' }}
         shell: pwsh
         run: |
@@ -86,6 +92,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Native contracts build failed: $LASTEXITCODE" }
           dotnet run --project $project --configuration Debug --no-build --no-restore 2>&1 | Tee-Object artifacts/native-contracts-run.log
           if ($LASTEXITCODE -ne 0) { throw "Native contracts failed: $LASTEXITCODE" }
+
+      - name: Decode Windows LAN QR images with the Android decoder
+        if: ${{ !cancelled() && steps.product-contracts.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          dotnet run --project windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj --configuration Debug --no-build --no-restore -- --export-lan-qr artifacts/lan-qr-images
+          if ($LASTEXITCODE -ne 0) { throw 'Native QR image export failed.' }
+          .\Scripts\verify-windows-lan-qr-images.ps1 -ImageDir artifacts/lan-qr-images -EvidenceDir artifacts/lan-qr-decode
+
+      - name: Verify interactive WinUI launch and controls
+        if: ${{ !cancelled() && inputs.run_ui_smoke && steps.native-client.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $assembly = 'windows/Skybridge.WinClient/bin/Debug/net10.0-windows10.0.22621.0/win-x64/Skybridge.WinClient.dll'
+          $hash = (Get-FileHash -LiteralPath $assembly -Algorithm SHA256).Hash
+          .\Scripts\verify-windows-ui-automation-smoke.ps1 -Configuration Debug -EvidenceDir artifacts/winui-smoke -ExistingAssemblySha256 $hash
 
       - name: Run Windows portability gate
         if: ${{ !cancelled() && steps.rust-tooling.outcome == 'success' }}
@@ -116,5 +138,9 @@ jobs:
             artifacts/*.log
             artifacts/*.json
             artifacts/*.vcxproj
+            artifacts/lan-qr-images/*
+            artifacts/lan-qr-decode/*.log
+            artifacts/lan-qr-decode/*.json
+            artifacts/winui-smoke/**
           if-no-files-found: error
           retention-days: 14

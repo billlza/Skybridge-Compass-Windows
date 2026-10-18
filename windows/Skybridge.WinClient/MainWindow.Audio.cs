@@ -33,6 +33,7 @@ public sealed partial class MainWindow
         _remoteControlWorkspace.ConfigureAudioReception(_audioReceiveHost);
         AutomationProperties.SetName(AudioOutputPicker, RemoteControlText("AudioReceiveOutputLabel"));
         AutomationProperties.SetName(AudioNetworkPicker, RemoteControlText("AudioReceiveNetworkLabel"));
+        ConfigureAudioConnectionQr();
         _audioStatusTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
         _audioStatusTimer.Tick += OnAudioStatusTick; _audioStatusTimer.Start();
         UpdateAudioStatus();
@@ -42,6 +43,12 @@ public sealed partial class MainWindow
         if (!_audioChanging && !_hostShutdownInProgress && _audioListenerEpoch is { IsCurrent: false })
         {
             _audioUiOperation = StopRevokedAudioAsync();
+            await _audioUiOperation;
+            return;
+        }
+        if (!_audioChanging && !_hostShutdownInProgress && AudioConnectionQrNeedsRefresh())
+        {
+            _audioUiOperation = RefreshAudioConnectionQrAsync();
             await _audioUiOperation;
             return;
         }
@@ -68,8 +75,8 @@ public sealed partial class MainWindow
             AudioOutputPicker.SelectedItem is ComboBoxItem { Tag: AudioOutputEndpoint } &&
             AudioNetworkPicker.SelectedItem is ComboBoxItem { Tag: RemoteControlNetworkInterface };
         AudioReceiveStop.IsEnabled = !_audioChanging && (state.Enabled || state.Stopping || state.Phase is not null || _remoteControlWorkspace.HasIncomingMain);
-        AudioConnectionCopy.IsEnabled = !_audioChanging && !_hostShutdownInProgress &&
-            _audioListenerEpoch is { IsCurrent: true } && incoming is { Endpoint: not null, Stopping: false, ReleaseUnconfirmed: false };
+        AudioConnectionCopy.IsEnabled = !_audioChanging && CanPublishAudioConnectionQr();
+        UpdateAudioConnectionQr();
         string text;
         bool ordinaryStop = state.Failure is AudioCaptureReceiveException { Reason: AudioStreamingStopReason.UserStopped or AudioStreamingStopReason.ReceiverDeclined }
             or LanAudioStreamException { Reason: AudioStreamingStopReason.UserStopped or AudioStreamingStopReason.ReceiverDeclined };
@@ -203,6 +210,7 @@ public sealed partial class MainWindow
                 catch (Exception cleanup) { throw new AggregateException("Audio reception start and cleanup failed.", startFailure, cleanup); }
                 throw;
             }
+            await RenderAudioConnectionQrAsync();
         }
         catch (Exception error) { _audioUiError = AudioFailureText(error); WindowsRuntimeLog.Write(WindowsLogLevel.Error, "AudioReception", error.GetType().Name); }
         finally { _audioChanging = false; UpdateAudioStatus(); }
@@ -226,7 +234,11 @@ public sealed partial class MainWindow
         {
             var epoch = _audioListenerEpoch ?? throw new InvalidOperationException("The audio account session has ended.");
             epoch.RequireCurrent();
-            var publication = _remoteControlWorkspace.PrepareIncomingMainConnectionInfo();
+            long networkRevision = Interlocked.Read(ref _audioQrNetworkRevision);
+            var publication = await _remoteControlWorkspace.PrepareIncomingMainConnectionInfoAsync(_audioQrLifetime.Token);
+            epoch.RequireCurrent();
+            if (networkRevision != Interlocked.Read(ref _audioQrNetworkRevision))
+                throw new InvalidOperationException("The local network changed while preparing connection information.");
             await publication.CopyAsync(CopyRemoteControlPairingTextAsync);
             _notifications.Add(RemoteControlText("AudioConnectionCopied"), RemoteControlText("AudioConnectionCopyDetail"), "\uE8C8");
         }
@@ -247,10 +259,12 @@ public sealed partial class MainWindow
     }
     private async Task StopAudioReceptionAsync()
     {
+        BeginStopAudioConnectionQr();
         if (_audioStatusTimer is { } timer) { timer.Stop(); timer.Tick -= OnAudioStatusTick; _audioStatusTimer = null; }
         var catalogToken = _audioCatalogCancellation?.Token ?? CancellationToken.None;
         _audioCatalogCancellation?.Cancel();
         await _audioUiOperation;
+        _audioQrLifetime.Dispose();
         await StopAudioInputsAsync();
         if (_audioCatalogTask is { } reading)
         {
@@ -272,6 +286,7 @@ public sealed partial class MainWindow
     private async Task StopAudioInputsAsync()
     {
         _audioListenerEpoch = null;
+        ClearAudioConnectionQr();
         var failures = new List<Exception>();
         try { await _remoteControlWorkspace.StopIncomingMainAsync(); } catch (Exception error) { failures.Add(error); }
         if (_audioReceiveHost is { } host)

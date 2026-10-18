@@ -6,6 +6,20 @@ using System.Text.Json;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.ViewModels;
 
+if (args is ["--export-lan-qr", var qrExportFolder])
+{
+    LanConnectionQrCodeTests.ExportImages(qrExportFolder);
+    Console.WriteLine("PASS exported synthetic LAN QR image vectors");
+    return;
+}
+
+if (args.SequenceEqual(["--lan-qr"]))
+{
+    foreach (var test in WindowsLanConnectionInfoTests.Cases.Concat(LanConnectionQrCodeTests.Cases))
+    { await test.Run(); Console.WriteLine("PASS " + test.Name); }
+    return;
+}
+
 if (args.SequenceEqual(["--tcp-transport"]))
 {
     var tcpContracts = RemoteControlHostSessionTests.Cases.Where(candidate => candidate.Name.StartsWith("TCP ", StringComparison.Ordinal))
@@ -425,6 +439,7 @@ var remoteHostTests = Skybridge.WinClient.ContractTests.WindowsRemoteControlAudi
     .Concat(LanProductControlResponderTests.Cases)
     .Concat(LanProductControlListenerTests.Cases)
     .Concat(WindowsLanConnectionInfoTests.Cases)
+    .Concat(LanConnectionQrCodeTests.Cases)
     .Concat(AudioWavePcmFileTests.Cases)
     .Concat(AudioFlacFileTests.Cases)
     .Concat(AudioFlacDecoderTests.Cases)

@@ -2170,8 +2170,22 @@
                                         <AppBarButton x:Name="AudioOutputRefresh" x:Uid="AudioOutputRefresh" Icon="Refresh" Label="Refresh outputs" Click="OnAudioOutputsRefresh" AutomationProperties.AutomationId="Skybridge.Audio.RefreshOutputs" />
                                         <AppBarButton x:Name="AudioReceiveStart" x:Uid="AudioReceiveStart" Icon="Play" Label="Enable reception" Click="OnAudioReceiveStart" AutomationProperties.AutomationId="Skybridge.Audio.EnableReception" />
                                         <AppBarButton x:Name="AudioReceiveStop" x:Uid="AudioReceiveStop" Icon="Stop" Label="Stop reception" Click="OnAudioReceiveStop" AutomationProperties.AutomationId="Skybridge.Audio.StopReception" />
-                                        <AppBarButton x:Name="AudioConnectionCopy" x:Uid="AudioConnectionCopy" Icon="Copy" Label="Copy connection info" Click="OnAudioConnectionCopy" AutomationProperties.AutomationId="Skybridge.Audio.CopyConnectionInfo" />
+                                        <CommandBar.SecondaryCommands>
+                                            <AppBarButton x:Name="AudioConnectionCopy" x:Uid="AudioConnectionCopy" Icon="Copy" Label="Copy connection info" Click="OnAudioConnectionCopy" AutomationProperties.AutomationId="Skybridge.Audio.CopyConnectionInfo" />
+                                        </CommandBar.SecondaryCommands>
                                     </CommandBar>
+                                    <StackPanel x:Name="AudioConnectionQrPanel" Visibility="Collapsed" Spacing="8" AutomationProperties.AutomationId="Skybridge.Audio.ConnectionQr">
+                                        <TextBlock x:Uid="AudioConnectionQrTitle" Text="Scan to connect" FontWeight="SemiBold" />
+                                        <Image x:Name="AudioConnectionQrImage" MaxWidth="320" MaxHeight="320" HorizontalAlignment="Left" Stretch="Uniform"
+                                               AutomationProperties.AutomationId="Skybridge.Audio.ConnectionQr.Image" AutomationProperties.Name="Audio connection QR code" />
+                                        <TextBlock x:Uid="AudioConnectionQrHelp" Text="Scan with SkyBridge on your phone or tablet. Keep both devices on a reachable local network." TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <InfoBar x:Name="AudioConnectionQrNotice" x:Uid="AudioConnectionQrNotice" IsOpen="False" IsClosable="False" Severity="Warning"
+                                             Title="Connection QR unavailable" Message="Retry after checking the network. If the selected network changed, stop reception and choose it again." AutomationProperties.AutomationId="Skybridge.Audio.ConnectionQr.Notice">
+                                        <InfoBar.ActionButton>
+                                            <Button x:Uid="AudioConnectionQrRetry" Content="Retry QR" Click="OnAudioConnectionQrRetry" AutomationProperties.AutomationId="Skybridge.Audio.ConnectionQr.Retry" />
+                                        </InfoBar.ActionButton>
+                                    </InfoBar>
                                     <InfoBar x:Name="AudioReceiveStatus" IsOpen="True" IsClosable="False" AutomationProperties.AutomationId="Skybridge.Audio.ReceiveStatus" />
                                 </StackPanel>
                             </Expander>

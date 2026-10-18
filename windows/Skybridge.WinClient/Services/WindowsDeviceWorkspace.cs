@@ -37,6 +37,7 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
     private volatile bool _disposed;
     private Audio.AudioReceiveHost? _audioReceiveHost;
     private LanProductControlListener? _mainListener;
+    private RemoteControlNetworkInterface? _mainNetwork;
     private LanProductControlListener? _audioFileListener;
     internal Audio.AudioOriginalFileReceiveRegistry OriginalAudioFiles { get; } = new();
     private WindowsRemoteControlAdvertisement? _mainAdvertisement;
@@ -54,18 +55,30 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
         }
     }
 
-    internal LanConnectionInfoPublication PrepareIncomingMainConnectionInfo()
+    internal async Task<LanConnectionInfoPublication> PrepareIncomingMainConnectionInfoAsync(CancellationToken token)
     {
+        LanProductControlListener listener;
+        RemoteControlIdentityStore identity;
+        RemoteControlNetworkInterface network;
         lock (_stateGate)
         {
-            var listener = _mainListener ?? throw new InvalidOperationException("Enable reception before copying connection information.");
-            var identity = _identity ?? throw new InvalidOperationException("The local device identity is unavailable.");
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            listener = _mainListener ?? throw new InvalidOperationException("Enable reception before sharing connection information.");
+            identity = _identity ?? throw new InvalidOperationException("The local device identity is unavailable.");
+            network = _mainNetwork ?? throw new InvalidOperationException("The listening network is unavailable.");
+        }
+        var currentNetworks = await OperatorNetworkInterfacesAsync(token).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
+        WindowsLanConnectionInfo.RequireCurrentRoute(network, currentNetworks);
+        lock (_stateGate)
+        {
             return new(identity.PublicMaterial, () =>
             {
                 lock (_stateGate)
                 {
                     ObjectDisposedException.ThrowIf(_disposed, this);
-                    if (_mainStarting || !ReferenceEquals(listener, _mainListener) || !ReferenceEquals(identity, _identity))
+                    if (_mainStarting || !ReferenceEquals(listener, _mainListener) || !ReferenceEquals(identity, _identity) ||
+                        !ReferenceEquals(network, _mainNetwork))
                         throw new InvalidOperationException("The MAIN listener owner changed.");
                     return (IPEndPoint)listener.RequireLiveListener().LocalEndpoint;
                 }
@@ -127,7 +140,11 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
                 RunIncomingMainPeerAsync(client, identity, local, material, refresh, pairing, authorization, filePort, cancellation),
                 () => !_disposed && authorization.IsCurrent);
             var advertisement = new WindowsRemoteControlAdvertisement();
-            lock (_stateGate) { _mainListener = listener; _mainAdvertisement = advertisement; }
+            lock (_stateGate)
+            {
+                _mainListener = listener; _mainAdvertisement = advertisement;
+                _mainNetwork = selected with { Address = new IPAddress(selected.Address.GetAddressBytes()) };
+            }
             try
             {
                 listener.Start(selected.Address, token);
@@ -193,7 +210,7 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
         // still throw from their DisposeAsync on every subsequent cleanup attempt.
         _mainObservation = Task.FromResult<Exception?>(null);
         if (failures.Count != 0) throw new AggregateException("Incoming MAIN could not fully stop.", failures);
-        lock (_stateGate) { _mainListener = null; _audioFileListener = null; _mainAdvertisement = null; }
+        lock (_stateGate) { _mainListener = null; _mainNetwork = null; _audioFileListener = null; _mainAdvertisement = null; }
     }
     private async Task<Exception?> ObserveIncomingMainEndAsync(LanProductControlListener listener, LanProductControlListener fileListener,
         WindowsRemoteControlAdvertisement advertisement)

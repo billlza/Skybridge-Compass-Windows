@@ -1968,4 +1968,10 @@
   <data name="AudioReceiveOriginalFile" xml:space="preserve"><value>元の音声ファイル</value></data>
   <data name="AudioReceiveBytes" xml:space="preserve"><value>バイト</value></data>
   <data name="AudioReceiveOriginalFileDetail" xml:space="preserve"><value>元ファイルは今回の再生中だけ一時保存し、終了後に解放します。実際の形式が選択した出力の厳密な要件を満たす場合のみ再生します。ファイル転送の完了は再生の完了ではありません。</value></data>
+  <data name="AudioConnectionQrTitle.Text" xml:space="preserve"><value>スキャンして接続</value></data>
+  <data name="AudioConnectionQrAccessibleName" xml:space="preserve"><value>音声接続用 QR コード</value></data>
+  <data name="AudioConnectionQrHelp.Text" xml:space="preserve"><value>スマートフォンまたはタブレットの SkyBridge でスキャンを選択してください。両方のデバイスが相互に通信できるローカルネットワークに接続されている必要があります。</value></data>
+  <data name="AudioConnectionQrNotice.Title" xml:space="preserve"><value>接続用 QR コードを表示できません</value></data>
+  <data name="AudioConnectionQrNotice.Message" xml:space="preserve"><value>ネットワークを確認して再試行してください。選択したネットワークが変わった場合は、受信を停止してネットワークを選び直してください。</value></data>
+  <data name="AudioConnectionQrRetry.Content" xml:space="preserve"><value>QR コードを再試行</value></data>
 </root>

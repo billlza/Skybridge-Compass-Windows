@@ -11,6 +11,7 @@
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.10" />
     <PackageReference Include="Concentus" Version="2.2.2" />
+    <PackageReference Include="QRCoder" Version="1.8.0" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
     <PackageReference Include="Vortice.MediaFoundation" Version="3.8.3" />
   </ItemGroup>
@@ -35,6 +36,8 @@
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioOriginalFileArtifact.cs" Link="Services\Audio\AudioOriginalFileArtifact.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioWavePcmFile.cs" Link="Services\Audio\AudioWavePcmFile.cs" />
     <Compile Include="WindowsLanConnectionInfoTests.cs" />
+    <Compile Include="LanConnectionQrCodeTests.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\LanConnectionQrCode.cs" Link="Services\LanConnectionQrCode.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WindowsLanConnectionInfo.cs" Link="Services\WindowsLanConnectionInfo.cs" />
     <Compile Include="LanProtocolIdentityBindingTests.cs" />
     <Compile Include="LanPibResponderTests.cs" />

@@ -33,6 +33,15 @@ internal static class WindowsLanConnectionInfo
         return result;
     }
 
+    internal static void RequireCurrentRoute(RemoteControlNetworkInterface selected,
+        IReadOnlyList<RemoteControlNetworkInterface> current)
+    {
+        ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(current);
+        if (!current.Any(route => string.Equals(route.AdapterId, selected.AdapterId, StringComparison.Ordinal) &&
+            route.InterfaceIndex == selected.InterfaceIndex && route.Address.Equals(selected.Address)))
+            throw new InvalidOperationException("The selected network no longer owns the listening address.");
+    }
+
     private static string Field(string text) => Convert.ToBase64String(StrictUtf8.GetBytes(text))
         .TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
@@ -49,7 +58,7 @@ internal static class WindowsLanConnectionInfo
 }
 
 /// <summary>A snapshot of a live route. The owner callback must check the exact
-/// listener and account at capture and immediately before the copy is admitted.</summary>
+/// listener and account at capture and immediately before a publication is admitted.</summary>
 internal sealed class LanConnectionInfoPublication
 {
     private readonly Func<IPEndPoint> _readCurrentEndpoint;
@@ -65,13 +74,18 @@ internal sealed class LanConnectionInfoPublication
         _text = WindowsLanConnectionInfo.Encode(_endpoint, identity);
     }
 
+    internal string ReadCurrentText()
+    {
+        if (!_endpoint.Equals(_readCurrentEndpoint()))
+            throw new InvalidOperationException("The MAIN listener changed. Refresh its connection information.");
+        return _text;
+    }
+
     internal Task CopyAsync(Func<string, Task> copy)
     {
         ArgumentNullException.ThrowIfNull(copy);
-        if (!_endpoint.Equals(_readCurrentEndpoint()))
-            throw new InvalidOperationException("The MAIN listener changed. Copy its current connection information again.");
         // This is effect admission. No promise is made that a published route will
         // remain reachable after this check or after the clipboard operation.
-        return copy(_text);
+        return copy(ReadCurrentText());
     }
 }

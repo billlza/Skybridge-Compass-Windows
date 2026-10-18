@@ -1968,4 +1968,10 @@
   <data name="AudioReceiveOriginalFile" xml:space="preserve"><value>原始音频文件</value></data>
   <data name="AudioReceiveBytes" xml:space="preserve"><value>字节</value></data>
   <data name="AudioReceiveOriginalFileDetail" xml:space="preserve"><value>原文件仅为本次播放临时保留，结束后释放。只有实际格式符合所选设备的严格输出要求才会播放。文件接收完成不等于播放完成。</value></data>
+  <data name="AudioConnectionQrTitle.Text" xml:space="preserve"><value>扫码连接</value></data>
+  <data name="AudioConnectionQrAccessibleName" xml:space="preserve"><value>音频连接二维码</value></data>
+  <data name="AudioConnectionQrHelp.Text" xml:space="preserve"><value>在手机或平板的 SkyBridge 中选择扫码连接。两端需要处于可互通的局域网络。</value></data>
+  <data name="AudioConnectionQrNotice.Title" xml:space="preserve"><value>连接二维码暂不可用</value></data>
+  <data name="AudioConnectionQrNotice.Message" xml:space="preserve"><value>请检查网络后重试。所选网络发生变化时，请停止接收后重新选择网络。</value></data>
+  <data name="AudioConnectionQrRetry.Content" xml:space="preserve"><value>重试二维码</value></data>
 </root>
