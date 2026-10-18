@@ -6,6 +6,14 @@ using System.Text.Json;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.ViewModels;
 
+if (args.SequenceEqual(["--tcp-write-timeout"]))
+{
+    var test = RemoteControlHostSessionTests.Cases.Single(candidate => candidate.Name == "TCP write timeout preserves the cause when it cancels the active reader");
+    await test.Run();
+    Console.WriteLine("PASS " + test.Name);
+    return;
+}
+
 if (args.SequenceEqual(["--audio-flac-component-missing"]) || args.SequenceEqual(["--audio-flac-component-malformed"]))
 {
     await AudioFlacReceiveTests.UnavailableComponent(args[0] == "--audio-flac-component-malformed");

@@ -841,19 +841,26 @@ internal static class RemoteControlHostSessionTests
             await using var transport = new TcpProductControlTransport(accepted, RemoteControlWire.MaximumInboundFrameBytes, RemoteControlWire.MaximumOutboundFrameBytes, TimeSpan.FromSeconds(1));
             var read = transport.ReadAsync(default);
             TimeoutException? sendFailure = null;
+            int completedFrames = 0;
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 var payload = new byte[RemoteControlWire.MaximumOutboundFrameBytes];
                 for (var i = 0; i < 8; i++)
+                {
+                    Console.WriteLine($"TCP diagnostic: attempt={i + 1} sendBuffer={accepted.SendBufferSize} receiveBuffer={peer.ReceiveBufferSize}");
                     await transport.SendAsync(payload, default).WaitAsync(TimeSpan.FromSeconds(5));
+                    completedFrames++;
+                }
                 throw new InvalidOperationException("A non-reading peer must exhaust the bounded send deadline.");
             }
             catch (TimeoutException failure)
             {
                 sendFailure = failure;
+                Console.WriteLine($"TCP diagnostic: completedFrames={completedFrames} elapsedSeconds={elapsed.Elapsed.TotalSeconds:F3} failure={failure}");
                 Require(failure.Message.Contains("writing the frame body", StringComparison.Ordinal) &&
                     failure.InnerException is OperationCanceledException,
-                    "Write timeout lost its phase or was confused with the test deadline.");
+                    $"Write timeout lost its phase or was confused with the test deadline: {failure}");
             }
             try { await read; throw new InvalidOperationException("The failed writer left its reader active."); }
             catch (AggregateException failure)

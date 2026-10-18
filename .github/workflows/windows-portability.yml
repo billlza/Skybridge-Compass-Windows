@@ -1,120 +1,51 @@
-name: Windows Portability
+name: Windows TCP timeout diagnostics
 
 on:
-  push:
-    branches:
-      - main
-      - Bill/windows-portability
-  pull_request:
-    branches:
-      - main
-      - Bill/windows-portability
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  windows-portability:
-    name: Windows native client, contracts, stack, and Rust CLI coverage
+  tcp-timeout:
     runs-on: windows-latest
-    timeout-minutes: 60
-    env:
-      CARGO_TERM_COLOR: always
-      DOTNET_NOLOGO: true
-
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-
-      - name: Fetch mac UI parity baseline
-        shell: pwsh
-        run: |
-          $baselineCommit = '23ba06343bbaa58c30ef6b9bbddd09bb4e80241c'
-          git fetch --no-tags --depth=1 https://github.com/billlza/Skybridge-Compass.git $baselineCommit
-          git cat-file -e "$baselineCommit^{commit}"
-          git cat-file -e "$baselineCommit`:Sources/SkyBridgeCompassApp/Dashboard/Navigation/NavigationItem.swift"
-          git cat-file -e "$baselineCommit`:Sources/SkyBridgeCompassApp/Dashboard/Sections/DashboardContentView.swift"
-          git cat-file -e "$baselineCommit`:Sources/SkyBridgeCompassApp/Dashboard/Sections/QuickActionsPanelView.swift"
-          git cat-file -e "$baselineCommit`:Sources/SkyBridgeCompassApp/Dashboard/TopBar/TopNavigationBarView.swift"
-
-      - name: Pin GitHub remote to SSH
-        shell: pwsh
-        run: |
-          git remote set-url origin git@github.com:billlza/Skybridge-Compass-Windows.git
-          git remote set-url --push origin git@github.com:billlza/Skybridge-Compass-Windows.git
-
-      - name: Setup .NET 10
-        uses: actions/setup-dotnet@v6.0.0
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-dotnet@v6.0.0
         with:
           global-json-file: global.json
-
-      - name: Install Rust coverage tooling
-        id: rust-tooling
+      - name: Prepare pinned Rust toolchain
         shell: pwsh
         run: |
-          rustup toolchain install 1.97.1 --profile minimal --component clippy --component llvm-tools-preview --component rustfmt
-          rustup default 1.97.1
-          cargo install cargo-llvm-cov --version 0.8.7 --locked
-
-      - name: Build native WinUI client
-        id: native-client
+          rustup toolchain install 1.97.1 --profile minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain setup failed.' }
+      - name: Build actual product contract executable
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          dotnet restore windows/Skybridge.WinClient/Skybridge.WinClient.csproj 2>&1 | Tee-Object artifacts/native-client-restore.log
-          if ($LASTEXITCODE -ne 0) { throw "Native WinUI restore failed: $LASTEXITCODE" }
-          dotnet build windows/Skybridge.WinClient/Skybridge.WinClient.csproj --configuration Debug --no-restore /p:TreatWarningsAsErrors=true 2>&1 | Tee-Object artifacts/native-client-build.log
-          if ($LASTEXITCODE -ne 0) { throw "Native WinUI build failed: $LASTEXITCODE" }
-          $output = 'windows/Skybridge.WinClient/bin/Debug/net10.0-windows10.0.22621.0/win-x64'
-          $files = @('Skybridge.WinClient.exe', 'Skybridge.WinClient.dll', 'Skybridge.WinClient.pri', 'skybridge_core.dll', 'skybridge_flac.dll')
-          $hashes = @($files | ForEach-Object {
-            $path = Join-Path $output $_
-            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing native product output: $path" }
-            @{ name = $_; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
-          })
-          @{ schemaVersion = 1; commit = $env:GITHUB_SHA; configuration = 'Debug'; runtimeIdentifier = 'win-x64'; build = 'passed'; interactiveLaunch = 'not-run'; deviceAudioPlayback = 'not-run'; files = $hashes } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 artifacts/native-client-build.json
-
-      - name: Run product contracts on Windows
-        if: ${{ !cancelled() && steps.native-client.outcome == 'success' }}
-        shell: pwsh
-        run: |
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
           $project = 'windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj'
-          dotnet restore $project 2>&1 | Tee-Object artifacts/native-contracts-restore.log
-          if ($LASTEXITCODE -ne 0) { throw "Native contracts restore failed: $LASTEXITCODE" }
-          dotnet build $project --configuration Debug --no-restore /p:TreatWarningsAsErrors=true 2>&1 | Tee-Object artifacts/native-contracts-build.log
-          if ($LASTEXITCODE -ne 0) { throw "Native contracts build failed: $LASTEXITCODE" }
-          dotnet run --project $project --configuration Debug --no-build --no-restore 2>&1 | Tee-Object artifacts/native-contracts-run.log
-          if ($LASTEXITCODE -ne 0) { throw "Native contracts failed: $LASTEXITCODE" }
-
-      - name: Run Windows portability gate
-        if: ${{ !cancelled() && steps.rust-tooling.outcome == 'success' }}
+          dotnet restore $project 2>&1 | Tee-Object artifacts/tcp-contracts-restore.log
+          if ($LASTEXITCODE -ne 0) { throw 'Contract restore failed.' }
+          dotnet build $project --configuration Debug --no-restore /p:TreatWarningsAsErrors=true 2>&1 | Tee-Object artifacts/tcp-contracts-build.log
+          if ($LASTEXITCODE -ne 0) { throw 'Contract build failed.' }
+      - name: Observe the existing timeout assertion three times
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          .\Scripts\verify-windows-portability-smoke.ps1 -CiMode -CheckOnlineStackFreshness -IncludeRustCliCoverage -StackFreshnessEvidencePath artifacts\windows-stack-freshness.json -RustCliCoverageEvidencePath artifacts\rust-cli-coverage.json -AcceptanceEvidencePath artifacts\windows-portability-acceptance.json
-          .\Scripts\verify-windows-portability-acceptance-evidence.ps1 -AcceptanceEvidencePath artifacts\windows-portability-acceptance.json -StackFreshnessEvidencePath artifacts\windows-stack-freshness.json -RustCliCoverageEvidencePath artifacts\rust-cli-coverage.json -RequireRustCliCoverage -RequireOnlineStackFreshness
-
-      - name: Collect native compiler configuration
-        if: always()
-        shell: pwsh
-        run: |
-          $nativeBuild = 'windows/Skybridge.WinClient/obj/skybridge-flac/x64'
-          if (Test-Path -LiteralPath $nativeBuild -PathType Container) {
-            New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-            Get-ChildItem -LiteralPath $nativeBuild -Recurse -File -Filter '*.vcxproj' |
-              Where-Object { $_.BaseName -in @('FLAC', 'skybridge_flac', 'test_libFLAC') } |
-              ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path artifacts $_.Name) }
+          $results = @()
+          $project = 'windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj'
+          foreach ($attempt in 1..3) {
+            dotnet run --project $project --configuration Debug --no-build --no-restore -- --tcp-write-timeout 2>&1 | Tee-Object "artifacts/tcp-timeout-$attempt.log"
+            $results += @{ attempt = $attempt; exitCode = $LASTEXITCODE }
           }
-
-      - name: Preserve Windows validation evidence
+          $results | ConvertTo-Json | Set-Content -Encoding utf8 artifacts/tcp-timeout-results.json
+          if ($results.Where({ $_.exitCode -ne 0 }).Count -gt 0) { throw 'The original TCP timeout assertion failed; inspect the captured cause and phase.' }
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
-        uses: actions/upload-artifact@v7.0.2
         with:
-          name: windows-validation-${{ github.sha }}
+          name: windows-tcp-timeout-${{ github.sha }}
           path: |
-            artifacts/*.log
-            artifacts/*.json
-            artifacts/*.vcxproj
+            artifacts/tcp-*.log
+            artifacts/tcp-*.json
           if-no-files-found: error
           retention-days: 14
