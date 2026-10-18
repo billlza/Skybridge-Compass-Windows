@@ -1,5 +1,6 @@
 # Shared UI Automation helpers. Loading this file does not build or launch a product.
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing, System.Windows.Forms
+. (Join-Path $PSScriptRoot "windows-ui-geometry.ps1")
 
 function Assert-True {
     param(
@@ -158,66 +159,108 @@ function Wait-ForMainWindow {
     throw "Timed out waiting for Skybridge.WinClient main window."
 }
 
+function Get-CiConsentWindows {
+    param([System.Windows.Automation.AutomationElement]$Window)
+
+    Assert-True ($env:GITHUB_ACTIONS -eq 'true') 'Desktop consent inspection is restricted to CI.'
+    $handles = @([NativeMethods]::VisibleWindowsAbove([IntPtr]$Window.Current.NativeWindowHandle))
+    Assert-True ($handles.Count -le 4) 'Too many windows obscure the candidate for a bounded consent check.'
+    foreach ($handle in $handles) {
+        $root = [System.Windows.Automation.AutomationElement]::FromHandle($handle)
+        $queue = [System.Collections.Generic.Queue[object]]::new()
+        $queue.Enqueue([pscustomobject]@{ element = $root; depth = 0 })
+        $nodes = [System.Collections.Generic.List[object]]::new()
+        while ($queue.Count -gt 0) {
+            Assert-True ($nodes.Count -lt 256) 'The consent accessibility tree exceeded its bound.'
+            $next = $queue.Dequeue()
+            $element = $next.element
+            $current = $element.Current
+            $name = [string]$current.Name
+            Assert-True ($name.Length -le 1024) 'Consent accessibility text exceeded its bound.'
+            $nodes.Add([pscustomobject]@{
+                element = $element
+                name = [regex]::Replace($name, '\s+', ' ').Trim()
+                automationId = $current.AutomationId
+                className = $current.ClassName
+                controlType = $current.ControlType.ProgrammaticName
+                isOffscreen = $current.IsOffscreen
+                isEnabled = $current.IsEnabled
+                supportsInvoke = $element.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty)
+            })
+            $child = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetFirstChild($element)
+            while ($null -ne $child) {
+                Assert-True ($next.depth -lt 12 -and $queue.Count + $nodes.Count -lt 256) 'The consent accessibility tree exceeded its depth or node bound.'
+                $queue.Enqueue([pscustomobject]@{ element = $child; depth = $next.depth + 1 })
+                $child = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetNextSibling($child)
+            }
+        }
+        [pscustomobject]@{ handle = $handle; className = $root.Current.ClassName; processId = $root.Current.ProcessId; nodes = @($nodes) }
+    }
+}
+
+function Convert-CiConsentWindowsToEvidence {
+    param([object[]]$Windows)
+    @($Windows | ForEach-Object {
+        [pscustomobject]@{
+            handle = $_.handle.ToInt64()
+            className = $_.className
+            processId = $_.processId
+            nodes = @($_.nodes | Select-Object name, automationId, className, controlType, isOffscreen, isEnabled, supportsInvoke)
+        }
+    })
+}
+
 function Resolve-CiLocationConsent {
     param(
+        [System.Windows.Automation.AutomationElement]$Window,
         [System.Diagnostics.Process]$Process,
-        [System.Collections.Generic.List[object]]$Events
+        [System.Collections.Generic.List[object]]$Events,
+        [hashtable]$Diagnostics
     )
 
     Assert-True ($env:GITHUB_ACTIONS -eq 'true') 'Location consent handling is restricted to the owned CI UI test.'
-    $Process.Refresh()
-    Assert-True (-not $Process.HasExited) 'The candidate exited before the location consent check.'
     $caption = 'Let Windows and apps access your location?'
-    $captionCondition = [System.Windows.Automation.PropertyCondition]::new(
-        [System.Windows.Automation.AutomationElement]::NameProperty, $caption)
-    $captions = @([System.Windows.Automation.AutomationElement]::RootElement.FindAll(
-        [System.Windows.Automation.TreeScope]::Descendants, $captionCondition) |
-        Where-Object { -not $_.Current.IsOffscreen })
-    if ($captions.Count -eq 0) { return }
-    Assert-True ($captions.Count -le 4) 'The location prompt is ambiguous.'
-
-    $targets = @{}
-    foreach ($title in $captions) {
-        $container = $title
-        for ($depth = 0; $depth -lt 10 -and $null -ne $container; $depth++) {
-            $elements = @($container.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-                [System.Windows.Automation.Condition]::TrueCondition))
-            Assert-True ($elements.Count -le 512) 'The location prompt lookup exceeded its bound.'
-            $identity = @($elements | Where-Object {
-                ([regex]::Replace($_.Current.Name, '\s+', ' ')).StartsWith(
-                    'Skybridge.WinClient needs permission to use signals like GPS or Wi-Fi', [StringComparison]::Ordinal)
-            })
-            if ($identity.Count -gt 0) {
-                $yes = @($elements | Where-Object {
-                    $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
-                    $_.Current.Name -eq 'Yes' -and $_.Current.IsEnabled -and -not $_.Current.IsOffscreen
-                })
-                $no = @($elements | Where-Object {
-                    $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
-                    $_.Current.Name -eq 'No' -and $_.Current.IsEnabled -and -not $_.Current.IsOffscreen
-                })
-                if ($yes.Count -eq 1 -and $no.Count -eq 1) {
-                    $key = $yes[0].GetRuntimeId() -join ','
-                    $targets[$key] = $yes[0]
-                    break
-                }
+    $identity = 'Skybridge.WinClient needs permission to use signals like GPS or Wi-Fi'
+    $target = $null
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        $Process.Refresh()
+        Assert-True (-not $Process.HasExited) 'The candidate exited before the location consent check.'
+        $windows = @(Get-CiConsentWindows -Window $Window)
+        $Diagnostics.last = @(Convert-CiConsentWindowsToEvidence -Windows $windows)
+        if ($windows.Count -eq 0) { return }
+        if (-not $Diagnostics.ContainsKey('first')) { $Diagnostics.first = $Diagnostics.last }
+        $consentMatches = @()
+        foreach ($candidate in $windows) {
+            # A provider may combine the title/body into one accessible name.
+            # Both complete observed strings and the visible button pair must
+            # belong to this one window above the exact candidate HWND.
+            $titles = @($candidate.nodes | Where-Object { $_.name.Contains($caption, [StringComparison]::Ordinal) })
+            $identities = @($candidate.nodes | Where-Object { $_.name.Contains($identity, [StringComparison]::Ordinal) })
+            $yes = @($candidate.nodes | Where-Object { $_.controlType -eq 'ControlType.Button' -and $_.name -eq 'Yes' -and $_.isEnabled -and -not $_.isOffscreen })
+            $no = @($candidate.nodes | Where-Object { $_.controlType -eq 'ControlType.Button' -and $_.name -eq 'No' -and $_.isEnabled -and -not $_.isOffscreen })
+            if ($titles.Count -gt 0 -and $identities.Count -gt 0 -and $yes.Count -eq 1 -and $no.Count -eq 1) {
+                $consentMatches += [pscustomobject]@{ handle = $candidate.handle; button = $yes[0].element }
             }
-            $container = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($container)
         }
+        Assert-True ($consentMatches.Count -le 1) 'More than one location prompt matches the candidate.'
+        if ($consentMatches.Count -eq 1) { $target = $consentMatches[0]; break }
+        Start-Sleep -Milliseconds 200
     }
-    Assert-True ($targets.Count -eq 1) 'The visible location prompt cannot be uniquely bound to Skybridge.WinClient.'
+    Assert-True ($null -ne $target) 'A visible window obscures the candidate but cannot be uniquely identified as its location consent dialog.'
     Assert-True ($Events.Count -eq 0) 'The system repeated the location prompt after the CI response.'
-    $event = [pscustomobject]@{ application = 'Skybridge.WinClient'; action = 'allow'; status = 'invoked'; at = [DateTime]::UtcNow.ToString('o') }
-    $Events.Add($event)
-    $button = @($targets.Values)[0]
-    $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $Process.Refresh()
+    Assert-True (-not $Process.HasExited) 'The candidate exited before consent could be invoked.'
+    $Diagnostics.matched = $Diagnostics.last
+    $invoke = $target.button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+    $consentEvent = [pscustomobject]@{ application = 'Skybridge.WinClient'; windowHandle = $target.handle.ToInt64(); action = 'allow'; status = 'invoking'; at = [DateTime]::UtcNow.ToString('o') }
+    $Events.Add($consentEvent)
+    $invoke.Invoke()
+    $consentEvent.status = 'invoked'
     $deadline = [DateTime]::UtcNow.AddSeconds(5)
     do {
         Start-Sleep -Milliseconds 100
-        $visible = @([System.Windows.Automation.AutomationElement]::RootElement.FindAll(
-            [System.Windows.Automation.TreeScope]::Descendants, $captionCondition) |
-            Where-Object { -not $_.Current.IsOffscreen })
-        if ($visible.Count -eq 0) { $event.status = 'dismissed'; return }
+        $handles = @([NativeMethods]::VisibleWindowsAbove([IntPtr]$Window.Current.NativeWindowHandle))
+        if ($handles -notcontains $target.handle) { $consentEvent.status = 'dismissed'; return }
     } while ([DateTime]::UtcNow -lt $deadline)
     throw 'The location consent dialog did not close after the explicit CI response.'
 }
@@ -658,24 +701,6 @@ function Get-ActionOrderMatrix {
     return $rows
 }
 
-function Test-ActionBoundsFollow {
-    param(
-        $PreviousBounds,
-        $CurrentBounds
-    )
-
-    $verticalGap = [double]$CurrentBounds.top - [double]$PreviousBounds.top
-    if ($verticalGap -gt 2) {
-        return $true
-    }
-
-    if ([Math]::Abs($verticalGap) -le 2 -and ([double]$CurrentBounds.left -gt ([double]$PreviousBounds.left + 2))) {
-        return $true
-    }
-
-    return $false
-}
-
 function Get-ActionBoundsSnapshot {
     param(
         [System.Windows.Automation.AutomationElement]$Root,
@@ -713,28 +738,6 @@ function Get-ActionBoundsSnapshot {
     }
 
     return @($actions)
-}
-
-function Test-ActionBoundsSnapshotUsable {
-    param(
-        [object[]]$Actions
-    )
-
-    foreach ($action in @($Actions)) {
-        if (-not $action.usable) {
-            return $false
-        }
-    }
-
-    return $true
-}
-
-function Format-ActionBoundsSnapshot {
-    param([object[]]$Actions)
-
-    return (@($Actions | ForEach-Object {
-                "$($_.automationId) offscreen=$($_.isOffscreen) usable=$($_.usable) bounds=left:$($_.bounds.left),top:$($_.bounds.top),width:$($_.bounds.width),height:$($_.bounds.height)"
-            }) -join "; ")
 }
 
 function Assert-ActionBoundsSnapshotUsable {
@@ -778,6 +781,7 @@ function Get-RuntimeActionSurfaceSnapshot {
 
         $actions = $null
         $lastActions = $null
+        $geometrySamples = [System.Collections.Generic.List[object]]::new()
         foreach ($anchorKey in $anchorKeys) {
             $anchorAutomationId = "WorkspaceAction.$surface.$anchorKey"
             $anchorElement = Assert-PresentByAutomationId -Root $Root -AutomationId $anchorAutomationId -TimeoutSeconds 5
@@ -787,13 +791,16 @@ function Get-RuntimeActionSurfaceSnapshot {
                 Try-ScrollIntoView -Element $anchorElement
             }
 
-            $candidateActions = @(Get-ActionBoundsSnapshot `
+            $readSnapshot = { Get-ActionBoundsSnapshot `
                     -Root $Root `
                     -Surface $surface `
                     -Keys $keys `
                     -Context $Context `
                     -MinimumUsableActionWidth $minimumUsableActionWidth `
-                    -MinimumUsableActionHeight $minimumUsableActionHeight)
+                    -MinimumUsableActionHeight $minimumUsableActionHeight }.GetNewClosure()
+            $capture = Get-StableActionBoundsSnapshot -ReadSnapshot $readSnapshot -Context "$surface / $Context"
+            $geometrySamples.Add([pscustomobject]@{ anchor = $anchorKey; sampleCount = $capture.sampleCount; frames = $capture.frames })
+            $candidateActions = @($capture.actions)
             $lastActions = $candidateActions
             if (Test-ActionBoundsSnapshotUsable -Actions $candidateActions) {
                 $actions = $candidateActions
@@ -824,6 +831,7 @@ function Get-RuntimeActionSurfaceSnapshot {
             context = $Context
             actionCount = $actions.Count
             actions = @($actions)
+            geometrySamples = $geometrySamples.ToArray()
         }
     })
 }
@@ -1007,6 +1015,42 @@ using System.Runtime.InteropServices;
 public static class NativeMethods
 {
     private const uint MonitorDefaultToNearest = 2;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr hWnd, uint command);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    // Inspect only dialog-sized windows actually above and overlapping the
+    // candidate. Never search the entire desktop accessibility subtree.
+    public static IntPtr[] VisibleWindowsAbove(IntPtr candidate)
+    {
+        NativeRect main;
+        if (!GetWindowRect(candidate, out main))
+            throw new InvalidOperationException("Cannot read the candidate window bounds.");
+        var result = new System.Collections.Generic.List<IntPtr>();
+        var seen = new System.Collections.Generic.HashSet<IntPtr>();
+        IntPtr window = GetWindow(candidate, 3); // GW_HWNDPREV
+        for (int count = 0; window != IntPtr.Zero; count++)
+        {
+            if (count >= 128 || !seen.Add(window))
+                throw new InvalidOperationException("Window-order inspection exceeded its bound or encountered a cycle.");
+            if (IsWindowVisible(window))
+            {
+                NativeRect bounds;
+                if (!GetWindowRect(window, out bounds))
+                    throw new InvalidOperationException("An overlapping-window snapshot changed during inspection.");
+                if (bounds.Right - bounds.Left >= 250 && bounds.Bottom - bounds.Top >= 100 &&
+                    bounds.Left < main.Right && bounds.Right > main.Left &&
+                    bounds.Top < main.Bottom && bounds.Bottom > main.Top)
+                    result.Add(window);
+            }
+            window = GetWindow(window, 3);
+        }
+        return result.ToArray();
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct NativeRect

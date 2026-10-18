@@ -63,6 +63,7 @@ $process = $null
 $window = $null
 $stage = 'startup'
 $locationConsentEvents = [System.Collections.Generic.List[object]]::new()
+$locationConsentDiagnostics = @{}
 $stdoutTask = $null
 $stderrTask = $null
 try {
@@ -150,7 +151,7 @@ try {
     $stderrTask = $process.StandardError.ReadToEndAsync()
     $window = Wait-ForMainWindow -Process $process -TimeoutSeconds $TimeoutSeconds
     Restore-TestWindow -Window $window
-    if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Process $process -Events $locationConsentEvents }
+    if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics }
     try {
         $windowPattern = $window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
         $windowPattern.SetWindowVisualState([System.Windows.Automation.WindowVisualState]::Normal)
@@ -181,7 +182,7 @@ try {
 
     foreach ($feature in $features) {
         $stage = "runtime-actions/$($feature.Id)"
-        if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Process $process -Events $locationConsentEvents }
+        if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics }
         Select-Feature -Window $window -FeatureId $feature.Id -AnchorAutomationId $feature.Anchor
         [void](Get-FeatureRuntimeActionSurfaceSnapshot -Window $window -ActionOrderBySurface $actionOrderBySurface -Feature $feature -ContextSuffix "runtime")
     }
@@ -202,7 +203,7 @@ try {
 
             foreach ($feature in $features) {
                 $stage = "visual/$($size.Width)x$($size.Height)/$($feature.Id)"
-                if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Process $process -Events $locationConsentEvents }
+                if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics }
                 Select-Feature -Window $window -FeatureId $feature.Id -AnchorAutomationId $feature.Anchor
                 $featureActionBounds = Get-FeatureRuntimeActionSurfaceSnapshot -Window $window -ActionOrderBySurface $actionOrderBySurface -Feature $feature -ContextSuffix "$($size.Width)x$($size.Height)"
                 if ($feature.ContainsKey("EvidenceScrollPercent")) {
@@ -221,7 +222,7 @@ try {
                 }
                 $fileName = "{0}x{1}-{2}.png" -f $size.Width, $size.Height, (ConvertTo-SafeFileName -Value $feature.Title)
                 $screenshotPath = Join-Path $resolvedEvidenceDir $fileName
-                if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Process $process -Events $locationConsentEvents }
+                if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics }
                 $screenshot = Save-WindowScreenshot -Window $window -Path $screenshotPath
                 Assert-True -Condition (Test-Path -LiteralPath $screenshotPath) -Message "Missing evidence screenshot: $screenshotPath"
 
@@ -261,7 +262,7 @@ try {
             captureCount = $captures.Count
             actionOrderMatrix = "docs/windows-ui-parity-matrix.md#action-order-matrix"
             captures = @($captures)
-        } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+        } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 
         Assert-True -Condition (Test-Path -LiteralPath $manifestPath) -Message "Missing visual evidence manifest: $manifestPath"
         $visualEvidenceVerifier = Join-Path $RepoRoot "Scripts/verify-windows-ui-visual-evidence.ps1"
@@ -336,8 +337,8 @@ catch {
 finally {
     if ($AllowLocationConsentForCi -and -not [string]::IsNullOrWhiteSpace($EvidenceDir)) {
         [void](New-Item -ItemType Directory -Path $EvidenceDir -Force)
-        @{ policy = 'allow-identified-Skybridge-location-prompt-in-CI'; events = @($locationConsentEvents) } |
-            ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'location-consent.json')
+        @{ policy = 'allow-identified-Skybridge-location-prompt-in-CI'; events = @($locationConsentEvents); diagnostics = $locationConsentDiagnostics } |
+            ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'location-consent.json')
     }
     if ($process -and -not $process.HasExited) {
         Stop-Process -Id $process.Id -Force
