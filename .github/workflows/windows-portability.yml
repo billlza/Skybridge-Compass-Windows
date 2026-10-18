@@ -29,14 +29,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Contract restore failed.' }
           dotnet build $project --configuration Debug --no-restore /p:TreatWarningsAsErrors=true 2>&1 | Tee-Object artifacts/flac-contracts-build.log
           if ($LASTEXITCODE -ne 0) { throw 'Contract build failed.' }
-      - name: Observe FLAC product playback
+      - name: Validate FLAC playback and shared audio fixtures
         shell: pwsh
         run: |
           $results = @()
           $project = 'windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj'
-          foreach ($attempt in 1..1) {
+          foreach ($attempt in 1..3) {
             dotnet run --project $project --configuration Debug --no-build --no-restore -- --audio-flac-product 2>&1 | Tee-Object "artifacts/flac-timeout-$attempt.log"
-            $results += @{ attempt = $attempt; exitCode = $LASTEXITCODE }
+            $results += @{ selector = 'audio-flac-product'; attempt = $attempt; exitCode = $LASTEXITCODE }
+          }
+          foreach ($selector in @('audio-capture-receive', 'audio-file-product', 'audio-original-file', 'audio-product-reception')) {
+            dotnet run --project $project --configuration Debug --no-build --no-restore -- "--$selector" 2>&1 | Tee-Object "artifacts/flac-fixture-$selector.log"
+            $results += @{ selector = $selector; attempt = 1; exitCode = $LASTEXITCODE }
           }
           $results | ConvertTo-Json | Set-Content -Encoding utf8 artifacts/flac-timeout-results.json
           if ($results.Where({ $_.exitCode -ne 0 }).Count -gt 0) { throw 'A FLAC product contract failed; inspect the primary failure and progress.' }

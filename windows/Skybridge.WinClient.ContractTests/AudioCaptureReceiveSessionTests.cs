@@ -498,13 +498,22 @@ internal static class AudioCaptureReceiveSessionTests
         public void WaitForProgress(TimeSpan delay, CancellationToken cancellationToken)
         {
             owner.Touch(); WaitCalls++; ProgressEntered.TrySetResult(); if (BlockProgress) ProgressRelease.Wait();
-            cancellationToken.ThrowIfCancellationRequested(); clock.Advance(delay);
+            cancellationToken.ThrowIfCancellationRequested();
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            Thread.Sleep(1); cancellationToken.ThrowIfCancellationRequested();
+            // Windows can schedule Sleep(1) much later than one millisecond.
+            // Keep the controlled device clock and sample retirement together,
+            // accounting for the observed wait and at least the requested step.
+            // Otherwise a short source outlives the real fixture deadline merely
+            // because the simulated output runs many times slower than its rate.
+            var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+            if (elapsed < delay) elapsed = delay;
+            clock.Advance(elapsed);
             if (_running && AllowRetirement)
             {
-                ulong frames = Math.Max(1UL, (ulong)delay.Ticks * ExpectedFormat.SampleRate / TimeSpan.TicksPerSecond);
+                ulong frames = Math.Max(1UL, (ulong)elapsed.Ticks * ExpectedFormat.SampleRate / TimeSpan.TicksPerSecond);
                 _position += frames; _queued -= (uint)Math.Min(_queued, frames);
             }
-            Thread.Sleep(1); cancellationToken.ThrowIfCancellationRequested();
         }
         public void Stop() { owner.Touch(); _running = false; }
         public void Dispose()
