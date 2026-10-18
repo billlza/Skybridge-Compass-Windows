@@ -14,7 +14,7 @@ $trace = [pscustomobject]@{ index = 0 }
 $read = {
     $trace.index++
     if ($trace.index -eq 1) { New-Frame 856 830 } else { New-Frame 830 830 }
-}.GetNewClosure()
+}
 $result = Get-StableActionBoundsSnapshot -ReadSnapshot $read -Context 'moving row' -MaximumSamples 4 -PollMilliseconds 0
 Require ($result.sampleCount -eq 3) 'Moving coordinates were admitted before two complete equal frames.'
 Require (Test-ActionBoundsFollow $result.actions[0].bounds $result.actions[1].bounds) 'The settled row lost its actual order.'
@@ -42,7 +42,7 @@ Require ($result.sampleCount -eq 2 -and -not (Test-ActionBoundsSnapshotUsable -A
 Write-Output 'PASS stable clipped geometry remains an acceptance failure'
 
 $trace = [pscustomobject]@{ count = 0 }
-$read = { $trace.count++; New-Frame (830 - $trace.count) (830 - $trace.count) }.GetNewClosure()
+$read = { $trace.count++; New-Frame (830 - $trace.count) (830 - $trace.count) }
 $failure = $null
 try { Get-StableActionBoundsSnapshot -ReadSnapshot $read -Context 'continuous movement' -MaximumSamples 3 -PollMilliseconds 0 | Out-Null }
 catch { $failure = $_ }
@@ -50,9 +50,19 @@ Require ($null -ne $failure -and $failure.Exception.Message.Contains('did not st
 Write-Output 'PASS continuously moving geometry fails within the sample bound'
 
 $trace = [pscustomobject]@{ count = 0 }
-$read = { $trace.count++; throw [IO.IOException]::new('geometry-reader-failed') }.GetNewClosure()
+$read = { $trace.count++; throw [IO.IOException]::new('geometry-reader-failed') }
 $failure = $null
 try { Get-StableActionBoundsSnapshot -ReadSnapshot $read -Context 'reader error' -MaximumSamples 3 -PollMilliseconds 0 | Out-Null }
 catch { $failure = $_ }
 Require ($null -ne $failure -and $failure.Exception.Message.Contains('geometry-reader-failed') -and $trace.count -eq 1) 'A reader error was swallowed or retried.'
 Write-Output 'PASS reader failure is preserved without retry'
+
+function Read-FromActiveCaller {
+    $callerTop = 731
+    function Read-CallerLocalFrame { New-Frame $callerTop $callerTop }
+    Get-StableActionBoundsSnapshot -ReadSnapshot { Read-CallerLocalFrame } `
+        -Context 'active caller scope' -MaximumSamples 3 -PollMilliseconds 0
+}
+$result = Read-FromActiveCaller
+Require ($result.sampleCount -eq 2 -and $result.actions[0].bounds.top -eq 731) 'The synchronous reader lost its active caller variables or helper function.'
+Write-Output 'PASS nested caller-local helpers and variables remain available'

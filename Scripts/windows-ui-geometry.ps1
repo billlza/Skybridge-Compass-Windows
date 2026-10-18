@@ -67,6 +67,8 @@ function Get-StableActionBoundsSnapshot {
     $previous = @()
     $clock = [Diagnostics.Stopwatch]::StartNew()
     for ($sample = 0; $sample -lt $MaximumSamples; $sample++) {
+        # Invoke synchronously in the caller's scope chain. A GetNewClosure
+        # dynamic module would lose script-local helpers in nested CI invocations.
         $current = @(& $ReadSnapshot)
         if ($current.Count -eq 0) { throw "Empty action geometry snapshot: $Context" }
         $history.Add([object]$current)

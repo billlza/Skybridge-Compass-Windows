@@ -797,7 +797,7 @@ function Get-RuntimeActionSurfaceSnapshot {
                     -Keys $keys `
                     -Context $Context `
                     -MinimumUsableActionWidth $minimumUsableActionWidth `
-                    -MinimumUsableActionHeight $minimumUsableActionHeight }.GetNewClosure()
+                    -MinimumUsableActionHeight $minimumUsableActionHeight }
             $capture = Get-StableActionBoundsSnapshot -ReadSnapshot $readSnapshot -Context "$surface / $Context"
             $geometrySamples.Add([pscustomobject]@{ anchor = $anchorKey; sampleCount = $capture.sampleCount; frames = $capture.frames })
             $candidateActions = @($capture.actions)
