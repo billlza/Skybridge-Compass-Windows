@@ -60,6 +60,14 @@ foreach ($signal in @(
     "rustup toolchain install 1.97.1 --profile minimal --component clippy --component llvm-tools-preview --component rustfmt",
     "rustup default 1.97.1",
     "cargo install cargo-llvm-cov --version 0.8.7 --locked",
+    "Build native WinUI client",
+    "dotnet restore windows/Skybridge.WinClient/Skybridge.WinClient.csproj",
+    "dotnet build windows/Skybridge.WinClient/Skybridge.WinClient.csproj --configuration Debug --no-restore /p:TreatWarningsAsErrors=true",
+    "Run product contracts on Windows",
+    "windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj",
+    "native-client-build.json",
+    "deviceAudioPlayback = 'not-run'",
+    "actions/upload-artifact@v7.0.2",
     "git remote set-url origin git@github.com:billlza/Skybridge-Compass-Windows.git",
     "git remote set-url --push origin git@github.com:billlza/Skybridge-Compass-Windows.git",
     "New-Item -ItemType Directory -Force -Path artifacts",
@@ -82,6 +90,13 @@ $pinSshRemoteStepIndex = $workflow.IndexOf("Pin GitHub remote to SSH", [StringCo
 Assert-True -Condition ($baselineFetchStepIndex -ge 0) -Message "Windows CI workflow missing mac UI parity baseline fetch step."
 Assert-True -Condition ($pinSshRemoteStepIndex -ge 0) -Message "Windows CI workflow missing SSH remote pin step."
 Assert-True -Condition ($baselineFetchStepIndex -lt $pinSshRemoteStepIndex) -Message "Windows CI workflow must fetch the mac UI parity baseline before pinning origin to SSH."
+
+$nativeBuildStepIndex = $workflow.IndexOf("Build native WinUI client", [StringComparison]::Ordinal)
+$contractStepIndex = $workflow.IndexOf("Run product contracts on Windows", [StringComparison]::Ordinal)
+$portabilityStepIndex = $workflow.IndexOf("Run Windows portability gate", [StringComparison]::Ordinal)
+Assert-True -Condition ($nativeBuildStepIndex -gt $pinSshRemoteStepIndex -and $contractStepIndex -gt $nativeBuildStepIndex -and $portabilityStepIndex -gt $contractStepIndex) -Message "Windows CI must build the actual WinUI product and run its contracts before the online freshness gate."
+Assert-Contains -Text $workflow -Needle "!cancelled() && steps.rust-tooling.outcome == 'success'" -Message "The portability gate must still run after a native build or contract failure."
+Assert-True -Condition (-not $workflow.Contains("continue-on-error:")) -Message "Windows CI must not turn failed native or portability checks into success."
 
 foreach ($forbidden in @(
     "-RequireGitRemoteAccess",

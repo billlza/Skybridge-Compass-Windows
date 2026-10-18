@@ -31,6 +31,8 @@ dotnet run --project windows/Skybridge.WinClient.ContractTests/Skybridge.WinClie
 
 For native Windows work, follow the existing smoke scripts and project rules. Portable test success does not prove WinUI startup, desktop visuals, received files, remote input or cross-device parity. Native Windows acceptance remains pending while the workstation is unavailable.
 
+The Windows workflow first restores and builds the actual unpackaged WinUI application, including its native Core and FLAC decoder, with compiler warnings treated as errors. It then runs the product contract executable on Windows. Build logs and hashes identify the outputs; they do not establish interactive launch or device playback. The existing portability, online stack-freshness and coverage checks remain required and still run after a native check fails. Outdated stack pins can therefore fail CI without hiding the separate native build result.
+
 The dated research synthesis and parity-gap audits retain their original findings and open gates. Refresh source, build identity and real-device receipts before making a current completion claim; the earlier generic macOS/web project description is no longer the Windows entrypoint.
 
 ## Platform repository

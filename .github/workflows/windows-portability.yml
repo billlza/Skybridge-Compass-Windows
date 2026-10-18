@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   windows-portability:
-    name: Windows smoke, stack, and Rust CLI coverage
+    name: Windows native client, contracts, stack, and Rust CLI coverage
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -50,15 +50,58 @@ jobs:
           global-json-file: global.json
 
       - name: Install Rust coverage tooling
+        id: rust-tooling
         shell: pwsh
         run: |
           rustup toolchain install 1.97.1 --profile minimal --component clippy --component llvm-tools-preview --component rustfmt
           rustup default 1.97.1
           cargo install cargo-llvm-cov --version 0.8.7 --locked
 
+      - name: Build native WinUI client
+        id: native-client
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          dotnet restore windows/Skybridge.WinClient/Skybridge.WinClient.csproj 2>&1 | Tee-Object artifacts/native-client-restore.log
+          if ($LASTEXITCODE -ne 0) { throw "Native WinUI restore failed: $LASTEXITCODE" }
+          dotnet build windows/Skybridge.WinClient/Skybridge.WinClient.csproj --configuration Debug --no-restore /p:TreatWarningsAsErrors=true 2>&1 | Tee-Object artifacts/native-client-build.log
+          if ($LASTEXITCODE -ne 0) { throw "Native WinUI build failed: $LASTEXITCODE" }
+          $output = 'windows/Skybridge.WinClient/bin/Debug/net10.0-windows10.0.22621.0/win-x64'
+          $files = @('Skybridge.WinClient.exe', 'Skybridge.WinClient.dll', 'Skybridge.WinClient.pri', 'skybridge_core.dll', 'skybridge_flac.dll')
+          $hashes = @($files | ForEach-Object {
+            $path = Join-Path $output $_
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing native product output: $path" }
+            @{ name = $_; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
+          })
+          @{ schemaVersion = 1; commit = $env:GITHUB_SHA; configuration = 'Debug'; runtimeIdentifier = 'win-x64'; build = 'passed'; interactiveLaunch = 'not-run'; deviceAudioPlayback = 'not-run'; files = $hashes } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 artifacts/native-client-build.json
+
+      - name: Run product contracts on Windows
+        if: ${{ !cancelled() && steps.native-client.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $project = 'windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj'
+          dotnet restore $project 2>&1 | Tee-Object artifacts/native-contracts-restore.log
+          if ($LASTEXITCODE -ne 0) { throw "Native contracts restore failed: $LASTEXITCODE" }
+          dotnet build $project --configuration Debug --no-restore /p:TreatWarningsAsErrors=true 2>&1 | Tee-Object artifacts/native-contracts-build.log
+          if ($LASTEXITCODE -ne 0) { throw "Native contracts build failed: $LASTEXITCODE" }
+          dotnet run --project $project --configuration Debug --no-build --no-restore 2>&1 | Tee-Object artifacts/native-contracts-run.log
+          if ($LASTEXITCODE -ne 0) { throw "Native contracts failed: $LASTEXITCODE" }
+
       - name: Run Windows portability gate
+        if: ${{ !cancelled() && steps.rust-tooling.outcome == 'success' }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           .\Scripts\verify-windows-portability-smoke.ps1 -CiMode -CheckOnlineStackFreshness -IncludeRustCliCoverage -StackFreshnessEvidencePath artifacts\windows-stack-freshness.json -RustCliCoverageEvidencePath artifacts\rust-cli-coverage.json -AcceptanceEvidencePath artifacts\windows-portability-acceptance.json
           .\Scripts\verify-windows-portability-acceptance-evidence.ps1 -AcceptanceEvidencePath artifacts\windows-portability-acceptance.json -StackFreshnessEvidencePath artifacts\windows-stack-freshness.json -RustCliCoverageEvidencePath artifacts\rust-cli-coverage.json -RequireRustCliCoverage -RequireOnlineStackFreshness
+
+      - name: Preserve Windows validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: windows-validation-${{ github.sha }}
+          path: |
+            artifacts/*.log
+            artifacts/*.json
+          if-no-files-found: error
+          retention-days: 14
