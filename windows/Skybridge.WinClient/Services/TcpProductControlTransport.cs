@@ -19,6 +19,7 @@ internal sealed class TcpProductControlTransport : IProductHandshakeTransport, I
     private bool _disposed;
     private int _operations;
     private Exception? _terminalFailure;
+    private TaskCompletionSource<Exception?>? _activeWriteOutcome;
 
     public TcpProductControlTransport(TcpClient client, int maximumInboundFrameBytes,
         int maximumOutboundFrameBytes, TimeSpan? sendTimeout = null)
@@ -76,11 +77,37 @@ internal sealed class TcpProductControlTransport : IProductHandshakeTransport, I
             return payload;
         }
         catch (Exception readFailure) when (readFailure is OperationCanceledException or IOException or ObjectDisposedException &&
-            !cancellationToken.IsCancellationRequested && Volatile.Read(ref _terminalFailure) is { } sendFailure)
+            !cancellationToken.IsCancellationRequested)
         {
-            throw new AggregateException("Remote-control send failed and its reader was interrupted.", sendFailure, readFailure);
+            if (await ObserveActiveWriteFailureAsync(readFailure, cancellationToken).ConfigureAwait(false) is { } sendFailure)
+                throw new AggregateException("Remote-control send failed and its reader was interrupted.", sendFailure, readFailure);
+            throw;
         }
         finally { EndOperation(); }
+    }
+
+    private async Task<Exception?> ObserveActiveWriteFailureAsync(Exception readFailure, CancellationToken cancellationToken)
+    {
+        Task<Exception?>? pending;
+        lock (_stateGate)
+        {
+            if (_terminalFailure is { } terminal) return terminal;
+            if (_closed) return null;
+            pending = _activeWriteOutcome?.Task;
+        }
+        // Protocol rejection and peer EOF must not wait for an unrelated writer.
+        bool nativeInterruption = readFailure is OperationCanceledException or ObjectDisposedException ||
+            readFailure is IOException { InnerException: SocketException };
+        if (pending is null || !nativeInterruption) return null;
+
+        // On Windows, cancelling an overlapped send can abort the reader before
+        // the sender's continuation publishes its timeout. Observe that exact
+        // admitted writer, never a queued or later frame. A reader cancellation
+        // stops this observation; its original read failure still propagates.
+        Exception? outcome;
+        try { outcome = await pending.WaitAsync(cancellationToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return null; }
+        return outcome is not null && ReferenceEquals(outcome, Volatile.Read(ref _terminalFailure)) ? outcome : null;
     }
 
     public async Task SendAsync(ReadOnlyMemory<byte> frame, CancellationToken cancellationToken)
@@ -101,6 +128,8 @@ internal sealed class TcpProductControlTransport : IProductHandshakeTransport, I
         var entered = false;
         var writeStarted = false;
         var inAdmissionCallback = false;
+        TaskCompletionSource<Exception?>? writeOutcome = null;
+        Exception? writeFailure = null;
         var phase = "waiting for the previous frame";
         ReadOnlyMemory<byte> frame = default;
         try
@@ -119,6 +148,8 @@ internal sealed class TcpProductControlTransport : IProductHandshakeTransport, I
             BinaryPrimitives.WriteUInt32BigEndian(header, checked((uint)frame.Length));
             phase = "writing the frame prefix";
             writeStarted = true;
+            writeOutcome = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_stateGate) { _activeWriteOutcome = writeOutcome; }
             await _stream.WriteAsync(header, deadline.Token).ConfigureAwait(false);
             phase = "writing the frame body";
             await _stream.WriteAsync(frame, deadline.Token).ConfigureAwait(false);
@@ -130,11 +161,13 @@ internal sealed class TcpProductControlTransport : IProductHandshakeTransport, I
             var timeout = new TimeoutException(
                 $"Remote-control send timed out after {_sendTimeout.TotalSeconds:F1}s while {phase} " +
                 $"({(frame.IsEmpty ? "frame not prepared" : $"{frame.Length} bytes")}).", failure);
+            writeFailure = timeout;
             if (writeStarted) Close(timeout);
             throw timeout;
         }
         catch (Exception failure)
         {
+            writeFailure = failure;
             // Once a prefix or body may have been sent, the framing boundary is
             // uncertain. Retire the exact transport instead of retrying a frame.
             // Cancellation while waiting for the writer has not touched the wire.
@@ -143,6 +176,14 @@ internal sealed class TcpProductControlTransport : IProductHandshakeTransport, I
         }
         finally
         {
+            if (writeOutcome is not null)
+            {
+                lock (_stateGate)
+                {
+                    if (ReferenceEquals(_activeWriteOutcome, writeOutcome)) _activeWriteOutcome = null;
+                }
+                writeOutcome.TrySetResult(writeFailure);
+            }
             if (entered) _sendGate.Release();
             EndOperation();
         }
