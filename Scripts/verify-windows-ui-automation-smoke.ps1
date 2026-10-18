@@ -222,18 +222,21 @@ try {
                 }
                 $fileName = "{0}x{1}-{2}.png" -f $size.Width, $size.Height, (ConvertTo-SafeFileName -Value $feature.Title)
                 $screenshotPath = Join-Path $resolvedEvidenceDir $fileName
+                $beforeCapture = $null
                 if ($RequireFirstStartLocationConsentForCi) {
-                    Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics
-                    if ($locationConsentEvents.Count -eq 0) {
-                        # The system prompt can appear in captured pixels while
-                        # no separate HWND exists above the candidate. Preserve
-                        # its own raw tree before rejecting the missing receipt.
-                        $locationConsentDiagnostics.candidateWindow = @(Convert-CiConsentWindowsToEvidence -Windows @(
-                            Get-CiConsentWindows -Window $window -IncludeCandidateWindow))
+                    $beforeCapture = {
+                        # Activation can raise an owned system prompt. Check after
+                        # the screenshot helper activates the window, before pixels
+                        # are admitted, retaining this synchronous caller's scope.
+                        Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics
+                        if ($locationConsentEvents.Count -eq 0) {
+                            $locationConsentDiagnostics.candidateWindow = @(Convert-CiConsentWindowsToEvidence -Windows @(
+                                Get-CiConsentWindows -Window $window -IncludeCandidateWindow -Diagnostics $locationConsentDiagnostics))
+                        }
+                        Assert-FirstStartLocationConsentReceipt -Events @($locationConsentEvents)
                     }
-                    Assert-FirstStartLocationConsentReceipt -Events @($locationConsentEvents)
                 }
-                $screenshot = Save-WindowScreenshot -Window $window -Path $screenshotPath
+                $screenshot = Save-WindowScreenshot -Window $window -Path $screenshotPath -BeforeCapture $beforeCapture
                 Assert-True -Condition (Test-Path -LiteralPath $screenshotPath) -Message "Missing evidence screenshot: $screenshotPath"
 
                 $anchorIds = @(

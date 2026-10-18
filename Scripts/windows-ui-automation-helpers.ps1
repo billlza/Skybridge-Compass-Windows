@@ -161,12 +161,29 @@ function Wait-ForMainWindow {
 }
 
 function Get-CiConsentWindows {
-    param([System.Windows.Automation.AutomationElement]$Window, [switch]$IncludeCandidateWindow)
+    param(
+        [System.Windows.Automation.AutomationElement]$Window,
+        [switch]$IncludeCandidateWindow,
+        [hashtable]$Diagnostics
+    )
 
     Assert-True ($env:GITHUB_ACTIONS -eq 'true') 'Desktop consent inspection is restricted to CI.'
     $candidateHandle = [IntPtr]$Window.Current.NativeWindowHandle
-    $handles = @([NativeMethods]::VisibleWindowsAbove($candidateHandle))
-    Assert-True ($handles.Count -le 4) 'Too many windows obscure the candidate for a bounded consent check.'
+    $snapshot = [NativeMethods]::InspectConsentWindows($candidateHandle)
+    $handles = @($snapshot.Candidates)
+    Assert-True ($handles.Count -le 6) 'Too many windows overlap the candidate for a bounded consent check.'
+    if ($null -ne $Diagnostics) {
+        $Diagnostics.lastNative = [pscustomobject]@{
+            candidate = $candidateHandle.ToInt64()
+            foreground = $snapshot.Foreground.ToInt64()
+            foregroundRoot = $snapshot.ForegroundRoot.ToInt64()
+            center = $snapshot.Center.ToInt64()
+            centerRoot = $snapshot.CenterRoot.ToInt64()
+            above = @($snapshot.Above | ForEach-Object { $_.ToInt64() })
+            candidates = @($handles | ForEach-Object { $_.ToInt64() })
+        }
+        if (-not $Diagnostics.ContainsKey('firstNative')) { $Diagnostics.firstNative = $Diagnostics.lastNative }
+    }
     if ($IncludeCandidateWindow) { $handles = @($candidateHandle) + $handles }
     foreach ($handle in $handles) {
         $isCandidate = $handle -eq $candidateHandle
@@ -232,7 +249,7 @@ function Resolve-CiLocationConsent {
     for ($attempt = 0; $attempt -lt 10; $attempt++) {
         $Process.Refresh()
         Assert-True (-not $Process.HasExited) 'The candidate exited before the location consent check.'
-        $windows = @(Get-CiConsentWindows -Window $Window)
+        $windows = @(Get-CiConsentWindows -Window $Window -Diagnostics $Diagnostics)
         $Diagnostics.last = @(Convert-CiConsentWindowsToEvidence -Windows $windows)
         if ($windows.Count -eq 0) { return }
         if (-not $Diagnostics.ContainsKey('first')) { $Diagnostics.first = $Diagnostics.last }
@@ -240,7 +257,9 @@ function Resolve-CiLocationConsent {
         foreach ($candidate in $windows) {
             # A provider may combine the title/body into one accessible name.
             # Both complete observed strings and the visible button pair must
-            # belong to this one window above the exact candidate HWND.
+            # belong to this one visible window overlapping the candidate HWND.
+            # Native foreground/point lookup also covers windows outside its
+            # GW_HWNDPREV category; the point is never used to click a button.
             $titles = @($candidate.nodes | Where-Object { $_.name.Contains($caption, [StringComparison]::Ordinal) })
             $identities = @($candidate.nodes | Where-Object { $_.name.Contains($identity, [StringComparison]::Ordinal) })
             $yes = @($candidate.nodes | Where-Object { $_.controlType -eq 'ControlType.Button' -and $_.name -eq 'Yes' -and $_.isEnabled -and -not $_.isOffscreen })
@@ -266,8 +285,10 @@ function Resolve-CiLocationConsent {
     $deadline = [DateTime]::UtcNow.AddSeconds(5)
     do {
         Start-Sleep -Milliseconds 100
-        $handles = @([NativeMethods]::VisibleWindowsAbove([IntPtr]$Window.Current.NativeWindowHandle))
-        if ($handles -notcontains $target.handle) { $consentEvent.status = 'dismissed'; return }
+        if (-not [NativeMethods]::IsWindowVisible($target.handle)) {
+            $consentEvent.status = 'dismissed'
+            return
+        }
     } while ([DateTime]::UtcNow -lt $deadline)
     throw 'The location consent dialog did not close after the explicit CI response.'
 }
@@ -970,7 +991,8 @@ function Get-AutomationAnchorSnapshot {
 function Save-WindowScreenshot {
     param(
         [System.Windows.Automation.AutomationElement]$Window,
-        [string]$Path
+        [string]$Path,
+        [scriptblock]$BeforeCapture
     )
 
     $rect = $Window.Current.BoundingRectangle
@@ -985,6 +1007,7 @@ function Save-WindowScreenshot {
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         Activate-TestWindow -Window $Window
         Start-Sleep -Milliseconds (250 * $attempt)
+        if ($null -ne $BeforeCapture) { & $BeforeCapture }
         Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
 
         $bitmap = [System.Drawing.Bitmap]::new($width, $height)
@@ -1028,7 +1051,68 @@ public static class NativeMethods
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool IsWindowVisible(IntPtr hWnd);
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(NativePoint point);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    public sealed class ConsentWindowSnapshot
+    {
+        public IntPtr Foreground;
+        public IntPtr ForegroundRoot;
+        public IntPtr Center;
+        public IntPtr CenterRoot;
+        public IntPtr[] Above;
+        public IntPtr[] Candidates;
+    }
+
+    public static ConsentWindowSnapshot InspectConsentWindows(IntPtr candidate)
+    {
+        NativeRect main;
+        if (!GetWindowRect(candidate, out main))
+            throw new InvalidOperationException("Cannot read the candidate window bounds.");
+        var snapshot = new ConsentWindowSnapshot();
+        snapshot.Above = VisibleWindowsAbove(candidate);
+        snapshot.Foreground = GetForegroundWindow();
+        snapshot.ForegroundRoot = snapshot.Foreground == IntPtr.Zero ? IntPtr.Zero : GetAncestor(snapshot.Foreground, 2);
+        snapshot.Center = WindowFromPoint(new NativePoint
+        {
+            X = main.Left + (main.Right - main.Left) / 2,
+            Y = main.Top + (main.Bottom - main.Top) / 2
+        });
+        snapshot.CenterRoot = snapshot.Center == IntPtr.Zero ? IntPtr.Zero : GetAncestor(snapshot.Center, 2);
+        var candidates = new System.Collections.Generic.List<IntPtr>();
+        var sources = new System.Collections.Generic.List<IntPtr>(snapshot.Above);
+        sources.Add(snapshot.ForegroundRoot);
+        sources.Add(snapshot.CenterRoot);
+        foreach (IntPtr handle in sources)
+        {
+            if (handle == IntPtr.Zero || handle == candidate || candidates.Contains(handle) || !IsWindowVisible(handle))
+                continue;
+            NativeRect bounds;
+            if (!GetWindowRect(handle, out bounds))
+                throw new InvalidOperationException("A consent-window snapshot changed during inspection.");
+            if (bounds.Right - bounds.Left >= 250 && bounds.Bottom - bounds.Top >= 100 &&
+                bounds.Left < main.Right && bounds.Right > main.Left &&
+                bounds.Top < main.Bottom && bounds.Bottom > main.Top)
+                candidates.Add(handle);
+        }
+        snapshot.Candidates = candidates.ToArray();
+        return snapshot;
+    }
 
     // Inspect only dialog-sized windows actually above and overlapping the
     // candidate. Never search the entire desktop accessibility subtree.
