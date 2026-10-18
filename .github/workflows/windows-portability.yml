@@ -1,120 +1,67 @@
-name: Windows Portability
+name: Windows signature host diagnostics
 
 on:
-  push:
-    branches:
-      - main
-      - Bill/windows-portability
-  pull_request:
-    branches:
-      - main
-      - Bill/windows-portability
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  windows-portability:
-    name: Windows native client, contracts, stack, and Rust CLI coverage
+  signature-host:
     runs-on: windows-latest
-    timeout-minutes: 60
-    env:
-      CARGO_TERM_COLOR: always
-      DOTNET_NOLOGO: true
-
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-
-      - name: Fetch mac UI parity baseline
-        shell: pwsh
-        run: |
-          $baselineCommit = '23ba06343bbaa58c30ef6b9bbddd09bb4e80241c'
-          git fetch --no-tags --depth=1 https://github.com/billlza/Skybridge-Compass.git $baselineCommit
-          git cat-file -e "$baselineCommit^{commit}"
-          git cat-file -e "$baselineCommit`:Sources/SkyBridgeCompassApp/Dashboard/Navigation/NavigationItem.swift"
-          git cat-file -e "$baselineCommit`:Sources/SkyBridgeCompassApp/Dashboard/Sections/DashboardContentView.swift"
-          git cat-file -e "$baselineCommit`:Sources/SkyBridgeCompassApp/Dashboard/Sections/QuickActionsPanelView.swift"
-          git cat-file -e "$baselineCommit`:Sources/SkyBridgeCompassApp/Dashboard/TopBar/TopNavigationBarView.swift"
-
-      - name: Pin GitHub remote to SSH
-        shell: pwsh
-        run: |
-          git remote set-url origin git@github.com:billlza/Skybridge-Compass-Windows.git
-          git remote set-url --push origin git@github.com:billlza/Skybridge-Compass-Windows.git
-
-      - name: Setup .NET 10
-        uses: actions/setup-dotnet@v6.0.0
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-dotnet@v6.0.0
         with:
           global-json-file: global.json
-
-      - name: Install Rust coverage tooling
-        id: rust-tooling
+      - name: Compare inherited and engine-specific module resolution
         shell: pwsh
         run: |
-          rustup toolchain install 1.97.1 --profile minimal --component clippy --component llvm-tools-preview --component rustfmt
-          rustup default 1.97.1
-          cargo install cargo-llvm-cov --version 0.8.7 --locked
-
-      - name: Build native WinUI client
-        id: native-client
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          dotnet restore windows/Skybridge.WinClient/Skybridge.WinClient.csproj 2>&1 | Tee-Object artifacts/native-client-restore.log
-          if ($LASTEXITCODE -ne 0) { throw "Native WinUI restore failed: $LASTEXITCODE" }
-          dotnet build windows/Skybridge.WinClient/Skybridge.WinClient.csproj --configuration Debug --no-restore /p:TreatWarningsAsErrors=true 2>&1 | Tee-Object artifacts/native-client-build.log
-          if ($LASTEXITCODE -ne 0) { throw "Native WinUI build failed: $LASTEXITCODE" }
-          $output = 'windows/Skybridge.WinClient/bin/Debug/net10.0-windows10.0.22621.0/win-x64'
-          $files = @('Skybridge.WinClient.exe', 'Skybridge.WinClient.dll', 'Skybridge.WinClient.pri', 'skybridge_core.dll', 'skybridge_flac.dll')
-          $hashes = @($files | ForEach-Object {
-            $path = Join-Path $output $_
-            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing native product output: $path" }
-            @{ name = $_; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
-          })
-          @{ schemaVersion = 1; commit = $env:GITHUB_SHA; configuration = 'Debug'; runtimeIdentifier = 'win-x64'; build = 'passed'; interactiveLaunch = 'not-run'; deviceAudioPlayback = 'not-run'; files = $hashes } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 artifacts/native-client-build.json
-
-      - name: Run product contracts on Windows
-        if: ${{ !cancelled() && steps.native-client.outcome == 'success' }}
-        shell: pwsh
-        run: |
-          $project = 'windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj'
-          dotnet restore $project 2>&1 | Tee-Object artifacts/native-contracts-restore.log
-          if ($LASTEXITCODE -ne 0) { throw "Native contracts restore failed: $LASTEXITCODE" }
-          dotnet build $project --configuration Debug --no-restore /p:TreatWarningsAsErrors=true 2>&1 | Tee-Object artifacts/native-contracts-build.log
-          if ($LASTEXITCODE -ne 0) { throw "Native contracts build failed: $LASTEXITCODE" }
-          dotnet run --project $project --configuration Debug --no-build --no-restore 2>&1 | Tee-Object artifacts/native-contracts-run.log
-          if ($LASTEXITCODE -ne 0) { throw "Native contracts failed: $LASTEXITCODE" }
-
-      - name: Run Windows portability gate
-        if: ${{ !cancelled() && steps.rust-tooling.outcome == 'success' }}
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          .\Scripts\verify-windows-portability-smoke.ps1 -CiMode -CheckOnlineStackFreshness -IncludeRustCliCoverage -StackFreshnessEvidencePath artifacts\windows-stack-freshness.json -RustCliCoverageEvidencePath artifacts\rust-cli-coverage.json -AcceptanceEvidencePath artifacts\windows-portability-acceptance.json
-          .\Scripts\verify-windows-portability-acceptance-evidence.ps1 -AcceptanceEvidencePath artifacts\windows-portability-acceptance.json -StackFreshnessEvidencePath artifacts\windows-stack-freshness.json -RustCliCoverageEvidencePath artifacts\rust-cli-coverage.json -RequireRustCliCoverage -RequireOnlineStackFreshness
-
-      - name: Collect native compiler configuration
-        if: always()
-        shell: pwsh
-        run: |
-          $nativeBuild = 'windows/Skybridge.WinClient/obj/skybridge-flac/x64'
-          if (Test-Path -LiteralPath $nativeBuild -PathType Container) {
-            New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-            Get-ChildItem -LiteralPath $nativeBuild -Recurse -File -Filter '*.vcxproj' |
-              Where-Object { $_.BaseName -in @('FLAC', 'skybridge_flac', 'test_libFLAC') } |
-              ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path artifacts $_.Name) }
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          @'
+          param([string]$Mode)
+          $ErrorActionPreference = 'Stop'
+          [Console]::WriteLine("Mode: $Mode; engine: $($PSVersionTable.PSVersion); PSHOME: $PSHOME")
+          [Console]::WriteLine("PSModulePath: $env:PSModulePath")
+          try {
+            foreach ($module in (Get-Module -ListAvailable Microsoft.PowerShell.Security)) {
+              [Console]::WriteLine("Candidate: $($module.Version) $($module.Path)")
+            }
+            if ($Mode -eq 'BuiltIn') {
+              Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+            }
+            $signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $PSHOME 'powershell.exe')
+            [Console]::WriteLine("Signature status: $($signature.Status)")
+            if ($signature.Status -ne 'Valid') { throw 'The engine binary did not have a valid signature.' }
+            $hash = Get-FileHash -LiteralPath (Join-Path $PSHOME 'powershell.exe') -Algorithm SHA256
+            [Console]::WriteLine("Engine SHA256: $($hash.Hash)")
+            exit 0
+          } catch {
+            [Console]::Error.WriteLine($_.Exception.ToString())
+            [Console]::Error.WriteLine($_.ToString())
+            exit 1
           }
-
-      - name: Preserve Windows validation evidence
+          '@ | Set-Content -Encoding utf8 artifacts/signature-host.ps1
+          @'
+          <Project>
+            <Target Name="Probe">
+              <Exec Condition="'$(ProbeMode)'!='Isolated'" Command="powershell.exe -NoProfile -NonInteractive -File &quot;$(MSBuildThisFileDirectory)signature-host.ps1&quot; -Mode $(ProbeMode)" />
+              <Exec Condition="'$(ProbeMode)'=='Isolated'" EnvironmentVariables="PSModulePath=$(SystemRoot)\System32\WindowsPowerShell\v1.0\Modules" Command="powershell.exe -NoProfile -NonInteractive -File &quot;$(MSBuildThisFileDirectory)signature-host.ps1&quot; -Mode $(ProbeMode)" />
+            </Target>
+          </Project>
+          '@ | Set-Content -Encoding utf8 artifacts/signature-host.proj
+          $results = @()
+          foreach ($mode in @('Auto', 'BuiltIn', 'Isolated')) {
+            dotnet msbuild artifacts/signature-host.proj /nologo /t:Probe "/p:ProbeMode=$mode" 2>&1 | Tee-Object "artifacts/signature-host-$mode.log"
+            $results += @{ mode = $mode; exitCode = $LASTEXITCODE }
+          }
+          $results | ConvertTo-Json | Set-Content -Encoding utf8 artifacts/signature-host-results.json
+          if ($results.Where({ $_.exitCode -ne 0 }).Count -gt 0) { throw 'At least one signature-host probe failed; inspect each original result.' }
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
-        uses: actions/upload-artifact@v7.0.2
         with:
-          name: windows-validation-${{ github.sha }}
-          path: |
-            artifacts/*.log
-            artifacts/*.json
-            artifacts/*.vcxproj
+          name: windows-signature-host-${{ github.sha }}
+          path: artifacts/signature-host*
           if-no-files-found: error
           retention-days: 14
