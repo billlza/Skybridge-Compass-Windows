@@ -26,7 +26,15 @@ set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING ON CACHE BOOL "" FORCE)
 set(WITH_OGG OFF CACHE BOOL "" FORCE)
-set(ENABLE_WERROR ON CACHE BOOL "" FORCE)
+# libFLAC 1.5's ENABLE_WERROR adds the literal GNU -Werror flag, even when
+# its compiler probe rejected it. MSVC uses CMake's equivalent /WX property
+# for every native target, including the upstream library and its tests.
+if(MSVC)
+    set(ENABLE_WERROR OFF CACHE BOOL "Use compiler-native warning errors" FORCE)
+    set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
+else()
+    set(ENABLE_WERROR ON CACHE BOOL "" FORCE)
+endif()
 set(WITH_STACK_PROTECTOR ON CACHE BOOL "" FORCE)
 set(WITH_FORTIFY_SOURCE ON CACHE BOOL "" FORCE)
 set(INSTALL_MANPAGES OFF CACHE BOOL "" FORCE)

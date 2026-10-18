@@ -95,6 +95,18 @@ jobs:
           .\Scripts\verify-windows-portability-smoke.ps1 -CiMode -CheckOnlineStackFreshness -IncludeRustCliCoverage -StackFreshnessEvidencePath artifacts\windows-stack-freshness.json -RustCliCoverageEvidencePath artifacts\rust-cli-coverage.json -AcceptanceEvidencePath artifacts\windows-portability-acceptance.json
           .\Scripts\verify-windows-portability-acceptance-evidence.ps1 -AcceptanceEvidencePath artifacts\windows-portability-acceptance.json -StackFreshnessEvidencePath artifacts\windows-stack-freshness.json -RustCliCoverageEvidencePath artifacts\rust-cli-coverage.json -RequireRustCliCoverage -RequireOnlineStackFreshness
 
+      - name: Collect native compiler configuration
+        if: always()
+        shell: pwsh
+        run: |
+          $nativeBuild = 'windows/Skybridge.WinClient/obj/skybridge-flac/x64'
+          if (Test-Path -LiteralPath $nativeBuild -PathType Container) {
+            New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+            Get-ChildItem -LiteralPath $nativeBuild -Recurse -File -Filter '*.vcxproj' |
+              Where-Object { $_.BaseName -in @('FLAC', 'skybridge_flac', 'test_libFLAC') } |
+              ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path artifacts $_.Name) }
+          }
+
       - name: Preserve Windows validation evidence
         if: always()
         uses: actions/upload-artifact@v7.0.2
@@ -103,5 +115,6 @@ jobs:
           path: |
             artifacts/*.log
             artifacts/*.json
+            artifacts/*.vcxproj
           if-no-files-found: error
           retention-days: 14
