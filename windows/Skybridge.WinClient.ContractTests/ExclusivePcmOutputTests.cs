@@ -266,7 +266,7 @@ internal static class ExclusivePcmOutputTests
 
     private static void InvalidNativeBuffers()
     {
-        foreach (var frames in new[] { 0U, 44101U, uint.MaxValue })
+        foreach (var frames in new[] { 0U, 440U, 44101U, uint.MaxValue })
         {
             var client = new Client { Frames = frames };
             var device = new Device(client);

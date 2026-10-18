@@ -472,14 +472,22 @@ internal static class AudioCaptureReceiveSessionTests
         internal Exception? PrepareFailure, DisposeFailure;
         internal Action? PrepareAction;
         internal ExactPcmFormat ExpectedFormat = Format.RequireExactOutputFormat();
-        private const uint Frames = 9600;
+        internal uint BufferFrames { get; private set; }
         private uint _queued;
         internal uint QueuedFrames => Volatile.Read(ref _queued);
         private ulong _position;
         private bool _running;
         public int IsExactFormatSupported(ExactPcmFormat format) { owner.Touch(); Require(format == ExpectedFormat, "Native format changed."); return 0; }
-        public int Initialize(ExactPcmFormat format, long bufferDuration100Nanoseconds) { owner.Touch(); Require(bufferDuration100Nanoseconds > 0, "Native period was empty."); return 0; }
-        public uint GetBufferFrames() { owner.Touch(); return Frames; }
+        public int Initialize(ExactPcmFormat format, long bufferDuration100Nanoseconds)
+        {
+            owner.Touch(); Require(bufferDuration100Nanoseconds > 0, "Native period was empty.");
+            // WASAPI allocates at least the requested duration, rounded to whole
+            // source frames. A fixed 9600 frames shrinks 200 ms to 50 ms at 192 kHz.
+            BufferFrames = checked((uint)(((long)format.SampleRate * bufferDuration100Nanoseconds +
+                TimeSpan.TicksPerSecond - 1) / TimeSpan.TicksPerSecond));
+            return 0;
+        }
+        public uint GetBufferFrames() { owner.Touch(); return BufferFrames; }
         public int GetStreamLatency(out long latency100Nanoseconds) { owner.Touch(); latency100Nanoseconds = TimeSpan.TicksPerMillisecond; return 0; }
         public void Prepare()
         {
@@ -490,7 +498,7 @@ internal static class AudioCaptureReceiveSessionTests
         public int GetClockPosition(out ulong position, out ulong frequency) { owner.Touch(); position = _position; frequency = ExpectedFormat.SampleRate; return 0; }
         public void Submit(byte[] bytes, int offset, int count, uint frames)
         {
-            owner.Touch(); Require(frames > 0 && frames <= Frames - _queued && (long)frames * ExpectedFormat.BytesPerFrame == count,
+            owner.Touch(); Require(frames > 0 && frames <= BufferFrames - _queued && (long)frames * ExpectedFormat.BytesPerFrame == count,
                 "Native fixture received a partial or over-capacity packet.");
             Submissions.Add(bytes.AsSpan(offset, count).ToArray()); _queued += frames;
         }
@@ -498,13 +506,22 @@ internal static class AudioCaptureReceiveSessionTests
         public void WaitForProgress(TimeSpan delay, CancellationToken cancellationToken)
         {
             owner.Touch(); WaitCalls++; ProgressEntered.TrySetResult(); if (BlockProgress) ProgressRelease.Wait();
-            cancellationToken.ThrowIfCancellationRequested(); clock.Advance(delay);
+            cancellationToken.ThrowIfCancellationRequested();
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            Thread.Sleep(1); cancellationToken.ThrowIfCancellationRequested();
+            // Windows can schedule Sleep(1) much later than one millisecond.
+            // Keep the controlled device clock and sample retirement together,
+            // accounting for the observed wait and at least the requested step.
+            // Otherwise a short source outlives the real fixture deadline merely
+            // because the simulated output runs many times slower than its rate.
+            var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+            if (elapsed < delay) elapsed = delay;
+            clock.Advance(elapsed);
             if (_running && AllowRetirement)
             {
-                ulong frames = Math.Max(1UL, (ulong)delay.Ticks * ExpectedFormat.SampleRate / TimeSpan.TicksPerSecond);
+                ulong frames = Math.Max(1UL, (ulong)elapsed.Ticks * ExpectedFormat.SampleRate / TimeSpan.TicksPerSecond);
                 _position += frames; _queued -= (uint)Math.Min(_queued, frames);
             }
-            Thread.Sleep(1); cancellationToken.ThrowIfCancellationRequested();
         }
         public void Stop() { owner.Touch(); _running = false; }
         public void Dispose()

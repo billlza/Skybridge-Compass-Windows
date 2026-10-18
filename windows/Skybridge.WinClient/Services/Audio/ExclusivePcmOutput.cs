@@ -133,6 +133,10 @@ internal sealed class ExclusivePcmOutput : IDisposable
             RequireSOk(client.IsExactFormatSupported(format), "accept the exact exclusive PCM format");
             RequireSOk(client.Initialize(format, duration), "initialize non-event exclusive PCM output");
             var frames = client.GetBufferFrames(); CheckedBufferBytes(format, frames);
+            // Successful WASAPI initialization guarantees at least the requested
+            // capacity. A smaller buffer cannot uphold the admitted pacing budget.
+            if (frames < bufferFrames)
+                throw new InvalidDataException("The native output buffer is smaller than the requested capacity.");
             RequireSOk(client.GetStreamLatency(out long latency), "query maximum output stream latency");
             if (latency < 0 || latency >= TimeSpan.FromSeconds(5).Ticks)
                 throw new InvalidDataException("The reported output latency is outside the supported five-second completion budget.");
