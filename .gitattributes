@@ -1,1 +1,5 @@
 .githooks/* text eol=lf
+
+# Shared FLAC sources, licenses and patch are bound by source-lock.json.
+# Preserve their exact bytes even when Windows checkout enables core.autocrlf.
+native/audio-flac/** -text
