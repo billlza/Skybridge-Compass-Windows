@@ -115,7 +115,7 @@ try {
     }
     $result.active = ConvertTo-DisplayEvidence ([CiDisplayMode]::Current())
     & (Join-Path $PSScriptRoot 'verify-windows-ui-automation-smoke.ps1') -Configuration $Configuration `
-        -EvidenceDir $EvidenceDir -ExistingAssemblySha256 $ExistingAssemblySha256 -AllowLocationConsentForCi
+        -EvidenceDir $EvidenceDir -ExistingAssemblySha256 $ExistingAssemblySha256 -RequireFirstStartLocationConsentForCi
     $result.status = 'passed'
 } catch {
     $primaryError = $_.Exception

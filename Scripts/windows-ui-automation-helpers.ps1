@@ -1,6 +1,7 @@
 # Shared UI Automation helpers. Loading this file does not build or launch a product.
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing, System.Windows.Forms
 . (Join-Path $PSScriptRoot "windows-ui-geometry.ps1")
+. (Join-Path $PSScriptRoot "windows-ui-consent-policy.ps1")
 
 function Assert-True {
     param(
@@ -160,18 +161,23 @@ function Wait-ForMainWindow {
 }
 
 function Get-CiConsentWindows {
-    param([System.Windows.Automation.AutomationElement]$Window)
+    param([System.Windows.Automation.AutomationElement]$Window, [switch]$IncludeCandidateWindow)
 
     Assert-True ($env:GITHUB_ACTIONS -eq 'true') 'Desktop consent inspection is restricted to CI.'
-    $handles = @([NativeMethods]::VisibleWindowsAbove([IntPtr]$Window.Current.NativeWindowHandle))
+    $candidateHandle = [IntPtr]$Window.Current.NativeWindowHandle
+    $handles = @([NativeMethods]::VisibleWindowsAbove($candidateHandle))
     Assert-True ($handles.Count -le 4) 'Too many windows obscure the candidate for a bounded consent check.'
+    if ($IncludeCandidateWindow) { $handles = @($candidateHandle) + $handles }
     foreach ($handle in $handles) {
+        $isCandidate = $handle -eq $candidateHandle
+        $maximumNodes = if ($isCandidate) { 1024 } else { 256 }
+        $maximumDepth = if ($isCandidate) { 20 } else { 12 }
         $root = [System.Windows.Automation.AutomationElement]::FromHandle($handle)
         $queue = [System.Collections.Generic.Queue[object]]::new()
         $queue.Enqueue([pscustomobject]@{ element = $root; depth = 0 })
         $nodes = [System.Collections.Generic.List[object]]::new()
         while ($queue.Count -gt 0) {
-            Assert-True ($nodes.Count -lt 256) 'The consent accessibility tree exceeded its bound.'
+            Assert-True ($nodes.Count -lt $maximumNodes) 'The consent accessibility tree exceeded its bound.'
             $next = $queue.Dequeue()
             $element = $next.element
             $current = $element.Current
@@ -189,12 +195,12 @@ function Get-CiConsentWindows {
             })
             $child = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetFirstChild($element)
             while ($null -ne $child) {
-                Assert-True ($next.depth -lt 12 -and $queue.Count + $nodes.Count -lt 256) 'The consent accessibility tree exceeded its depth or node bound.'
+                Assert-True ($next.depth -lt $maximumDepth -and $queue.Count + $nodes.Count -lt $maximumNodes) 'The consent accessibility tree exceeded its depth or node bound.'
                 $queue.Enqueue([pscustomobject]@{ element = $child; depth = $next.depth + 1 })
                 $child = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetNextSibling($child)
             }
         }
-        [pscustomobject]@{ handle = $handle; className = $root.Current.ClassName; processId = $root.Current.ProcessId; nodes = @($nodes) }
+        [pscustomobject]@{ handle = $handle; isCandidate = $isCandidate; className = $root.Current.ClassName; processId = $root.Current.ProcessId; nodes = @($nodes) }
     }
 }
 
@@ -203,6 +209,7 @@ function Convert-CiConsentWindowsToEvidence {
     @($Windows | ForEach-Object {
         [pscustomobject]@{
             handle = $_.handle.ToInt64()
+            isCandidate = $_.isCandidate
             className = $_.className
             processId = $_.processId
             nodes = @($_.nodes | Select-Object name, automationId, className, controlType, isOffscreen, isEnabled, supportsInvoke)

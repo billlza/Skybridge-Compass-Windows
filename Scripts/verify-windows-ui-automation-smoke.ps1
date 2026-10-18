@@ -7,12 +7,12 @@ param(
     [string]$EvidenceBranch = "",
     [string]$EvidenceHead = "",
     [switch]$RequireAccountDeviceService,
-    [switch]$AllowLocationConsentForCi,
+    [switch]$RequireFirstStartLocationConsentForCi,
     [ValidatePattern("^[A-Fa-f0-9]{64}$")][string]$ExistingAssemblySha256
 )
 
 $ErrorActionPreference = "Stop"
-if ($AllowLocationConsentForCi -and $env:GITHUB_ACTIONS -ne 'true') {
+if ($RequireFirstStartLocationConsentForCi -and $env:GITHUB_ACTIONS -ne 'true') {
     throw 'Automatic location consent is only available in the owned CI UI test.'
 }
 
@@ -151,7 +151,7 @@ try {
     $stderrTask = $process.StandardError.ReadToEndAsync()
     $window = Wait-ForMainWindow -Process $process -TimeoutSeconds $TimeoutSeconds
     Restore-TestWindow -Window $window
-    if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics }
+    if ($RequireFirstStartLocationConsentForCi) { Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics }
     try {
         $windowPattern = $window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
         $windowPattern.SetWindowVisualState([System.Windows.Automation.WindowVisualState]::Normal)
@@ -182,7 +182,7 @@ try {
 
     foreach ($feature in $features) {
         $stage = "runtime-actions/$($feature.Id)"
-        if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics }
+        if ($RequireFirstStartLocationConsentForCi) { Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics }
         Select-Feature -Window $window -FeatureId $feature.Id -AnchorAutomationId $feature.Anchor
         [void](Get-FeatureRuntimeActionSurfaceSnapshot -Window $window -ActionOrderBySurface $actionOrderBySurface -Feature $feature -ContextSuffix "runtime")
     }
@@ -203,7 +203,7 @@ try {
 
             foreach ($feature in $features) {
                 $stage = "visual/$($size.Width)x$($size.Height)/$($feature.Id)"
-                if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics }
+                if ($RequireFirstStartLocationConsentForCi) { Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics }
                 Select-Feature -Window $window -FeatureId $feature.Id -AnchorAutomationId $feature.Anchor
                 $featureActionBounds = Get-FeatureRuntimeActionSurfaceSnapshot -Window $window -ActionOrderBySurface $actionOrderBySurface -Feature $feature -ContextSuffix "$($size.Width)x$($size.Height)"
                 if ($feature.ContainsKey("EvidenceScrollPercent")) {
@@ -222,7 +222,17 @@ try {
                 }
                 $fileName = "{0}x{1}-{2}.png" -f $size.Width, $size.Height, (ConvertTo-SafeFileName -Value $feature.Title)
                 $screenshotPath = Join-Path $resolvedEvidenceDir $fileName
-                if ($AllowLocationConsentForCi) { Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics }
+                if ($RequireFirstStartLocationConsentForCi) {
+                    Resolve-CiLocationConsent -Window $window -Process $process -Events $locationConsentEvents -Diagnostics $locationConsentDiagnostics
+                    if ($locationConsentEvents.Count -eq 0) {
+                        # The system prompt can appear in captured pixels while
+                        # no separate HWND exists above the candidate. Preserve
+                        # its own raw tree before rejecting the missing receipt.
+                        $locationConsentDiagnostics.candidateWindow = @(Convert-CiConsentWindowsToEvidence -Windows @(
+                            Get-CiConsentWindows -Window $window -IncludeCandidateWindow))
+                    }
+                    Assert-FirstStartLocationConsentReceipt -Events @($locationConsentEvents)
+                }
                 $screenshot = Save-WindowScreenshot -Window $window -Path $screenshotPath
                 Assert-True -Condition (Test-Path -LiteralPath $screenshotPath) -Message "Missing evidence screenshot: $screenshotPath"
 
@@ -335,7 +345,7 @@ catch {
     throw $primaryFailure
 }
 finally {
-    if ($AllowLocationConsentForCi -and -not [string]::IsNullOrWhiteSpace($EvidenceDir)) {
+    if ($RequireFirstStartLocationConsentForCi -and -not [string]::IsNullOrWhiteSpace($EvidenceDir)) {
         [void](New-Item -ItemType Directory -Path $EvidenceDir -Force)
         @{ policy = 'allow-identified-Skybridge-location-prompt-in-CI'; events = @($locationConsentEvents); diagnostics = $locationConsentDiagnostics } |
             ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'location-consent.json')
