@@ -470,7 +470,14 @@ internal static class LanProductControlSessionTests
         {
             var ping = new LanProductPing(0xAA55);
             await Send(LanControlMessageKind.Ping, ping);
-            var message = await Read();
+            var plaintext = WebRtcControlChannelCodec.DecryptAppleLegacyAppPayload(
+                ProductControlTrafficPadding.Unwrap((await Remote.ReadAsync(Token)).ToArray()), _remoteKeys);
+            if (AudioStreamingLanEnvelope.DecodeIfPresent(plaintext) is { } audio)
+            {
+                var detail = audio.Body is AudioStreamingBody.Stop stop ? stop.Reason.ToString() : audio.Body.GetType().Name;
+                throw new InvalidDataException($"MAIN barrier expected Pong but received audio {audio.Body.GetType().Name} for {audio.StreamId}: {detail}.");
+            }
+            var message = LanProductControlMessages.Decode(plaintext);
             Require(message.Kind == LanControlMessageKind.Pong && LanProductControlMessages.Payload<LanProductPing>(message).Id == ping.Id,
                 "MAIN did not process ordered control traffic after audio.");
         }

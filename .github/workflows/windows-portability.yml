@@ -23,6 +23,10 @@ on:
         description: Record two additional serial FLAC receive runs after the complete contract suite
         type: boolean
         default: false
+      diagnose_audio_host:
+        description: Record up to twenty serial audio receive-host runs after the complete contract suite
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -102,6 +106,7 @@ jobs:
         shell: pwsh
         env:
           DIAGNOSE_FLAC: ${{ inputs.diagnose_flac }}
+          DIAGNOSE_AUDIO_HOST: ${{ inputs.diagnose_audio_host }}
         run: |
           $project = 'windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj'
           dotnet restore $project 2>&1 | Tee-Object artifacts/native-contracts-restore.log
@@ -119,8 +124,20 @@ jobs:
             @{ fullSuiteExitCode = $contractExit; additionalRuns = 2; failedAdditionalRuns = @($diagnosticFailures) } |
               ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 artifacts/native-flac-replay.json
           }
-          if ($contractExit -ne 0 -or $diagnosticFailures.Count -ne 0) {
-            throw "Native contracts failed: full=$contractExit; additional FLAC failures=$($diagnosticFailures.Count)"
+          $audioHostRuns = @()
+          if ($env:DIAGNOSE_AUDIO_HOST -eq 'true') {
+            for ($attempt = 1; $attempt -le 20; $attempt++) {
+              dotnet run --project $project --configuration Debug --no-build --no-restore -- --audio-product-reception 2>&1 | Tee-Object "artifacts/native-audio-host-$attempt.log"
+              $hostExit = $LASTEXITCODE
+              $audioHostRuns += @{ attempt = $attempt; exitCode = $hostExit }
+              if ($hostExit -ne 0) { break }
+            }
+            @{ fullSuiteExitCode = $contractExit; additionalRuns = @($audioHostRuns) } |
+              ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 artifacts/native-audio-host-replay.json
+          }
+          $audioHostFailures = @($audioHostRuns | Where-Object { $_.exitCode -ne 0 })
+          if ($contractExit -ne 0 -or $diagnosticFailures.Count -ne 0 -or $audioHostFailures.Count -ne 0) {
+            throw "Native contracts failed: full=$contractExit; additional FLAC failures=$($diagnosticFailures.Count); additional audio-host failures=$($audioHostFailures.Count)"
           }
 
       - name: Decode Windows LAN QR images with the Android decoder

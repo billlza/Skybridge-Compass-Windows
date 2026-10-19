@@ -125,7 +125,9 @@ internal static class AudioReceiveHostTests
         {
             var id = Guid.NewGuid(); await Offer(f.Lan, id);
             await f.Lan.SendAudio(new(id, new AudioStreamingBody.Stop(AudioStreamingStopReason.UserStopped)));
-            await f.Lan.Barrier();
+            try { await f.Lan.Barrier(); }
+            catch (InvalidDataException error)
+            { throw new InvalidDataException($"Immediate withdrawal {i}, offered stream {id}.", error); }
             await Until(() => host.ReadSnapshot() is { Enabled: true, Phase: null, ListeningDevices: 1 }, f.Lan.Token);
         }
         Require(f.Lan.Session.IsReady, "Withdrawn audio retired its live MAIN owner.");
