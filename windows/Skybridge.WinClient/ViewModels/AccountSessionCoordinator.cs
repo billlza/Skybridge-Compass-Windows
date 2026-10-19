@@ -35,6 +35,8 @@ public sealed class AccountSessionCoordinator
     private string? _accessToken;
     private string? _refreshToken;
     private string? _userId;
+    private SessionStoreVersion? _storeVersion;
+    private Guid? _durableLoginId;
     private Services.Audio.AccountAudioAuthorization? _audioAuthorization;
     private InvalidDataException? _audioAuthorizationError;
     private bool _audioMayRefresh;
@@ -75,6 +77,7 @@ public sealed class AccountSessionCoordinator
     public string Email { get; private set; } = string.Empty;
 
     public string PhoneNumber { get; private set; } = string.Empty;
+    internal Guid? DurableLoginId => _durableLoginId;
 
     // ---- Sign-in -------------------------------------------------------------------
 
@@ -116,6 +119,12 @@ public sealed class AccountSessionCoordinator
                     "请输入邮箱和密码。");
             }
 
+            // Capture before the network request. A completed sign-out or replacement
+            // in another process must make this particular sign-in commit fail.
+            var capturedStore = _sessionStore.Load();
+            if (!CanUseStore(capturedStore))
+                return EmailSignInResult.Failed(EmailSignInFailureKind.Storage,
+                    "本机账号记录无法读取，登录尚未开始。");
             var token = await _authClient
                 .SignInWithPasswordAsync(trimmedEmail, rawPassword)
                 .ConfigureAwait(true);
@@ -125,7 +134,7 @@ public sealed class AccountSessionCoordinator
                 return EmailFailureFor(token.Failure);
             }
 
-            var result = await ApplyAuthCoreAsync(token.Value)
+            var result = await ApplyAuthCoreAsync(token.Value, capturedStore)
                 .ConfigureAwait(true);
             if (result.Success)
             {
@@ -136,7 +145,9 @@ public sealed class AccountSessionCoordinator
             {
                 AccountSessionFailureKind.SessionPersistenceFailed => EmailSignInResult.Failed(
                     EmailSignInFailureKind.Storage,
-                    "登录已验证，但本机安全存储失败。请检查磁盘或账户目录权限后重试。"),
+                    result.ErrorCode == nameof(SessionStoreWriteStatus.Conflict)
+                        ? "账号状态已更新，请重新打开登录窗口。"
+                        : "登录已验证，但本机安全存储失败。请检查磁盘或账户目录权限后重试。"),
                 AccountSessionFailureKind.Network => EmailSignInResult.Failed(
                     EmailSignInFailureKind.Network,
                     "网络或认证服务暂时不可用，请稍后重试。"),
@@ -171,16 +182,24 @@ public sealed class AccountSessionCoordinator
     private async Task<AccountSessionResult> HydrateFromStoreCoreAsync(bool requestRefresh = false)
     {
         var loadResult = _sessionStore.Load();
+        if (requestRefresh && loadResult.Version is not null && loadResult.Version != _storeVersion)
+            return RejectChangedStore();
+        // An unreadable head does not transfer ownership. Retain the captured
+        // revision so a later sign-out cannot clear an account it never owned.
+        if (loadResult.Version is { } capturedVersion) _storeVersion = capturedVersion;
+        _durableLoginId = loadResult.LoginId;
         if (loadResult.IsQuietSignedOut)
         {
+            ClearInMemoryAndNotify();
             return AccountSessionResult.SignedOutResult();
         }
 
         if (!loadResult.Succeeded || loadResult.Session is null)
         {
-            return ClearStoredSessionAfterFailure(
-                AccountSessionFailureKind.SessionPersistenceFailed,
-                loadResult.Status.ToString());
+            // Unknown/corrupt state is not a signed-out record, and startup must
+            // not delete a newer schema or replace it with an empty account.
+            ClearInMemoryAndNotify();
+            return AccountSessionResult.Failed(AccountSessionFailureKind.SessionPersistenceFailed, loadResult.Status.ToString());
         }
 
         var persisted = loadResult.Session;
@@ -258,12 +277,13 @@ public sealed class AccountSessionCoordinator
             {
                 AccessToken = accessToken, RefreshToken = refreshToken,
                 IssuedAtUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-            });
+            }, RequireStoreVersion(), SessionStoreSaveMode.ContinueLogin);
             if (!rotated.Succeeded)
             {
                 ClearInMemoryAndNotify();
                 return AccountSessionResult.Failed(AccountSessionFailureKind.SessionPersistenceFailed, rotated.Status.ToString());
             }
+            AdoptStoredState(rotated);
         }
 
         // Re-confirm the live identity on every launch, even when the access token did not
@@ -286,12 +306,15 @@ public sealed class AccountSessionCoordinator
 
         var previous = CaptureState();
         ApplyVerifiedIdentity(accessToken, refreshToken, subject, user.Value);
-        var saveResult = Persist();
+        var saveResult = Persist(RequireStoreVersion(), SessionStoreSaveMode.ContinueLogin);
         if (!saveResult.Succeeded)
         {
+            if (saveResult.Status == SessionStoreWriteStatus.Conflict) return RejectChangedStore();
             RevokeAudioAuthorization();
             RestoreState(previous);
-            var clearResult = _sessionStore.Clear();
+            var clearResult = _sessionStore.Clear(RequireStoreVersion());
+            if (clearResult.Status == SessionStoreWriteStatus.Conflict) return RejectChangedStore();
+            if (clearResult.Succeeded) AdoptStoredState(clearResult);
             _ = await _authClient.SignOutAsync(accessToken).ConfigureAwait(true);
             if (!clearResult.Succeeded)
             {
@@ -457,13 +480,18 @@ public sealed class AccountSessionCoordinator
             // Local cleanup is authoritative for the UI and happens first. If it fails, keep
             // the exact in-memory identity and do not tell either the UI or server that logout
             // completed; a retry still has the token needed to finish safely.
-            var clearResult = _sessionStore.Clear();
+            var expected = _storeVersion ?? _sessionStore.Load().Version;
+            if (expected is null)
+                return AccountSessionResult.Failed(AccountSessionFailureKind.SessionPersistenceFailed, "SessionVersionUnavailable");
+            var clearResult = _sessionStore.Clear(expected);
             if (!clearResult.Succeeded)
             {
+                if (clearResult.Status == SessionStoreWriteStatus.Conflict) return RejectChangedStore();
                 return AccountSessionResult.Failed(
                     AccountSessionFailureKind.SessionPersistenceFailed,
                     clearResult.Status.ToString());
             }
+            AdoptStoredState(clearResult);
 
             ClearInMemoryAndNotify();
 
@@ -490,7 +518,7 @@ public sealed class AccountSessionCoordinator
 
     // ---- Identity application -------------------------------------------------------
 
-    private async Task<AccountSessionResult> ApplyAuthCoreAsync(AuthToken token)
+    private async Task<AccountSessionResult> ApplyAuthCoreAsync(AuthToken token, SessionStoreLoadResult? capturedStore = null)
     {
         if (token is null
             || string.IsNullOrWhiteSpace(token.AccessToken)
@@ -520,6 +548,9 @@ public sealed class AccountSessionCoordinator
                 "auth_embedded_subject_mismatch");
         }
 
+        var observed = capturedStore ?? _sessionStore.Load();
+        if (!CanUseStore(observed))
+            return AccountSessionResult.Failed(AccountSessionFailureKind.SessionPersistenceFailed, observed.Status.ToString());
         var userResult = await _authClient
             .GetUserAsync(token.AccessToken, claims.Subject)
             .ConfigureAwait(true);
@@ -542,9 +573,10 @@ public sealed class AccountSessionCoordinator
             claims.Subject,
             userResult.Value);
 
-        var saveResult = Persist();
+        var saveResult = Persist(observed.Version ?? throw new InvalidOperationException("Missing captured session version."), SessionStoreSaveMode.NewLogin);
         if (!saveResult.Succeeded)
         {
+            if (saveResult.Status == SessionStoreWriteStatus.Conflict) return RejectChangedStore();
             RestoreState(previous);
             _ = await _authClient.SignOutAsync(token.AccessToken).ConfigureAwait(true);
 
@@ -590,14 +622,14 @@ public sealed class AccountSessionCoordinator
             DisplayName, NebulaId, AvatarUrl, IsSignedIn, Email, PhoneNumber));
     }
 
-    private SessionStoreWriteResult Persist()
+    private SessionStoreWriteResult Persist(SessionStoreVersion expected, SessionStoreSaveMode mode)
     {
         if (string.IsNullOrWhiteSpace(_accessToken))
         {
             return SessionStoreWriteResult.InvalidSession();
         }
 
-        return _sessionStore.Save(new PersistedSession
+        var result = _sessionStore.Save(new PersistedSession
         {
             SchemaVersion = PersistedSession.CurrentSchemaVersion,
             Authority = _authClient.SessionAuthority,
@@ -608,7 +640,25 @@ public sealed class AccountSessionCoordinator
             DisplayName = DisplayName,
             AvatarUrl = AvatarUrl,
             IssuedAtUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-        });
+        }, expected, mode);
+        if (result.Succeeded) AdoptStoredState(result);
+        return result;
+    }
+
+    private static bool CanUseStore(SessionStoreLoadResult value) =>
+        value.Version is not null && (value.Succeeded || value.IsQuietSignedOut);
+    private SessionStoreVersion RequireStoreVersion() => _storeVersion
+        ?? throw new InvalidOperationException("No account storage revision was captured for this operation.");
+    private void AdoptStoredState(SessionStoreWriteResult result)
+    {
+        if (!result.Succeeded) throw new InvalidOperationException("Cannot adopt a failed account-state mutation.");
+        _storeVersion = result.Version;
+        _durableLoginId = result.LoginId;
+    }
+    private AccountSessionResult RejectChangedStore()
+    {
+        ClearInMemoryAndNotify();
+        return AccountSessionResult.Failed(AccountSessionFailureKind.SessionPersistenceFailed, nameof(SessionStoreWriteStatus.Conflict));
     }
 
     private AccountSessionResult ClearStoredSessionAfterFailure(
@@ -616,13 +666,15 @@ public sealed class AccountSessionCoordinator
         string errorCode)
     {
         RevokeAudioAuthorization();
-        var clearResult = _sessionStore.Clear();
+        var clearResult = _sessionStore.Clear(RequireStoreVersion());
         if (!clearResult.Succeeded)
         {
+            if (clearResult.Status == SessionStoreWriteStatus.Conflict) return RejectChangedStore();
             return AccountSessionResult.Failed(
                 AccountSessionFailureKind.SessionPersistenceFailed,
                 clearResult.Status.ToString());
         }
+        AdoptStoredState(clearResult);
 
         ClearInMemoryAndNotify();
         return AccountSessionResult.FailedSignedOut(failureKind, errorCode);
@@ -641,6 +693,7 @@ public sealed class AccountSessionCoordinator
 
     private void ClearInMemoryAndNotify()
     {
+        _durableLoginId = null;
         RevokeAudioAuthorization();
         _accessToken = null;
         _refreshToken = null;

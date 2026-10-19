@@ -150,13 +150,7 @@ internal static class AccountDeviceTests
         engine.SetAccount(Auth().Scope); await engine.RefreshOnceAsync(default); await engine.RefreshOnceAsync(default);
         Check(engine.Status == "AccountDevicesNetworkError" && engine.Devices.All(d => d.State.Contains("Offline", StringComparison.Ordinal)), "Network failure must not retain online claims");
     }
-    private sealed class Store : ISessionStore
-    {
-        internal PersistedSession? Value;
-        public SessionStoreLoadResult Load() => Value is null ? SessionStoreLoadResult.Missing() : SessionStoreLoadResult.Loaded(Value);
-        public SessionStoreWriteResult Save(PersistedSession value) { Value = value; return SessionStoreWriteResult.Saved(); }
-        public SessionStoreWriteResult Clear() { Value = null; return SessionStoreWriteResult.Cleared(); }
-    }
+    private sealed class Store : TestSessionState { }
     private sealed class AuthenticationClient(Store store) : ISupabaseAuthClient
     {
         internal int RefreshCount, UserChecks;

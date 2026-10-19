@@ -324,22 +324,7 @@ internal static class AccountAudioAuthorizationTests
         public Task<AuthClientResult<AuthSignOutReceipt>> SignOutAsync(string token)
         { SignOutCalls++; BeforeSignOut?.Invoke(); return Task.FromResult(AuthClientResult<AuthSignOutReceipt>.Success(new(true))); }
     }
-    private sealed class Store : ISessionStore
-    {
-        internal PersistedSession? Value;
-        internal int SaveCalls, FailSaveAt;
-        internal bool FailClear;
-        internal Action? BeforeSave;
-        public SessionStoreLoadResult Load() => Value is null ? SessionStoreLoadResult.Missing() : SessionStoreLoadResult.Loaded(Value);
-        public SessionStoreWriteResult Save(PersistedSession value)
-        {
-            BeforeSave?.Invoke();
-            if (++SaveCalls == FailSaveAt) return SessionStoreWriteResult.IoFailure();
-            Value = value; return SessionStoreWriteResult.Saved();
-        }
-        public SessionStoreWriteResult Clear()
-        { if (FailClear) return SessionStoreWriteResult.IoFailure(); Value = null; return SessionStoreWriteResult.Cleared(); }
-    }
+    private sealed class Store : TestSessionState { }
     private static async Task<T> Throws<T>(Func<Task> action) where T : Exception
     { try { await action(); } catch (T error) { return error; } throw new Exception($"Expected {typeof(T).Name}."); }
     private static void Require(bool condition, string reason) { if (!condition) throw new Exception(reason); }

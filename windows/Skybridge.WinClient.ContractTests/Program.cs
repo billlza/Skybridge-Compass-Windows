@@ -6,6 +6,12 @@ using System.Text.Json;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.ViewModels;
 
+if (args is ["--session-state-child", var stateDirectory, var stateAction])
+{
+    await SessionStoreVersionTests.ChildAsync(stateDirectory, stateAction);
+    return;
+}
+
 if (args is ["--native-quiet-file-playback", var audioEndpoint, var audioFormat])
 {
     if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Native file playback requires Windows.");
@@ -363,6 +369,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("session store round trips valid sessions", TestSessionStoreRoundTrip),
     ("session store rejects legacy schema", TestSessionStoreRejectsLegacySchema),
     ("session store failed atomic commit preserves prior session", TestSessionStoreFailedCommitPreservesPriorSession),
+    ("session store stale owner cannot restore a completed sign-out", TestSessionStoreStaleOwner),
     ("supabase auth classifies HTTP and JSON failures", TestSupabaseAuthTypedFailures),
     ("supabase user fallback does not mask auth rejection", TestSupabaseUserRejectDoesNotCallProfileFallback),
     ("account hydrate clears rejected persisted sessions", TestAccountHydrateClearsRejectedPersistedSession),
@@ -502,13 +509,13 @@ var remoteHostTests = Skybridge.WinClient.ContractTests.WindowsRemoteControlAudi
             Console.WriteLine("PASS Windows policy-bound identity recovery and native two-direction product handshake");
         }
     })));
-var allTests = tests.Concat(SessionFileCommitTests.Cases).Concat(AppOperatorTests.Cases).Concat(AccountDeviceTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(AudioMembershipRenewalTests.Cases)
+var allTests = tests.Concat(SessionFileCommitTests.Cases).Concat(SessionStoreVersionTests.Cases).Concat(AppOperatorTests.Cases).Concat(AccountDeviceTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(AudioMembershipRenewalTests.Cases)
     .Concat(AccountAudioAuthorizationTests.Cases).Concat(ShellInteractionTests.Cases).Concat(remoteHostTests);
 var selectedTests = args.SequenceEqual(["--audio-account"])
     ? tests.Where(test => test.Name.StartsWith("account ", StringComparison.Ordinal) || test.Name.StartsWith("supabase ", StringComparison.Ordinal))
         .Concat(AccountDeviceTests.Cases).Concat(AccountAudioAuthorizationTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(LanProductControlSessionTests.Cases)
     : args.SequenceEqual(["--session-storage"])
-        ? tests.Where(test => test.Name.StartsWith("session store ", StringComparison.Ordinal)).Concat(SessionFileCommitTests.Cases)
+        ? tests.Where(test => test.Name.StartsWith("session store ", StringComparison.Ordinal)).Concat(SessionFileCommitTests.Cases).Concat(SessionStoreVersionTests.Cases)
         : allTests;
 foreach (var test in selectedTests)
 {
@@ -679,7 +686,7 @@ static Task TestSessionStoreTypedFailures()
     var missingDirectoryStore = new SessionStore(
         Path.Combine(temp.Path, "missing-directory"),
         new PlainSessionProtector());
-    Require(missingDirectoryStore.Clear().Succeeded, "clearing a missing session directory must be idempotent");
+    Require(missingDirectoryStore.Clear(SessionStoreVersion.Missing).Succeeded, "clearing a missing session directory must be idempotent");
 
     File.WriteAllText(Path.Combine(temp.Path, "session.bin"), "{bad-json");
     Require(store.Load().Status == SessionStoreLoadStatus.InvalidJson, "bad session JSON must be explicit");
@@ -687,7 +694,7 @@ static Task TestSessionStoreTypedFailures()
     var cryptoStore = new SessionStore(temp.Path, new ThrowingUnprotectSessionProtector());
     Require(cryptoStore.Load().Status == SessionStoreLoadStatus.DecryptFailed, "decrypt failure must be explicit");
     Require(
-        store.Save(BuildPersistedSession() with { AccessToken = null }).Status == SessionStoreWriteStatus.InvalidSession,
+        store.Save(BuildPersistedSession() with { AccessToken = null }, SessionStoreVersion.Missing, SessionStoreSaveMode.NewLogin).Status == SessionStoreWriteStatus.InvalidSession,
         "schema-valid session with an empty access token must not save");
     return Task.CompletedTask;
 }
@@ -699,7 +706,7 @@ static Task TestSessionStoreDoesNotMaskInaccessiblePath()
     var store = new SessionStore(temp.Path, new PlainSessionProtector());
 
     Require(store.Load().Status == SessionStoreLoadStatus.IoFailure, "unreadable session path must be IO failure");
-    Require(store.Clear().Status == SessionStoreWriteStatus.IoFailure, "undeletable session path must be IO failure");
+    Require(store.Clear(SessionStoreVersion.Missing).Status == SessionStoreWriteStatus.IoFailure, "undeletable session path must be IO failure");
     return Task.CompletedTask;
 }
 
@@ -707,7 +714,7 @@ static Task TestSessionStoreRoundTrip()
 {
     using var temp = TempDir.Create();
     var store = new SessionStore(temp.Path, new PlainSessionProtector());
-    var save = store.Save(BuildPersistedSession());
+    var save = store.Save(BuildPersistedSession(), SessionStoreVersion.Missing, SessionStoreSaveMode.NewLogin);
     Require(save.Succeeded, "valid session must save");
     var load = store.Load();
     Require(load.Succeeded, "valid session must load");
@@ -738,7 +745,7 @@ static Task TestSessionStoreFailedCommitPreservesPriorSession()
 {
     using var temp = TempDir.Create();
     var initialStore = new SessionStore(temp.Path, new PlainSessionProtector());
-    Require(initialStore.Save(BuildPersistedSession(displayName: "Original")).Succeeded, "initial session must save");
+    Require(initialStore.Save(BuildPersistedSession(displayName: "Original"), SessionStoreVersion.Missing, SessionStoreSaveMode.NewLogin).Succeeded, "initial session must save");
     var destination = Path.Combine(temp.Path, "session.bin");
     var originalBytes = File.ReadAllBytes(destination);
 
@@ -746,13 +753,28 @@ static Task TestSessionStoreFailedCommitPreservesPriorSession()
         temp.Path,
         new PlainSessionProtector(),
         new ThrowingSessionFileCommitter());
-    var result = failingStore.Save(BuildPersistedSession(displayName: "Replacement"));
+    var result = failingStore.Save(BuildPersistedSession(displayName: "Replacement"), initialStore.Load().Version!, SessionStoreSaveMode.NewLogin);
 
     Require(result.Status == SessionStoreWriteStatus.IoFailure, "failed commit must be typed as IO failure");
     Require(File.ReadAllBytes(destination).SequenceEqual(originalBytes), "failed commit must preserve prior session bytes");
     Require(
         !Directory.EnumerateFiles(temp.Path, ".session.bin.*.tmp").Any(),
         "failed commit must not leave its temporary file behind");
+    return Task.CompletedTask;
+}
+
+static Task TestSessionStoreStaleOwner()
+{
+    using var temp = TempDir.Create();
+    var first = new SessionStore(temp.Path, new PlainSessionProtector());
+    var second = new SessionStore(temp.Path, new PlainSessionProtector());
+    Require(first.Save(BuildPersistedSession(), SessionStoreVersion.Missing, SessionStoreSaveMode.NewLogin).Succeeded, "initial login must save");
+    var captured = first.Load();
+    Require(captured.Succeeded, "the original owner must capture its session");
+    Require(second.Clear(second.Load().Version!).Succeeded, "the second owner must complete local sign-out");
+    var stale = first.Save(captured.Session! with { DisplayName = "Late refresh" }, captured.Version!, SessionStoreSaveMode.ContinueLogin);
+    Require(stale.Status == SessionStoreWriteStatus.Conflict, "A stale owner restored credentials after completed local sign-out.");
+    Require(second.Load().IsQuietSignedOut, "The completed sign-out must remain authoritative.");
     return Task.CompletedTask;
 }
 
@@ -811,7 +833,7 @@ static async Task TestAccountHydrateClearsRejectedPersistedSession()
 {
     var store = new FakeSessionStore
     {
-        LoadResult = SessionStoreLoadResult.Loaded(new PersistedSession
+        LoadResult = TestSessionState.Loaded(new PersistedSession
         {
             SchemaVersion = PersistedSession.CurrentSchemaVersion,
             Authority = TestSessionAuthority(),
@@ -838,7 +860,7 @@ static async Task TestAccountHydrateRequiresRotatedRefreshToken()
 {
     var store = new FakeSessionStore
     {
-        LoadResult = SessionStoreLoadResult.Loaded(BuildPersistedSession(
+        LoadResult = TestSessionState.Loaded(BuildPersistedSession(
             accessToken: BuildJwt(DateTimeOffset.UtcNow.AddHours(-1))))
     };
     var auth = new FakeAuthClient
@@ -864,7 +886,7 @@ static async Task TestAccountHydrateAlwaysVerifiesLiveUser()
 {
     var store = new FakeSessionStore
     {
-        LoadResult = SessionStoreLoadResult.Loaded(BuildPersistedSession())
+        LoadResult = TestSessionState.Loaded(BuildPersistedSession())
     };
     var auth = new FakeAuthClient
     {
@@ -886,7 +908,7 @@ static async Task TestAccountHydrateRetainsTransientFailure()
         foreach (var kind in new[] { AuthFailureKind.Network, AuthFailureKind.Timeout, AuthFailureKind.HttpFailure })
         {
             var persisted = BuildPersistedSession(accessToken: BuildJwt(DateTimeOffset.UtcNow.AddHours(expired ? -1 : 1)));
-            var store = new FakeSessionStore { LoadResult = SessionStoreLoadResult.Loaded(persisted) };
+            var store = new FakeSessionStore { LoadResult = TestSessionState.Loaded(persisted) };
             var auth = new FakeAuthClient
             {
                 RefreshResult = AuthClientResult<AuthToken>.Failed(kind, "auth_refresh_unavailable"),
@@ -907,7 +929,7 @@ static async Task TestAccountHydratePersistsRotationBeforeVerification()
 {
     var persisted = BuildPersistedSession(accessToken: BuildJwt(DateTimeOffset.UtcNow.AddHours(-1)));
     var rotated = BuildAuthToken() with { RefreshToken = "test-rotated-refresh" };
-    var store = new FakeSessionStore { LoadResult = SessionStoreLoadResult.Loaded(persisted) };
+    var store = new FakeSessionStore { LoadResult = TestSessionState.Loaded(persisted) };
     var auth = new FakeAuthClient
     {
         RefreshResult = AuthClientResult<AuthToken>.Success(rotated),
@@ -920,7 +942,7 @@ static async Task TestAccountHydratePersistsRotationBeforeVerification()
         "Failed live verification must preserve the rotation without publishing identity.");
     Require(saved.AccessToken == rotated.AccessToken && saved.RefreshToken == rotated.RefreshToken && saved.Subject == persisted.Subject,
         "The durable rotation changed identity or retained an obsolete credential.");
-    store.LoadResult = SessionStoreLoadResult.Loaded(saved);
+    store.LoadResult = TestSessionState.Loaded(saved);
     auth.GetUserResult = AuthClientResult<AuthUser>.Success(BuildAuthUser());
     var retry = new AccountSessionCoordinator(auth, store);
     Require((await retry.HydrateFromStoreAsync()).Success && retry.IsSignedIn && auth.RefreshCalls == 1,
@@ -931,7 +953,7 @@ static async Task TestAccountRotationCommitFailurePreservesSession()
 {
     var store = new FakeSessionStore
     {
-        LoadResult = SessionStoreLoadResult.Loaded(BuildPersistedSession(accessToken: BuildJwt(DateTimeOffset.UtcNow.AddHours(-1)))),
+        LoadResult = TestSessionState.Loaded(BuildPersistedSession(accessToken: BuildJwt(DateTimeOffset.UtcNow.AddHours(-1)))),
         SaveResult = SessionStoreWriteResult.IoFailure()
     };
     var auth = new FakeAuthClient { RefreshResult = AuthClientResult<AuthToken>.Success(BuildAuthToken()) };
@@ -947,7 +969,7 @@ static async Task TestAccountHydratePersistenceFailureRevokesToken()
 {
     var store = new FakeSessionStore
     {
-        LoadResult = SessionStoreLoadResult.Loaded(BuildPersistedSession()),
+        LoadResult = TestSessionState.Loaded(BuildPersistedSession()),
         SaveResult = SessionStoreWriteResult.IoFailure(),
         ClearResult = SessionStoreWriteResult.IoFailure()
     };
@@ -973,7 +995,7 @@ static async Task TestAccountHydrateRejectsAuthorityMismatch()
         "authenticated");
     var store = new FakeSessionStore
     {
-        LoadResult = SessionStoreLoadResult.Loaded(BuildPersistedSession(
+        LoadResult = TestSessionState.Loaded(BuildPersistedSession(
             authority: foreignAuthority,
             accessToken: BuildJwt(DateTimeOffset.UtcNow.AddHours(1), authority: foreignAuthority)))
     };
@@ -5078,37 +5100,7 @@ sealed class RecordingHandler : HttpMessageHandler
     }
 }
 
-sealed class FakeSessionStore : ISessionStore
-{
-    public SessionStoreLoadResult LoadResult { get; set; } = SessionStoreLoadResult.Missing();
-
-    public SessionStoreWriteResult SaveResult { get; set; } = SessionStoreWriteResult.Saved();
-
-    public SessionStoreWriteResult ClearResult { get; set; } = SessionStoreWriteResult.Cleared();
-
-    public int SaveCalls { get; private set; }
-
-    public int ClearCalls { get; private set; }
-
-    public bool ClearCalled => ClearCalls != 0;
-
-    public PersistedSession? LastSaved { get; private set; }
-
-    public SessionStoreLoadResult Load() => LoadResult;
-
-    public SessionStoreWriteResult Save(PersistedSession session)
-    {
-        SaveCalls++;
-        LastSaved = session;
-        return SaveResult;
-    }
-
-    public SessionStoreWriteResult Clear()
-    {
-        ClearCalls++;
-        return ClearResult;
-    }
-}
+sealed class FakeSessionStore : TestSessionState { }
 
 sealed class FakeAuthClient : ISupabaseAuthClient
 {
