@@ -6,6 +6,13 @@ using System.Text.Json;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.ViewModels;
 
+if (args is ["--native-quiet-file-playback", var audioEndpoint, var audioFormat])
+{
+    if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Native file playback requires Windows.");
+    NativeQuietFilePlaybackValidation.Run(audioEndpoint, audioFormat);
+    return;
+}
+
 if (args is ["--export-lan-qr", var qrExportFolder])
 {
     LanConnectionQrCodeTests.ExportImages(qrExportFolder);

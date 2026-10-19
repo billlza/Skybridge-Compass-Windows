@@ -50,3 +50,27 @@ Native run [39207253648](https://github.com/billlza/Skybridge-Compass-Windows/ac
 Dispatch `Windows Portability` with `package_native_client=true` to retain `windows-native-client-<commit>` for three days. This optional artifact is captured only after the native build, product contracts and Android QR decoding succeed, before interactive application use. It includes the complete Debug `win-x64` output and a schema-2 `native-client-build.json` containing both required entry-point hashes and the length/hash of every output file. Keep its directory structure, .NET/Windows App SDK runtime files, native libraries, assets and licenses together.
 
 Before execution, verify the run's repository and exact commit, the archive digest reported by GitHub, the receipt identity, the exact output-file set, and every file length/hash. Do not treat a five-entry schema-1 receipt as a full-directory manifest. The optional bundle is a diagnostic build, not an installer or release; the independent portability gate may still fail, and application launch, account admission, camera pairing and device playback require their own evidence.
+
+Run [39209086128](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/39209086128) produced that bundle for `cee92cc6506c73b5904ccbad25f5e7e0f8a57b84`. Native build, 728 product cases, and 21 QR vectors passed; the independent portability gate again failed with `.NET 10 latest runtime changed: 10.0.13`. The complete client ZIP matched GitHub's SHA-256 `c51515d7d7af41a3b3c4470074cac45cfdee449bc1429d3fca64c600a4377b25`; all 624 client files matched their lengths and hashes on both Mac and the Windows VM. Starting this bundle created a responding `云桥司南` main window, but interactive acceptance remains open: the first-run Windows location prompt appeared, and the available desktop input bridge did not dismiss it. A process/window handle alone does not close the UI gate. Receipts are under `artifacts/audio-native-20261019/native-bundle-v1/`.
+
+## Native file-pump refill qualification
+
+The opt-in contract executable command below exercises the actual `AudioWavePcmFile` parser and `AudioFilePcmPlayback` loop with real WASAPI output. It synthesizes a fresh one-second stereo WAVE at 500 Hz, nominal peak −72 dBFS, with 5 ms fades. Only three named formats are accepted; it cannot open an arbitrary music file. Select a currently enumerated endpoint explicitly.
+
+```powershell
+dotnet publish windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj -c Release -r win-x64 --self-contained true -p:TreatWarningsAsErrors=true -o artifacts/windows-file-pump
+& artifacts/windows-file-pump/Skybridge.WinClient.ContractTests.exe --native-quiet-file-playback '<observed endpoint ID>' '48000-s24-in-s32'
+```
+
+This uses the existing controlled immutable-read seam, so it does not exercise account admission, network reception, or the verified private-artifact store. There is no separate playback loop. A native-boundary observer compares every submitted span with the corresponding original source bytes and records successful submissions, refills after Start, exact completion and resource release. The command fails if the one-second source fits in the entire native buffer, if no refill occurs, or if bytes, frame counts, Start/Stop or release observations disagree. Each invocation has a 15-second cancellation budget; individual native calls still depend on driver cooperation. It does not change system volume, format, gain, or authorization policy.
+
+Observed on the same Windows 11 ARM VM on 2026-10-19:
+
+| Source | Native buffer | Successful submissions / refills after Start | Completed source frames |
+| --- | --- | --- | --- |
+| 48 kHz, 24 valid bits in 32-bit integer storage | 9,728 frames | 463 / 461 | 48,000 |
+| 44.1 kHz, 16-bit integer | 9,216 frames | 445 / 444 | 44,100 |
+
+Both runs matched the complete original PCM byte sequence at the submission boundary, observed the exact source-end device position, waited the reported 10 ms tail (12.0022 ms and 12.9388 ms host observations respectively), and confirmed one Start, one Stop, and both native releases. Their WAVE and PCM SHA-256 values independently matched the previously prepared Python-generated one-second fixtures. These submission counts are observations, not throughput targets. Packed 48 kHz/24-bit was rejected with `0x88890008` before submission or Start and released both owners; an unknown format was rejected before endpoint activation. The cross-published diagnostic build used warnings as errors. All four native outcomes are retained under `artifacts/audio-native-20261019/native-file-pump-v1/`.
+
+This closes the short native file-refill check only. Instrumentation, Windows ARM emulation and a virtual audio endpoint do not establish long-run continuity, physical DAC integrity, or authenticated phone-to-Windows playback.
