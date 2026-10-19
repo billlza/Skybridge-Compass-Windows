@@ -11,6 +11,16 @@ using Skybridge.AudioOfflineRecoveryProbe;
 if (!OperatingSystem.IsWindows())
     throw new PlatformNotSupportedException("This experiment requires native Windows DPAPI, CryptProtectMemory and QPC.");
 
+if (args is ["--commit-child", var commitDirectory, var commitOperation])
+{
+    CommitExperiment.Child(commitDirectory, commitOperation);
+    return;
+}
+if (args is ["--commit-run", var commitResultDirectory])
+{
+    await CommitExperiment.RunAsync(commitResultDirectory);
+    return;
+}
 if (args is ["--write", var writeFolder, var writeCase])
 {
     Probe.Write(writeFolder, writeCase);

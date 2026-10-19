@@ -344,7 +344,7 @@ if (args.Length == 2 && args[0] == "--native-lan-file-transfer")
     await NativeLanFileTransferValidation.RunAsync(args[1]);
     return;
 }
-if (args.Length != 0 && !args.SequenceEqual(["--audio-account"]))
+if (args.Length != 0 && !args.SequenceEqual(["--audio-account"]) && !args.SequenceEqual(["--session-storage"]))
     throw new ArgumentException("Unsupported contract-test arguments.");
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -502,12 +502,14 @@ var remoteHostTests = Skybridge.WinClient.ContractTests.WindowsRemoteControlAudi
             Console.WriteLine("PASS Windows policy-bound identity recovery and native two-direction product handshake");
         }
     })));
-var allTests = tests.Concat(AppOperatorTests.Cases).Concat(AccountDeviceTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(AudioMembershipRenewalTests.Cases)
+var allTests = tests.Concat(SessionFileCommitTests.Cases).Concat(AppOperatorTests.Cases).Concat(AccountDeviceTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(AudioMembershipRenewalTests.Cases)
     .Concat(AccountAudioAuthorizationTests.Cases).Concat(ShellInteractionTests.Cases).Concat(remoteHostTests);
 var selectedTests = args.SequenceEqual(["--audio-account"])
     ? tests.Where(test => test.Name.StartsWith("account ", StringComparison.Ordinal) || test.Name.StartsWith("supabase ", StringComparison.Ordinal))
         .Concat(AccountDeviceTests.Cases).Concat(AccountAudioAuthorizationTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(LanProductControlSessionTests.Cases)
-    : allTests;
+    : args.SequenceEqual(["--session-storage"])
+        ? tests.Where(test => test.Name.StartsWith("session store ", StringComparison.Ordinal)).Concat(SessionFileCommitTests.Cases)
+        : allTests;
 foreach (var test in selectedTests)
 {
     await test.Run();

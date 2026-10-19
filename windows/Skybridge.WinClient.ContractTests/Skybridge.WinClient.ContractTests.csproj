@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="SessionFileCommitTests.cs" />
     <Compile Include="NativeQuietFilePlaybackValidation.cs" />
     <Compile Include="AudioFilePcmPlaybackTests.cs" />
     <Compile Include="AudioOriginalFileReceiveSessionTests.cs" />

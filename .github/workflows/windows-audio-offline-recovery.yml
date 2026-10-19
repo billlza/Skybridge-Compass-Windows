@@ -5,6 +5,8 @@ on:
     paths:
       - windows/Skybridge.AudioOfflineRecoveryProbe/**
       - .github/workflows/windows-audio-offline-recovery.yml
+      - windows/Skybridge.WinClient/Services/SessionPersistenceContracts.cs
+      - windows/Skybridge.WinClient.ContractTests/SessionFileCommitTests.cs
   workflow_dispatch:
 
 permissions:
@@ -37,6 +39,9 @@ jobs:
           dotnet run --project windows/Skybridge.AudioOfflineRecoveryProbe/AudioOfflineRecoveryProbe.csproj -c Release --no-build --no-restore -- --run artifacts/audio-offline-continuity/native 2>&1 |
             Tee-Object -FilePath artifacts/audio-offline-continuity/run.log
           if ($LASTEXITCODE -ne 0) { throw 'Native continuity experiment failed.' }
+          dotnet run --project windows/Skybridge.AudioOfflineRecoveryProbe/AudioOfflineRecoveryProbe.csproj -c Release --no-build --no-restore -- --commit-run artifacts/audio-offline-continuity/commit 2>&1 |
+            Tee-Object -FilePath artifacts/audio-offline-continuity/commit-run.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native protected commit experiment failed.' }
       - name: Preserve evidence
         if: always()
         uses: actions/upload-artifact@v7.0.2
