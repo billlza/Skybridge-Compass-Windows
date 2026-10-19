@@ -2,11 +2,13 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
+using Skybridge.WinClient.Services.Audio;
 
 namespace Skybridge.AudioOfflineRecoveryProbe;
 
 /// <summary>
-/// An isolated experiment, not a product credential or a disk-store implementation.
+/// Experiment adapter for the actual product continuity tag. The separate
+/// same-process creation path exists only to construct a negative test input.
 /// The entire returned value MUST be inside the same authenticated CurrentUser DPAPI
 /// record as the original finite grant, login ID and revocation revision. It proves
 /// continuity of one Windows logon only; it never establishes account membership.
@@ -21,6 +23,12 @@ internal static class LogonContinuity
 
     internal static Seal Create(uint protection = SameLogon)
     {
+        if (protection == SameLogon)
+        {
+            var seal = WindowsAudioLogonContinuity.Instance.Create();
+            return new(Convert.FromBase64String(seal.ProtectedNonce), Convert.FromBase64String(seal.NonceDigest));
+        }
+        if (protection != 0) throw new ArgumentOutOfRangeException(nameof(protection));
         var nonce = RandomNumberGenerator.GetBytes(NonceBytes);
         try
         {
@@ -39,30 +47,18 @@ internal static class LogonContinuity
     {
         if (seal.ProtectedNonce is not { Length: NonceBytes } || seal.NonceDigest is not { Length: 32 })
             throw new InvalidDataException("Invalid logon continuity seal.");
-        var nonce = seal.ProtectedNonce.ToArray();
         try
         {
-            if (!CryptUnprotectMemory(nonce, NonceBytes, SameLogon))
-                throw new Win32Exception(Marshal.GetLastPInvokeError(), "CryptUnprotectMemory failed.");
-            Span<byte> digest = stackalloc byte[32];
-            try
-            {
-                SHA256.HashData(nonce, digest);
-                if (!CryptographicOperations.FixedTimeEquals(digest, seal.NonceDigest))
-                    throw new LogonContinuityException();
-            }
-            finally { CryptographicOperations.ZeroMemory(digest); }
+            WindowsAudioLogonContinuity.Instance.RequireCurrent(new(
+                Convert.ToBase64String(seal.ProtectedNonce), Convert.ToBase64String(seal.NonceDigest)));
         }
-        finally { CryptographicOperations.ZeroMemory(nonce); }
+        catch (CryptographicException failure) { throw new LogonContinuityException(failure); }
     }
 
     [DllImport("crypt32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CryptProtectMemory([In, Out] byte[] data, uint count, uint flags);
 
-    [DllImport("crypt32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CryptUnprotectMemory([In, Out] byte[] data, uint count, uint flags);
 }
 
-internal sealed class LogonContinuityException() : CryptographicException("Windows logon continuity is unavailable.");
+internal sealed class LogonContinuityException(Exception cause) : CryptographicException("Windows logon continuity is unavailable.", cause);

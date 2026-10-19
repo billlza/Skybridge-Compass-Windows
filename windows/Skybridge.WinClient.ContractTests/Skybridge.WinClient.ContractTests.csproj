@@ -104,11 +104,14 @@
     <Compile Include="AccountDeviceTests.cs" />
     <Compile Include="AccountAudioAuthorizationTests.cs" />
     <Compile Include="AudioAccountMembershipTests.cs" />
+    <Compile Include="AudioMembershipCheckpointTests.cs" />
     <Compile Include="AudioMembershipRenewalTests.cs" />
     <Compile Include="AudioAccountRegistryTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAccountRegistryObserver.cs" Link="Services\Audio\AudioAccountRegistryObserver.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAccountCredentialDispatcher.cs" Link="Services\Audio\AudioAccountCredentialDispatcher.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAccountMembership.cs" Link="Services\Audio\AudioAccountMembership.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioMembershipCheckpoint.cs" Link="Services\Audio\AudioMembershipCheckpoint.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioLogonContinuity.cs" Link="Services\Audio\AudioLogonContinuity.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAccountMembershipClient.cs" Link="Services\Audio\AudioAccountMembershipClient.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAccountMembershipProvider.cs" Link="Services\Audio\AudioAccountMembershipProvider.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioMembershipRequestFailure.cs" Link="Services\Audio\AudioMembershipRequestFailure.cs" />

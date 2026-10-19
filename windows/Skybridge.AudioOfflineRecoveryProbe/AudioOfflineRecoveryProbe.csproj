@@ -11,6 +11,7 @@
     <Compile Include="..\Skybridge.WinClient\Services\SessionPersistenceContracts.cs" Link="Product\SessionPersistenceContracts.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\SessionStore.cs" Link="Product\SessionStore.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\ISupabaseAuthClient.cs" Link="Product\ISupabaseAuthClient.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioLogonContinuity.cs" Link="Product\AudioLogonContinuity.cs" />
     <Compile Include="..\Skybridge.WinClient.ContractTests\SessionFileCommitTests.cs" Link="Contracts\SessionFileCommitTests.cs" />
     <Compile Include="..\Skybridge.WinClient.ContractTests\ProcessTerminationBarrier.cs" Link="Contracts\ProcessTerminationBarrier.cs" />
   </ItemGroup>

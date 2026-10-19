@@ -1,6 +1,6 @@
 # Windows audio authorization across process restart
 
-Status: versioned account storage is implemented; product offline restart recovery is not enabled. The native continuity and file-commit experiments establish only the specific boundaries listed below. A durable login identifier alone is not audio authority.
+Status: versioned account storage and finite membership checkpoint validation are implemented; product offline restart recovery is not enabled. The checkpoint is not yet integrated into the canonical account record or startup path. The native continuity and file-commit experiments establish only the specific boundaries listed below. A durable login identifier alone is not audio authority.
 
 ## Current product boundaries
 
@@ -15,6 +15,12 @@ An old owner can no longer restore a login after clear or erase a replacement lo
 The shared `AtomicSessionFileCommitter` requests Windows write-through replacement after callers flush and close a same-directory temporary file. It preserves a native error as a failed commit. The account-store lease and revision checks supply ownership arbitration; atomic replacement alone does not.
 
 ## Recovery contract
+
+`AudioMembershipCheckpoint` captures an already verified runtime membership's evidence ID, account scope, exact device IDs/algorithms/fingerprints and original UTC/QPC issue/expiry anchors. Capture checks validity before and after creating the continuity tag. Restoration validates the schema, bounded finite interval, login/account/device bindings and current logon continuity, then samples the clock after verification. It constructs runtime evidence with the original ID and deadlines; it cannot use the fresh-grant constructor to renew them. Re-saving restored evidence preserves those same values. These operations are currently component APIs, not a product startup admission path.
+
+`WindowsAudioLogonContinuity` is the product implementation of the previously measured same-logon tag. The isolated native probe now links this implementation for positive creation and all recovery checks; its same-process creation code remains only to construct a negative test. The tag is a protected random nonce with a commitment authenticated by the enclosing account record. It is not standalone account authentication or storage encryption. [CryptUnprotectMemory](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptunprotectmemory) cannot preserve this continuity over an OS restart and may return unpredictable bytes when flags differ, so the commitment must match even after API success. Different logons and suspend/hibernate transitions remain separately unverified. This mechanism does not redefine the overall offline requirement as a same-logon-only feature.
+
+The checkpoint component adds eight regression cases covering serialization under both protocol signing algorithms, original evidence/deadline preservation, changed login/account/tenant/device keys, malformed bounds, expiry/rollback, revocation during capture, expiry during logon verification, and observable protection failures. The host contract build and isolated probe build have zero warnings/errors; all 124 focused account/audio cases pass. Windows execution of this product continuity implementation is pending. Evidence is being collected under `artifacts/audio-native-20261019/offline-audio-checkpoint-v1/`.
 
 A future canonical protected account record must bind credentials, one durable login identifier, a mutation revision and audio checkpoint state. These fields cannot be committed independently. A fresh login creates a new login identifier; credential rotation and process restart retain the same identifier only when their identity continuity has been verified.
 

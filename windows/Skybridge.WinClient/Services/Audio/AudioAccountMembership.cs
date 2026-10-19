@@ -102,17 +102,18 @@ internal sealed class AudioRegistryObservation
     });
 }
 
-/// <summary>Finite process-local evidence, intentionally not a transferable or persistent certificate.
-/// Reconnection reuses these clock anchors. The first expiry/rollback/revocation is terminal.</summary>
+/// <summary>Finite runtime evidence, never a transferable certificate. A protected checkpoint
+/// can restore its original identity and clock anchors after the owning account record is checked.
+/// The first expiry/rollback/revocation is terminal for this runtime instance.</summary>
 internal sealed class AudioAccountMembershipEvidence
 {
     internal const long MaximumLifetimeMilliseconds = 3_600_000;
     internal const long MaximumRequestMilliseconds = 30_000;
     private int _failure;
     private AudioAccountMembershipEvidence(AudioAccountScope scope, AudioDeviceIdentity local, AudioDeviceIdentity peer,
-        AudioAuthorizationTime issued, AudioAuthorizationTime expires)
-    { Scope = scope; Local = local; Peer = peer; Issued = issued; Expires = expires; }
-    internal Guid Id { get; } = Guid.NewGuid();
+        AudioAuthorizationTime issued, AudioAuthorizationTime expires, Guid id)
+    { Scope = scope; Local = local; Peer = peer; Issued = issued; Expires = expires; Id = id; }
+    internal Guid Id { get; }
     internal AudioAccountScope Scope { get; }
     internal AudioDeviceIdentity Local { get; }
     internal AudioDeviceIdentity Peer { get; }
@@ -140,7 +141,24 @@ internal sealed class AudioAccountMembershipEvidence
         if (expiry.WallMilliseconds <= observation.Received.WallMilliseconds ||
             expiry.ContinuousMilliseconds <= observation.Received.ContinuousMilliseconds)
             throw new AudioMembershipException(AudioMembershipFailure.InvalidResponse);
-        return new(observation.Scope, local, peer, observation.Started, expiry);
+        return new(observation.Scope, local, peer, observation.Started, expiry, Guid.NewGuid());
+    }
+
+    // The caller supplies the current protected record's login and actual carrier
+    // identities. This boundary verifies the checkpoint before constructing authority.
+    internal static AudioAccountMembershipEvidence RestoreCheckpoint(AudioMembershipCheckpoint checkpoint, Guid expectedLogin,
+        AudioAccountScope scope, AudioDeviceIdentity local, AudioDeviceIdentity peer,
+        Func<AudioAuthorizationTime> clock, IAudioLogonContinuity continuity)
+    {
+        checkpoint.Validate();
+        if (checkpoint.LoginId != expectedLogin || checkpoint.Scope != scope)
+            throw new AudioMembershipException(AudioMembershipFailure.ScopeChanged);
+        if (!checkpoint.Local.Matches(local) || !checkpoint.Peer.Matches(peer))
+            throw new AudioMembershipException(AudioMembershipFailure.IdentityChanged);
+        continuity.RequireCurrent(checkpoint.Continuity);
+        var evidence = new AudioAccountMembershipEvidence(scope, local, peer, checkpoint.Issued, checkpoint.Expires, checkpoint.EvidenceId);
+        evidence.RequireValid(scope, local, peer, clock());
+        return evidence;
     }
 
     internal void RequireValid(AudioAccountScope scope, AudioDeviceIdentity local, AudioDeviceIdentity peer, AudioAuthorizationTime now)
