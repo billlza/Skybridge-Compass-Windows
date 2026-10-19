@@ -1,0 +1,47 @@
+name: Windows Audio Pacing
+
+on:
+  push:
+    paths:
+      - windows/Skybridge.WinClient/Services/Audio/WindowsAudioRenderPacing.cs
+      - windows/Skybridge.WinClient.AudioProbe/**
+      - .github/workflows/windows-audio-pacing.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-pacing:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+      - name: Pin GitHub remote to SSH
+        shell: pwsh
+        run: |
+          git remote set-url origin git@github.com:billlza/Skybridge-Compass-Windows.git
+          git remote set-url --push origin git@github.com:billlza/Skybridge-Compass-Windows.git
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Build and measure product pacing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path artifacts/audio-pacing -Force | Out-Null
+          dotnet build windows/Skybridge.WinClient.AudioProbe/Skybridge.WinClient.AudioProbe.csproj -c Release -p:SelfContained=false 2>&1 |
+            Tee-Object -FilePath artifacts/audio-pacing/build.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native pacing probe build failed.' }
+          & windows/Skybridge.WinClient.AudioProbe/bin/Release/net10.0/win-x64/Skybridge.WinClient.AudioProbe.exe --pacing-study artifacts/audio-pacing/native 2>&1 |
+            Tee-Object -FilePath artifacts/audio-pacing/run.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native pacing study failed or exceeded its observed buffer budget.' }
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: windows-audio-pacing-${{ github.sha }}
+          path: artifacts/audio-pacing
+          if-no-files-found: error

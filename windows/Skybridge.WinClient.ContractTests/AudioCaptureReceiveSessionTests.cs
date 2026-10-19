@@ -130,6 +130,7 @@ internal static class AudioCaptureReceiveSessionTests
             Require(Receiver.NativeReleaseConfirmed && Native.DisposeCalls == 1 && Device.DisposeCalls == 1,
                 "Receiver did not confirm exactly one native release.");
             Require(Device.OwnerThread != 0 && !Device.WrongThread, "Native operations or cleanup escaped their sole worker.");
+            Require(!Native.NativePacingPrepared || Native.NativePacingReleased, "Native render pacing was not released.");
         }
         public async ValueTask DisposeAsync()
         {
@@ -534,10 +535,15 @@ internal static class AudioCaptureReceiveSessionTests
         private ulong _position;
         private bool _running;
         private ulong _submitted;
+        private WindowsAudioRenderPacing? _pacing;
+        internal bool NativePacingPrepared, NativePacingReleased;
+        internal string PacingKind => NativePacingPrepared ? "windows-product-timer-and-mmcss" :
+            OperatingSystem.IsWindows() ? "windows-not-prepared" : "portable-sleep";
         private readonly WaitObservation[] _waits = new WaitObservation[128];
         private int _observedWaits;
         internal readonly record struct WaitObservation(long RequestedTicks, long ObservedTicks, long AdvancedTicks,
-            uint QueuedBefore, uint QueuedAfter, ulong Position, ulong Submitted, bool Running, bool RetirementEnabled);
+            uint QueuedBefore, uint QueuedAfter, ulong Position, ulong Submitted, bool Running, bool RetirementEnabled,
+            int Gen0Before, int Gen0After, int Gen1Before, int Gen1After, int Gen2Before, int Gen2After);
         internal int ObservedWaits => _observedWaits;
         // Read only after the native owner has ended. This trace does not pace,
         // clamp, delay or otherwise alter the controlled endpoint's retirement.
@@ -559,6 +565,11 @@ internal static class AudioCaptureReceiveSessionTests
         {
             owner.Touch(); PrepareEntered.TrySetResult(); if (BlockPrepare) PrepareRelease.Wait();
             PrepareAction?.Invoke(); if (PrepareFailure is { } error) throw error;
+            if (OperatingSystem.IsWindows())
+            {
+                Require(_pacing is null, "Render pacing was prepared twice.");
+                _pacing = new WindowsAudioRenderPacing(); NativePacingPrepared = true;
+            }
         }
         public uint GetQueuedFrames() { owner.Touch(); return _queued; }
         public int GetClockPosition(out ulong position, out ulong frequency) { owner.Touch(); position = _position; frequency = ExpectedFormat.SampleRate; return 0; }
@@ -568,21 +579,33 @@ internal static class AudioCaptureReceiveSessionTests
                 "Native fixture received a partial or over-capacity packet.");
             Submissions.Add(bytes.AsSpan(offset, count).ToArray()); _queued += frames; _submitted += frames;
         }
-        public void Start() { owner.Touch(); StartCalls++; Require(!_running && _queued > 0, "Native start was repeated or empty."); _running = true; }
+        public void Start()
+        {
+            owner.Touch(); StartCalls++; Require(!_running && _queued > 0, "Native start was repeated or empty.");
+            if (OperatingSystem.IsWindows())
+                (_pacing ?? throw new InvalidOperationException("Render pacing was not prepared.")).Start();
+            _running = true;
+        }
         public void WaitForProgress(TimeSpan delay, CancellationToken cancellationToken)
         {
             owner.Touch(); WaitCalls++; ProgressEntered.TrySetResult(); if (BlockProgress) ProgressRelease.Wait();
             cancellationToken.ThrowIfCancellationRequested();
             uint queuedBefore = _queued;
+            int gen0Before = GC.CollectionCount(0), gen1Before = GC.CollectionCount(1), gen2Before = GC.CollectionCount(2);
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
-            Thread.Sleep(1); cancellationToken.ThrowIfCancellationRequested();
-            // Windows can schedule Sleep(1) much later than one millisecond.
+            if (OperatingSystem.IsWindows())
+                (_pacing ?? throw new InvalidOperationException("Render pacing was not prepared.")).Wait(delay, cancellationToken);
+            else Thread.Sleep(1);
+            cancellationToken.ThrowIfCancellationRequested();
+            // Windows now uses the product's exact timer/MMCSS owner. Portable
+            // host checks retain their distinct Sleep path. Neither is a device.
             // Keep the controlled device clock and sample retirement together,
             // accounting for the observed wait and at least the requested step.
             // Otherwise a short source outlives the real fixture deadline merely
             // because the simulated output runs many times slower than its rate.
             var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started);
             var observed = elapsed;
+            int gen0After = GC.CollectionCount(0), gen1After = GC.CollectionCount(1), gen2After = GC.CollectionCount(2);
             if (elapsed < delay) elapsed = delay;
             clock.Advance(elapsed);
             if (_running && AllowRetirement)
@@ -590,13 +613,25 @@ internal static class AudioCaptureReceiveSessionTests
                 ulong frames = Math.Max(1UL, (ulong)elapsed.Ticks * ExpectedFormat.SampleRate / TimeSpan.TicksPerSecond);
                 _position += frames; _queued -= (uint)Math.Min(_queued, frames);
             }
-            _waits[_observedWaits++ % _waits.Length] = new(delay.Ticks, observed.Ticks, elapsed.Ticks, queuedBefore, _queued, _position, _submitted, _running, AllowRetirement);
+            _waits[_observedWaits++ % _waits.Length] = new(delay.Ticks, observed.Ticks, elapsed.Ticks, queuedBefore, _queued,
+                _position, _submitted, _running, AllowRetirement, gen0Before, gen0After, gen1Before, gen1After, gen2Before, gen2After);
         }
         public void Stop() { owner.Touch(); _running = false; }
         public void Dispose()
         {
             owner.Touch(); DisposeCalls++; DisposeEntered.TrySetResult(); if (BlockDispose) DisposeRelease.Wait();
-            if (DisposeFailure is { } error) throw error;
+            Exception? pacingFailure = null;
+            if (OperatingSystem.IsWindows() && _pacing is not null)
+            {
+                try { _pacing.Dispose(); NativePacingReleased = true; }
+                catch (Exception releaseFailure) { pacingFailure = releaseFailure; }
+            }
+            if (DisposeFailure is { } error)
+            {
+                if (pacingFailure is not null) throw new AggregateException(error, pacingFailure);
+                throw error;
+            }
+            if (pacingFailure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(pacingFailure).Throw();
         }
     }
 

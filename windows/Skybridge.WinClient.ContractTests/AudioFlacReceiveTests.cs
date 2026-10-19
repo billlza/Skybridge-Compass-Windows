@@ -56,6 +56,8 @@ internal static class AudioFlacReceiveTests
             runtime = Environment.Version.ToString(), processors = Environment.ProcessorCount,
             threadPoolThreads = ThreadPool.ThreadCount, pendingWork = ThreadPool.PendingWorkItemCount,
             nativeReleaseConfirmed = f.Main.Receiver.NativeReleaseConfirmed,
+            pacing = f.Main.Native.PacingKind,
+            nativePacingReleased = f.Main.Native.NativePacingReleased,
             observations = f.Main.Native.ObservedWaits, retained = f.Main.Native.WaitObservations()
         }));
     }

@@ -13,5 +13,6 @@
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioOutputEndpoint.cs" Link="Product\AudioOutputEndpoint.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\ExclusivePcmOutput.cs" Link="Product\ExclusivePcmOutput.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\WindowsExclusivePcmDevice.cs" Link="Product\WindowsExclusivePcmDevice.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Audio\WindowsAudioRenderPacing.cs" Link="Product\WindowsAudioRenderPacing.cs" />
   </ItemGroup>
 </Project>

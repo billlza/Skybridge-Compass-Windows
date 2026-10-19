@@ -91,6 +91,7 @@
     <Compile Include="..\Skybridge.WinClient\Services\Audio\ExactPcmFormat.cs" Link="Services\Audio\ExactPcmFormat.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\ExclusivePcmOutput.cs" Link="Services\Audio\ExclusivePcmOutput.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\WindowsExclusivePcmDevice.cs" Link="Services\Audio\WindowsExclusivePcmDevice.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Audio\WindowsAudioRenderPacing.cs" Link="Services\Audio\WindowsAudioRenderPacing.cs" />
     <Compile Include="WindowLifetimeTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WindowLifetimeController.cs" Link="Services\WindowLifetimeController.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WindowsTrayIcon.cs" Link="Services\WindowsTrayIcon.cs" />

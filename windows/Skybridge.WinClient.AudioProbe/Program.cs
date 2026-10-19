@@ -17,8 +17,16 @@ var phase = "arguments";
 var trace = new NativeOutputTrace();
 try
 {
+    if (args is ["--pacing-study", var pacingDirectory])
+    {
+        phase = "pacing-study";
+        bool withinObservedBudget = NativePacingStudy.Run(pacingDirectory);
+        Write(new { schemaVersion = 1, status = withinObservedBudget ? "study-completed" : "observed-budget-exceeded",
+            phase, scope = "native-pacing-without-audio-output", report = Path.Combine(Path.GetFullPath(pacingDirectory), "pacing-report.json") });
+        return withinObservedBudget ? 0 : 1;
+    }
     if (args is not (["--list"] or ["--probe", _] or ["--render-quiet-test", _, _]))
-        throw new ArgumentException("Use --list, --probe <endpoint-id>, or --render-quiet-test <endpoint-id> <format-name>.");
+        throw new ArgumentException("Use --list, --probe <endpoint-id>, --render-quiet-test <endpoint-id> <format-name>, or --pacing-study <new-result-directory>.");
     if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("The probe must run on Windows.");
     using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
     phase = "enumerate";

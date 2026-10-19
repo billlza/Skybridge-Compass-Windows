@@ -1,7 +1,5 @@
-using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using Microsoft.Win32.SafeHandles;
 using static Skybridge.WinClient.Services.Audio.AudioOutputNativeMetadata;
 
 namespace Skybridge.WinClient.Services.Audio;
@@ -101,13 +99,11 @@ internal sealed class WindowsExclusivePcmDevice : IExclusivePcmDevice
     private sealed class Client(IAudioClient audio) : IExclusivePcmClient
     {
         private readonly int _threadId = Environment.CurrentManagedThreadId;
-        private ProgressTimer? _progressTimer;
-        private WaitHandle[]? _waitHandles;
+        private WindowsAudioRenderPacing? _pacing;
         private object? _renderObject;
         private IExclusivePcmPacketPort? _packetPort;
         private object? _clockObject;
         private ulong _clockFrequency;
-        private IntPtr _mmcss;
         private bool _startAttempted;
         private bool _disposed;
         private AggregateException? _cleanupFailure;
@@ -162,8 +158,7 @@ internal sealed class WindowsExclusivePcmDevice : IExclusivePcmDevice
             if (clock is not IAudioClock clockClient) throw new InvalidCastException("Endpoint did not return an audio clock.");
             ExclusivePcmOutput.RequireSOk(clockClient.GetFrequency(out _clockFrequency), "query output device clock frequency");
             if (_clockFrequency == 0) throw new InvalidDataException("Output device clock frequency is zero.");
-            _progressTimer = new ProgressTimer();
-            _waitHandles = [_progressTimer, _progressTimer];
+            _pacing = new WindowsAudioRenderPacing();
         }
 
         public uint GetQueuedFrames()
@@ -198,11 +193,9 @@ internal sealed class WindowsExclusivePcmDevice : IExclusivePcmDevice
         public void Start()
         {
             Check();
-            if (_progressTimer is null) throw new InvalidOperationException("Output pacing timer is not prepared.");
-            if (_mmcss != IntPtr.Zero || _startAttempted) throw new InvalidOperationException("Output client cannot be started twice.");
-            uint taskIndex = 0;
-            _mmcss = AvSetMmThreadCharacteristics("Audio", ref taskIndex);
-            if (_mmcss == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to register the output thread with MMCSS.");
+            var pacing = _pacing ?? throw new InvalidOperationException("Output pacing is not prepared.");
+            if (_startAttempted) throw new InvalidOperationException("Output client cannot be started twice.");
+            pacing.Start();
             _startAttempted = true;
             ExclusivePcmOutput.RequireSOk(audio.Start(), "start exclusive output");
         }
@@ -210,17 +203,8 @@ internal sealed class WindowsExclusivePcmDevice : IExclusivePcmDevice
         public void WaitForProgress(TimeSpan delay, CancellationToken cancellationToken)
         {
             Check();
-            if (delay <= TimeSpan.Zero || delay > TimeSpan.FromMilliseconds(5)) throw new ArgumentOutOfRangeException(nameof(delay));
-            var timer = _progressTimer ?? throw new InvalidOperationException("Output pacing timer is not prepared.");
-            cancellationToken.ThrowIfCancellationRequested();
-            var handles = _waitHandles ?? throw new InvalidOperationException("Render wait is not prepared.");
-            handles[0] = cancellationToken.WaitHandle;
-            handles[1] = timer;
-            timer.Schedule(delay);
-            var result = WaitHandle.WaitAny(handles, delay + TimeSpan.FromMilliseconds(250));
-            if (result == 0) throw new OperationCanceledException(cancellationToken);
-            if (result == WaitHandle.WaitTimeout) throw new TimeoutException("The output pacing timer did not signal.");
-            cancellationToken.ThrowIfCancellationRequested();
+            var pacing = _pacing ?? throw new InvalidOperationException("Output pacing is not prepared.");
+            pacing.Wait(delay, cancellationToken);
         }
 
         public void Stop()
@@ -242,17 +226,10 @@ internal sealed class WindowsExclusivePcmDevice : IExclusivePcmDevice
             var errors = new List<Exception>();
             ExclusivePcmOutput.Attempt(Stop, errors);
             _disposed = true;
-            if (_mmcss != IntPtr.Zero)
-            {
-                if (!AvRevertMmThreadCharacteristics(_mmcss))
-                    errors.Add(new Win32Exception(Marshal.GetLastWin32Error(), "Unable to revert output MMCSS registration."));
-                else _mmcss = IntPtr.Zero;
-            }
+            if (_pacing is not null) ExclusivePcmOutput.Attempt(() => { _pacing.Dispose(); _pacing = null; }, errors);
             if (_renderObject is not null) ExclusivePcmOutput.Attempt(() => { Marshal.ReleaseComObject(_renderObject); _renderObject = null; _packetPort = null; }, errors);
             if (_clockObject is not null) ExclusivePcmOutput.Attempt(() => { Marshal.ReleaseComObject(_clockObject); _clockObject = null; }, errors);
             ExclusivePcmOutput.Attempt(() => Marshal.ReleaseComObject(audio), errors);
-            if (_progressTimer is not null)
-                ExclusivePcmOutput.Attempt(() => { _progressTimer.Dispose(); _progressTimer = null; _waitHandles = null; }, errors);
             if (errors.Count > 0)
             {
                 _cleanupFailure = new AggregateException("Exclusive output client release is unconfirmed.", errors);
@@ -277,27 +254,6 @@ internal sealed class WindowsExclusivePcmDevice : IExclusivePcmDevice
         public void Copy(byte[] bytes, int offset, IntPtr destination, int count) => Marshal.Copy(bytes, offset, destination, count);
         public void Release(uint frames) => ExclusivePcmOutput.RequireSOk(render.ReleaseBuffer(frames, 0),
             frames == 0 ? "discard an unsubmitted render packet" : "submit exact source frame packet");
-    }
-
-    private sealed class ProgressTimer : WaitHandle
-    {
-        internal ProgressTimer()
-        {
-            // HIGH_RESOLUTION; SYNCHRONIZE | TIMER_MODIFY_STATE. No global timer-resolution change.
-            var handle = CreateWaitableTimerEx(IntPtr.Zero, null, 0x00000002, 0x00100002);
-            if (handle.IsInvalid)
-            {
-                int error = Marshal.GetLastWin32Error(); handle.Dispose();
-                throw new Win32Exception(error, "Unable to create the output pacing timer.");
-            }
-            SafeWaitHandle = handle;
-        }
-        internal void Schedule(TimeSpan delay)
-        {
-            long due = -delay.Ticks;
-            if (!SetWaitableTimer(SafeWaitHandle, ref due, 0, IntPtr.Zero, IntPtr.Zero, false))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to schedule output pacing.");
-        }
     }
 
     private static int WithFormat(ExactPcmFormat format, Func<IntPtr, int> call)
@@ -488,18 +444,8 @@ internal sealed class WindowsExclusivePcmDevice : IExclusivePcmDevice
         [PreserveSig] int GetCharacteristics(out uint characteristics);
     }
 
-    [DllImport("kernel32.dll", EntryPoint = "CreateWaitableTimerExW", ExactSpelling = true, CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern SafeWaitHandle CreateWaitableTimerEx(IntPtr attributes, string? name, uint flags, uint access);
-    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWaitableTimer(SafeWaitHandle timer, ref long due, int period, IntPtr completion, IntPtr context,
-        [MarshalAs(UnmanagedType.Bool)] bool resume);
-
     [DllImport("ole32.dll", ExactSpelling = true)] private static extern int CoInitializeEx(IntPtr reserved, uint concurrencyModel);
     [DllImport("ole32.dll", ExactSpelling = true)] private static extern void CoUninitialize();
     [DllImport("ole32.dll", ExactSpelling = true)] private static extern int PropVariantClear(ref OutputPropertyVariant value);
     [DllImport("ole32.dll", ExactSpelling = true)] private static extern int CoCreateInstance(ref Guid classId, IntPtr outer, uint context, ref Guid iid, out IMMDeviceEnumerator enumerator);
-    [DllImport("avrt.dll", EntryPoint = "AvSetMmThreadCharacteristicsW", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr AvSetMmThreadCharacteristics(string taskName, ref uint taskIndex);
-    [DllImport("avrt.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool AvRevertMmThreadCharacteristics(IntPtr handle);
 }
