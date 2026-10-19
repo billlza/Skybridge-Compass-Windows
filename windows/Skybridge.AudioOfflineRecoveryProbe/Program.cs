@@ -261,9 +261,11 @@ internal static class Probe
         {
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            ProcessTerminationBarrier.Require(process, TimeSpan.FromSeconds(5));
             await Task.WhenAll(stdout, stderr);
             throw new TimeoutException("Native child experiment exceeded 15 seconds.");
         }
+        ProcessTerminationBarrier.Require(process, TimeSpan.FromSeconds(5));
         var output = await stdout; var error = await stderr;
         if (process.ExitCode != 0 || !string.IsNullOrWhiteSpace(error))
             throw new InvalidOperationException($"Native child failed ({process.ExitCode}): {error}");

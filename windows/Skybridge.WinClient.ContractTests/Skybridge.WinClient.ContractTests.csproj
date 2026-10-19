@@ -19,6 +19,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="SessionFileCommitTests.cs" />
+    <Compile Include="ProcessTerminationBarrier.cs" />
     <Compile Include="TestSessionState.cs" />
     <Compile Include="SessionStoreVersionTests.cs" />
     <Compile Include="NativeQuietFilePlaybackValidation.cs" />

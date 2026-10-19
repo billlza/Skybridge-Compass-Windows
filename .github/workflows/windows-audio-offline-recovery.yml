@@ -9,6 +9,7 @@ on:
       - windows/Skybridge.WinClient/Services/SessionStore.cs
       - windows/Skybridge.WinClient/Services/ISupabaseAuthClient.cs
       - windows/Skybridge.WinClient.ContractTests/SessionFileCommitTests.cs
+      - windows/Skybridge.WinClient.ContractTests/ProcessTerminationBarrier.cs
   workflow_dispatch:
 
 permissions:

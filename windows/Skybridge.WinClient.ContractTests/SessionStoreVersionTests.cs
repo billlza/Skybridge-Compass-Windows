@@ -261,6 +261,7 @@ internal static class SessionStoreVersionTests
         Require(await child.Process.StandardOutput.ReadLineAsync().WaitAsync(Limit) == nameof(SessionStoreWriteStatus.Conflict),
             "A separate stale process changed a newer account record.");
         await child.Process.WaitForExitAsync().WaitAsync(Limit);
+        ProcessTerminationBarrier.Require(child.Process, Limit);
         Require(child.Process.ExitCode == 0 && store.Load().Version == mutation.Version, "Separate process failed or changed the current record.");
         Console.WriteLine($"SESSION_PROCESS parent={Environment.ProcessId} child={child.Process.Id} action={action} protection={(OperatingSystem.IsWindows() ? "CurrentUser-DPAPI" : "host-fixture-only")}");
     }
@@ -274,10 +275,12 @@ internal static class SessionStoreVersionTests
             blockedWrite.Status == SessionStoreWriteStatus.IoFailure && blockedWrite.Failure?.Operation == "AcquireLease",
             "A competing process read or mutated through an occupied lease.");
         child.Process.Kill(entireProcessTree: true); await child.Process.WaitForExitAsync().WaitAsync(Limit);
+        ProcessTerminationBarrier.Require(child.Process, Limit);
         var resumed = store.Save(old.Session!, old.Version!, SessionStoreSaveMode.ContinueLogin);
         Console.WriteLine("SESSION_LEASE_CHECK " + JsonSerializer.Serialize(new
         {
             parent = Environment.ProcessId, child = child.Process.Id, childExit = child.Process.ExitCode,
+            terminationBoundary = "signaled-process-handle",
             blockedRead = blockedRead.Failure, blockedWrite = blockedWrite.Failure,
             status = resumed.Status.ToString(), failure = resumed.Failure, cleanupFailure = resumed.CleanupFailure
         }));
@@ -321,6 +324,7 @@ internal static class SessionStoreVersionTests
             {
                 if (!Process.HasExited) Process.Kill(entireProcessTree: true);
                 await Process.WaitForExitAsync().WaitAsync(Limit);
+                ProcessTerminationBarrier.Require(Process, Limit);
                 var error = await _error.WaitAsync(Limit);
                 if (error.Length != 0) Console.WriteLine("SESSION_PROCESS_DIAGNOSTIC " + error);
             }

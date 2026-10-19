@@ -279,12 +279,14 @@ internal static class CommitExperiment
             Require(!process.HasExited, "Native child exited before the requested interruption.");
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            ProcessTerminationBarrier.Require(process, TimeSpan.FromSeconds(10));
             Require(process.ExitCode != 0, "Terminated child reported normal success.");
             await RequireNoExtraOutputAsync();
         }
         internal async Task RequireSuccessAsync()
         {
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            ProcessTerminationBarrier.Require(process, TimeSpan.FromSeconds(10));
             Require(process.ExitCode == 0, "Native child failed with exit code " + process.ExitCode);
             await RequireNoExtraOutputAsync();
         }
@@ -300,6 +302,7 @@ internal static class CommitExperiment
             {
                 if (!process.HasExited) process.Kill(entireProcessTree: true);
                 await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+                ProcessTerminationBarrier.Require(process, TimeSpan.FromSeconds(10));
                 await _stderr.WaitAsync(TimeSpan.FromSeconds(10));
             }
             finally { process.Dispose(); }

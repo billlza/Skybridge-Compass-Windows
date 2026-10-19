@@ -15,7 +15,8 @@ internal static class LeaseTerminationStudy
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(20);
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
     private sealed record Availability(double MillisecondsAfterExit, bool Opened, SessionStoreFailure? Failure);
-    private sealed record NativeExit(uint BeforeWrite, uint? AfterFailedWrite, uint? AfterBarrier, double? BarrierMilliseconds);
+    private sealed record NativeExit(uint BeforeWrite, uint? AfterFailedWrite, uint? AfterBarrier, double? BarrierMilliseconds,
+        uint AfterManagedWait, double TerminationBarrierMilliseconds);
     private sealed record Attempt(int Number, string Mode, int Parent, int Child, int ExitCode,
         double FirstWriteMillisecondsAfterExit, string Status, SessionStoreFailure? Failure, SessionStoreFailure? Cleanup,
         NativeExit NativeExit, RestartManagerObservation.Observation? Owners, Availability[] Availability,
@@ -64,11 +65,16 @@ internal static class LeaseTerminationStudy
                 if (mode == "abrupt")
                 { child.Process.Kill(entireProcessTree: true); await child.Process.WaitForExitAsync().WaitAsync(Limit); }
                 else await child.ReleaseAsync();
+                uint afterManagedWait = ObserveNativeExit(child.Process.SafeHandle, 0);
+                long terminationWaitStarted = Stopwatch.GetTimestamp();
+                ProcessTerminationBarrier.Require(child.Process, Limit);
+                double terminationWait = Stopwatch.GetElapsedTime(terminationWaitStarted).TotalMilliseconds;
                 long exited = Stopwatch.GetTimestamp();
                 uint beforeWrite = ObserveNativeExit(child.Process.SafeHandle, 0);
+                if (beforeWrite != 0) throw new InvalidOperationException("The termination barrier did not observe a signaled process handle.");
                 var first = store.Save(original.Session!, original.Version, SessionStoreSaveMode.ContinueLogin);
                 double firstAt = Stopwatch.GetElapsedTime(exited).TotalMilliseconds;
-                NativeExit nativeExit = new(beforeWrite, null, null, null);
+                NativeExit nativeExit = new(beforeWrite, null, null, null, afterManagedWait, terminationWait);
                 RestartManagerObservation.Observation? owners = null; List<Availability> availability = [];
                 SessionStoreLoadResult? readback = null;
                 if (!first.Succeeded)
@@ -76,7 +82,8 @@ internal static class LeaseTerminationStudy
                     uint afterWrite = ObserveNativeExit(child.Process.SafeHandle, 0);
                     long barrierStarted = Stopwatch.GetTimestamp();
                     uint afterBarrier = ObserveNativeExit(child.Process.SafeHandle, checked((uint)Limit.TotalMilliseconds));
-                    nativeExit = new(beforeWrite, afterWrite, afterBarrier, Stopwatch.GetElapsedTime(barrierStarted).TotalMilliseconds);
+                    nativeExit = new(beforeWrite, afterWrite, afterBarrier, Stopwatch.GetElapsedTime(barrierStarted).TotalMilliseconds,
+                        afterManagedWait, terminationWait);
                     ObserveAvailability();
                     owners = RestartManagerObservation.Read(Path.Combine(directory, ".session.lock"));
                     // Fixed, bounded observation points after the failed write; no mutation retry.
@@ -115,6 +122,7 @@ internal static class LeaseTerminationStudy
             kind = "native-product-lease-termination-observation", runtime = Environment.Version.ToString(),
             operatingSystem = Environment.OSVersion.VersionString, protection = "CurrentUser-DPAPI",
             calibration, identifiedKnownHolder, attempts, failure,
+            terminationBoundary = "signaled-process-handle",
             qualification = "isolated storage experiment; no account service, network session or audio output",
             productMutationRetried = false, productPolicyChanged = false
         }, Json));
@@ -180,6 +188,7 @@ internal static class LeaseTerminationStudy
             {
                 if (!Process.HasExited) Process.Kill(entireProcessTree: true);
                 await Process.WaitForExitAsync().WaitAsync(Limit);
+                ProcessTerminationBarrier.Require(Process, Limit);
                 string errors = await _errors.WaitAsync(Limit);
                 if (errors.Length != 0) Console.WriteLine("LEASE_CHILD_DIAGNOSTIC " + errors);
             }
