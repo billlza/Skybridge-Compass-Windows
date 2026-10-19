@@ -4,6 +4,10 @@ internal static class ExclusivePcmOutputTests
 {
     internal static readonly (string Name, Func<Task> Run)[] Cases =
     [
+        Case("exclusive finite output completes at the exact normalized source end after the full host latency", TailExactSourceEnd),
+        Case("exclusive source end reached after drain starts a new full latency observation", TailDelayedExactSourceEnd),
+        Case("exclusive finite output rejects stalled positions before or beyond the exact source end", TailInexactSourceEnd),
+        Case("exclusive exact-end completion retains deadline revocation cancellation and latency checks", TailExactEndFailures),
         Case("exclusive completion rechecks deadline and cancellation after its final authorization callback", TailFinalAuthorization),
         Case("exclusive tail completion cannot outlive its deadline during native cleanup", TailCleanupDeadline),
         Case("exclusive output rejects invalid or imprecise maximum-latency reports", LatencyBounds),
@@ -42,6 +46,85 @@ internal static class ExclusivePcmOutputTests
 
     private static (string, Func<Task>) Case(string name, Action body) => (name, () => { body(); return Task.CompletedTask; });
     private static readonly ExactPcmFormat Stereo24 = new(44100, 2, 24, 24, false, 3);
+
+    private static void TailExactSourceEnd()
+    {
+        foreach (ulong unitsPerFrame in new[] { 1UL, 8UL })
+        {
+            var format = new ExactPcmFormat(48000, 2, 32, 24, false, 3);
+            var clock = new Clock(); var client = new Client { Frames = 9600, Frequency = 48000 * unitsPerFrame, Latency = 100_000 };
+            var device = new Device(client);
+            using var output = ExclusivePcmOutput.Open(device, format, 9600, clock);
+            var source = Enumerable.Range(0, 4800 * 8).Select(value => (byte)value).ToArray();
+            output.Submit(source, 0, source.Length); output.FinishInput(4800); output.Start();
+            client.Queued = 0; client.Position = 4800 * unitsPerFrame;
+            client.WaitAction = (delay, _) => { Equal(0, client.StopCalls); clock.Advance(delay); };
+            var receipt = output.CompleteAfterDeviceTail(TimeSpan.FromMilliseconds(100), default, () => { });
+            var tail = receipt.Tail ?? throw new Exception("Missing exact-end observation.");
+            Equal(4800UL, receipt.SourceFrames); Equal(4800 * unitsPerFrame, tail.AnchorDevicePosition);
+            Equal(tail.AnchorDevicePosition, tail.FinalDevicePosition);
+            Equal(ExclusivePcmTailClockEvidence.ExactSourceEnd, tail.ClockEvidence);
+            Check(tail.HostElapsed.Ticks >= client.Latency, "End position replaced the full fresh host latency.");
+            Check(client.Submissions.Single().SequenceEqual(source), "Exact-end completion inserted silence or changed source samples.");
+            Equal(ExclusivePcmOutputState.Completed, output.State);
+            Equal(1, client.StopCalls); Equal(1, client.DisposeCalls); Equal(1, device.DisposeCalls);
+        }
+    }
+
+    private static void TailDelayedExactSourceEnd()
+    {
+        var clock = new Clock(); var client = new Client { Latency = 100_000 };
+        using var output = ExclusivePcmOutput.Open(new Device(client), Stereo24, 441, clock);
+        output.Submit(new byte[17 * 6], 0, 17 * 6); output.Start(); output.FinishInput(17);
+        client.Queued = 0; client.Position = 16;
+        client.WaitAction = (delay, _) => { clock.Advance(delay); if (client.WaitCalls == 1) client.Position = 17; };
+        var receipt = output.CompleteAfterDeviceTail(TimeSpan.FromMilliseconds(100), default, () => { });
+        var tail = receipt.Tail ?? throw new Exception("Missing delayed exact-end observation.");
+        Equal(17UL, tail.AnchorDevicePosition); Equal(17UL, tail.FinalDevicePosition);
+        Equal(ExclusivePcmTailClockEvidence.ExactSourceEnd, tail.ClockEvidence);
+        Equal(TimeSpan.FromMilliseconds(10), tail.HostElapsed);
+        Equal(5, client.WaitCalls); // 2.5 ms to EOF, then a fresh 10 ms after EOF.
+    }
+
+    private static void TailInexactSourceEnd()
+    {
+        foreach (ulong position in new[] { 0UL, 4799UL, 4801UL, ulong.MaxValue })
+        {
+            var format = new ExactPcmFormat(48000, 2, 32, 24, false, 3);
+            var clock = new Clock(); var client = new Client { Frames = 9600, Frequency = 48000, Latency = 100_000 };
+            using var output = ExclusivePcmOutput.Open(new Device(client), format, 9600, clock);
+            output.Submit(new byte[4800 * 8], 0, 4800 * 8); output.Start(); output.FinishInput(4800);
+            client.Queued = 0; client.Position = position;
+            client.WaitAction = (delay, _) => clock.Advance(delay);
+            Throws<TimeoutException>(() => output.CompleteAfterDeviceTail(TimeSpan.FromMilliseconds(30), default, () => { }));
+            Equal(ExclusivePcmOutputState.Faulted, output.State); Equal(1, client.StopCalls);
+        }
+    }
+
+    private static void TailExactEndFailures()
+    {
+        foreach (string mode in new[] { "deadline", "canceled", "revoked", "latency" })
+        {
+            var clock = new Clock(); var client = new Client { Latency = 100_000 };
+            using var cancellation = new CancellationTokenSource(); bool revoked = false;
+            using var output = ExclusivePcmOutput.Open(new Device(client), Stereo24, 441, clock);
+            output.Submit(new byte[6], 0, 6); output.Start(); output.FinishInput(1);
+            client.Queued = 0; client.Position = 1;
+            client.WaitAction = (delay, _) => {
+                clock.Advance(delay);
+                if (mode == "canceled") cancellation.Cancel();
+                if (mode == "revoked") revoked = true;
+                if (mode == "latency") client.Latency = 200_000;
+            };
+            void Complete() => output.CompleteAfterDeviceTail(TimeSpan.FromMilliseconds(mode == "deadline" ? 5 : 100),
+                cancellation.Token, () => { if (revoked) throw new InvalidOperationException("approval revoked"); });
+            if (mode == "deadline") Throws<TimeoutException>(Complete);
+            else if (mode == "canceled") Throws<OperationCanceledException>(Complete);
+            else if (mode == "revoked") Throws<InvalidOperationException>(Complete);
+            else Throws<InvalidDataException>(Complete);
+            Equal(ExclusivePcmOutputState.Faulted, output.State); Equal(1, client.StopCalls); Equal(1, client.DisposeCalls);
+        }
+    }
 
     private static void TailFinalAuthorization()
     {
@@ -101,6 +184,7 @@ internal static class ExclusivePcmOutputTests
             var receipt = output.CompleteAfterDeviceTail(TimeSpan.FromSeconds(1), default, () => { });
             var tail = receipt.Tail ?? throw new Exception("Missing nonempty tail observation.");
             Equal(17UL, receipt.SourceFrames); Equal(1_000_000UL, tail.AnchorDevicePosition);
+            Equal(ExclusivePcmTailClockEvidence.TailAdvance, tail.ClockEvidence);
             Equal(4, client.WaitCalls); Check(tail.HostElapsed.Ticks >= 100_000, "Device clock replaced host elapsed time.");
             Check((UInt128)(tail.FinalDevicePosition - tail.AnchorDevicePosition) * TimeSpan.TicksPerSecond >= (UInt128)100_000 * tail.DeviceFrequency,
                 "Host elapsed time replaced device progress.");

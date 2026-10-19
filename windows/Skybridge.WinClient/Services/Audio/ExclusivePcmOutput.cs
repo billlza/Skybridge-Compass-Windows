@@ -39,8 +39,10 @@ internal sealed record ExclusivePcmEndpointDrain(ulong SourceFrames, ulong Devic
 
 // Driver-reported tail rendering boundary, NOT an independent DAC/sample-continuity proof.
 // A null tail is meaningful only for a source with no submitted frames.
+internal enum ExclusivePcmTailClockEvidence { TailAdvance, ExactSourceEnd }
 internal sealed record ExclusivePcmTailObservation(long ReportedLatency100Nanoseconds,
-    ulong AnchorDevicePosition, ulong FinalDevicePosition, ulong DeviceFrequency, TimeSpan HostElapsed);
+    ulong AnchorDevicePosition, ulong FinalDevicePosition, ulong DeviceFrequency, TimeSpan HostElapsed,
+    ExclusivePcmTailClockEvidence ClockEvidence);
 internal sealed record ExclusivePcmPlaybackReceipt(ulong SourceFrames, ExclusivePcmTailObservation? Tail);
 
 internal interface IExclusivePcmPacketPort
@@ -281,9 +283,11 @@ internal sealed class ExclusivePcmOutput : IDisposable
 
     // Inference from WASAPI's maximum rendering-latency contract: after a fresh empty
     // endpoint observation, leave this exact stream running for at least that latency.
-    // Require BOTH host elapsed time and precise device-clock progress; nominal device
-    // frequency ignores drift and cannot alone establish elapsed host time. No source
-    // frame -> device-position equivalence is assumed, even following an earlier gap.
+    // Require host elapsed time independently of precise device-clock evidence; nominal
+    // frequency ignores drift and cannot establish elapsed host time. Some endpoints
+    // hold their stream position at EOF. Accept that only at the EXACT normalized source
+    // end, with a fresh full host-latency wait starting at that observation. Do not treat
+    // an old position beyond EOF, an approximate match or host time alone as completion.
     // Higher layers must retain any already detected underrun as failure. This only
     // settles the tail, and returns after Stop and resource cleanup actually succeed.
     public ExclusivePcmPlaybackReceipt CompleteAfterDeviceTail(TimeSpan timeout,
@@ -307,7 +311,8 @@ internal sealed class ExclusivePcmOutput : IDisposable
                 if (progress.QueuedFrames == 0)
                 {
                     if (SubmittedFrames == 0) break; // No Start, time or audible-output claim for an empty source.
-                    if (anchor is null)
+                    bool exactSourceEnd = IsExactSourceEnd(progress);
+                    if (anchor is null || (exactSourceEnd && !IsExactSourceEnd(anchor.Value)))
                     {
                         anchor = progress;
                         // Anchor AFTER both native calls return, never before a delayed read.
@@ -320,11 +325,14 @@ internal sealed class ExclusivePcmOutput : IDisposable
                         var elapsed = _time.GetElapsedTime(anchorHost);
                         if (elapsed < TimeSpan.Zero) throw new IOException("The output tail clock moved backwards.");
                         ulong advance = progress.DevicePosition - anchor.Value.DevicePosition;
-                        if (elapsed.Ticks >= ReportedLatency100Nanoseconds && advance > 0 &&
-                            (UInt128)advance * TimeSpan.TicksPerSecond >= (UInt128)ReportedLatency100Nanoseconds * progress.DeviceFrequency)
+                        bool exactEndHeld = exactSourceEnd && IsExactSourceEnd(anchor.Value);
+                        bool tailAdvanced = advance > 0 && (UInt128)advance * TimeSpan.TicksPerSecond >=
+                            (UInt128)ReportedLatency100Nanoseconds * progress.DeviceFrequency;
+                        if (elapsed.Ticks >= ReportedLatency100Nanoseconds && (exactEndHeld || tailAdvanced))
                         {
                             tail = new(ReportedLatency100Nanoseconds, anchor.Value.DevicePosition,
-                                progress.DevicePosition, progress.DeviceFrequency, elapsed);
+                                progress.DevicePosition, progress.DeviceFrequency, elapsed,
+                                exactEndHeld ? ExclusivePcmTailClockEvidence.ExactSourceEnd : ExclusivePcmTailClockEvidence.TailAdvance);
                             break;
                         }
                     }
@@ -345,6 +353,12 @@ internal sealed class ExclusivePcmOutput : IDisposable
         }
         catch (Exception failure) { Fail(failure); throw; }
     }
+
+    // IAudioClock defines position/frequency as the stream-relative offset in seconds;
+    // its units need not be source frames. Cross multiplication avoids rounding and
+    // overflow. Equality deliberately excludes early, overshot and stale positions.
+    private bool IsExactSourceEnd(ExclusivePcmProgress progress) => SubmittedFrames != 0 &&
+        (UInt128)progress.DevicePosition * Format.SampleRate == (UInt128)SubmittedFrames * progress.DeviceFrequency;
 
     private ExclusivePcmProgress ReadProgress()
     {
