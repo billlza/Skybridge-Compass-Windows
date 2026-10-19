@@ -1,7 +1,10 @@
+using System.Text.Json.Serialization;
+
 namespace Skybridge.WinClient.Services.Audio;
 
 // Separate fields avoid scope delimiter collisions. This scope comes from a server-verified
 // account snapshot; it is not accepted from a peer or user-editable profile metadata.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record AudioAccountScope(SessionAuthority Authority, string Subject, string TenantId)
 {
     internal static AudioAccountScope From(AccountDeviceAuthentication authentication) =>

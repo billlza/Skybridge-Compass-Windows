@@ -1,11 +1,13 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text.Json.Serialization;
 
 namespace Skybridge.WinClient.Services.Audio;
 
 // This value is a continuity tag, not encryption or authentication for an account
 // record. The complete checkpoint must be authenticated by the enclosing DPAPI record.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record AudioLogonSeal(string ProtectedNonce, string NonceDigest)
 {
     internal const int ByteLength = 32;

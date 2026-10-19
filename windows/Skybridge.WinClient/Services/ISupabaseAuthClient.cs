@@ -97,6 +97,7 @@ public sealed record AuthClientResult<T>
 
 public sealed record AuthSignOutReceipt(bool ServerRevoked);
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SessionAuthority(
     [property: JsonPropertyName("issuer")] string Issuer,
     [property: JsonPropertyName("audience")] string Audience,

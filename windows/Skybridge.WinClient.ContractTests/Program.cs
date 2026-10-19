@@ -6,6 +6,11 @@ using System.Text.Json;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.ViewModels;
 
+if (args is ["--audio-checkpoint-child", var checkpointDirectory])
+{
+    await AudioCheckpointStorageTests.WriteChild(checkpointDirectory);
+    return;
+}
 if (args is ["--session-state-child", var stateDirectory, var stateAction])
 {
     await SessionStoreVersionTests.ChildAsync(stateDirectory, stateAction);
@@ -510,12 +515,12 @@ var remoteHostTests = Skybridge.WinClient.ContractTests.WindowsRemoteControlAudi
         }
     })));
 var allTests = tests.Concat(SessionFileCommitTests.Cases).Concat(SessionStoreVersionTests.Cases).Concat(AppOperatorTests.Cases).Concat(AccountDeviceTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(AudioMembershipRenewalTests.Cases)
-    .Concat(AccountAudioAuthorizationTests.Cases).Concat(AudioMembershipCheckpointTests.Cases).Concat(ShellInteractionTests.Cases).Concat(remoteHostTests);
+    .Concat(AccountAudioAuthorizationTests.Cases).Concat(AudioMembershipCheckpointTests.Cases).Concat(AudioCheckpointStorageTests.Cases).Concat(ShellInteractionTests.Cases).Concat(remoteHostTests);
 var selectedTests = args.SequenceEqual(["--audio-account"])
     ? tests.Where(test => test.Name.StartsWith("account ", StringComparison.Ordinal) || test.Name.StartsWith("supabase ", StringComparison.Ordinal))
         .Concat(AccountDeviceTests.Cases).Concat(AccountAudioAuthorizationTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioMembershipCheckpointTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(LanProductControlSessionTests.Cases)
     : args.SequenceEqual(["--session-storage"])
-        ? tests.Where(test => test.Name.StartsWith("session store ", StringComparison.Ordinal)).Concat(SessionFileCommitTests.Cases).Concat(SessionStoreVersionTests.Cases)
+        ? tests.Where(test => test.Name.StartsWith("session store ", StringComparison.Ordinal)).Concat(SessionFileCommitTests.Cases).Concat(SessionStoreVersionTests.Cases).Concat(AudioCheckpointStorageTests.Cases)
         : allTests;
 foreach (var test in selectedTests)
 {

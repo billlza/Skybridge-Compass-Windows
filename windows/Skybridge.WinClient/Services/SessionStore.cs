@@ -12,6 +12,14 @@ public interface ISessionStore
     SessionStoreWriteResult Clear(SessionStoreVersion expected);
 }
 
+// The storage layer owns atomicity and account ownership, not interpretation of
+// audio authority. The audio layer must validate the bounded JSON state before
+// admitting it. This capability writes the SAME protected account record.
+internal interface ISessionAudioStateStore
+{
+    SessionStoreWriteResult WriteAudioState(JsonElement state, SessionStoreVersion expected, Guid expectedLogin);
+}
+
 public enum SessionStoreSaveMode { NewLogin, ContinueLogin }
 
 // An opaque revision of the exact protected bytes, including a fresh mutation nonce.
@@ -53,10 +61,10 @@ public sealed class DpapiSessionProtector : ISessionProtector
 // One account record and one permanent lease file. All current product writers
 // compare their captured revision under the same lease before replacing session.bin.
 // Schema-1 credentials migrate on a verified save; they carry no offline authority.
-public sealed class SessionStore : ISessionStore
+public sealed class SessionStore : ISessionStore, ISessionAudioStateStore
 {
     private const int MaximumRecordBytes = 1_048_576;
-    private const int EnvelopeSchema = 2;
+    private const int EnvelopeSchema = 3;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -114,7 +122,32 @@ public sealed class SessionStore : ISessionStore
                 if (prior.Subject != session.Subject) return SessionStoreWriteResult.SubjectMismatch();
             }
             var login = mode == SessionStoreSaveMode.NewLogin ? Guid.NewGuid() : current.LoginId ?? Guid.NewGuid();
-            return Commit(new(EnvelopeSchema, Guid.NewGuid(), "active", login, session));
+            return Commit(new(EnvelopeSchema, Guid.NewGuid(), "active", login, session,
+                mode == SessionStoreSaveMode.ContinueLogin ? current.AudioState : null));
+        }
+        catch (IOException error) { return SessionStoreWriteResult.IoFailure(SessionStoreFailure.From(operation, error)); }
+        catch (UnauthorizedAccessException error) { return SessionStoreWriteResult.IoFailure(SessionStoreFailure.From(operation, error)); }
+    }
+
+    SessionStoreWriteResult ISessionAudioStateStore.WriteAudioState(JsonElement state, SessionStoreVersion expected, Guid expectedLogin)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        if (expectedLogin == Guid.Empty) throw new ArgumentException("A durable account owner is required.", nameof(expectedLogin));
+        if (state.ValueKind != JsonValueKind.Object) return SessionStoreWriteResult.InvalidRecord();
+        try { RequireUniqueFields(state); }
+        catch (JsonException) { return SessionStoreWriteResult.InvalidRecord(); }
+        string operation = "AcquireLease";
+        try
+        {
+            using var lease = AcquireLease();
+            operation = "ReadRecord";
+            var current = ReadHead();
+            if (current.Version is null) return SessionStoreWriteResult.InvalidRecord(current.Failure);
+            if (current.Version != expected || current.LoginId != expectedLogin) return SessionStoreWriteResult.Conflict();
+            if (!current.Succeeded || current.Session is null) return SessionStoreWriteResult.InvalidRecord(current.Failure);
+            // Credentials and login identity are retained from the protected head,
+            // never supplied by an audio callback. The mutation gets a new revision.
+            return Commit(new(EnvelopeSchema, Guid.NewGuid(), "active", expectedLogin, current.Session, state));
         }
         catch (IOException error) { return SessionStoreWriteResult.IoFailure(SessionStoreFailure.From(operation, error)); }
         catch (UnauthorizedAccessException error) { return SessionStoreWriteResult.IoFailure(SessionStoreFailure.From(operation, error)); }
@@ -179,25 +212,32 @@ public sealed class SessionStore : ISessionStore
                 return SessionStoreLoadResult.SchemaMismatch(version);
             PersistedSession? session;
             Guid? login;
+            JsonElement? audioState = null;
             if (number == PersistedSession.CurrentSchemaVersion)
             {
                 session = JsonSerializer.Deserialize<PersistedSession>(json, JsonOptions);
                 login = null; // Legacy credentials do not establish a durable login or grant.
             }
-            else if (number == EnvelopeSchema)
+            else if (number is 2 or EnvelopeSchema)
             {
                 var envelope = JsonSerializer.Deserialize<Envelope>(json, JsonOptions);
                 if (envelope is null || envelope.Revision == Guid.Empty) return SessionStoreLoadResult.InvalidSession(version);
-                if (envelope.State == "cleared" && envelope.LoginId is null && envelope.Session is null)
+                if (envelope.State == "cleared" && envelope.LoginId is null && envelope.Session is null && envelope.AudioState is null)
                     return SessionStoreLoadResult.Cleared(version);
                 if (envelope.State != "active" || envelope.LoginId is null || envelope.LoginId == Guid.Empty || envelope.Session is null)
                     return SessionStoreLoadResult.InvalidSession(version);
                 session = envelope.Session; login = envelope.LoginId;
+                if (envelope.AudioState is { } audio)
+                {
+                    if (number != EnvelopeSchema || audio.ValueKind != JsonValueKind.Object)
+                        return SessionStoreLoadResult.InvalidSession(version);
+                    audioState = audio.Clone();
+                }
             }
             else return SessionStoreLoadResult.SchemaMismatch(version);
             return Validate(session) switch
             {
-                PersistedSessionValidation.Valid => SessionStoreLoadResult.Loaded(session!, version, login),
+                PersistedSessionValidation.Valid => SessionStoreLoadResult.Loaded(session!, version, login) with { AudioState = audioState },
                 PersistedSessionValidation.SchemaMismatch => SessionStoreLoadResult.SchemaMismatch(version),
                 PersistedSessionValidation.AuthorityMismatch => SessionStoreLoadResult.AuthorityMismatch(version),
                 PersistedSessionValidation.SubjectMismatch => SessionStoreLoadResult.SubjectMismatch(version),
@@ -344,7 +384,8 @@ public sealed class SessionStore : ISessionStore
         [property: JsonPropertyName("revision")] Guid Revision,
         [property: JsonPropertyName("state")] string State,
         [property: JsonPropertyName("loginId")] Guid? LoginId,
-        [property: JsonPropertyName("session")] PersistedSession? Session);
+        [property: JsonPropertyName("session")] PersistedSession? Session,
+        [property: JsonPropertyName("audioState")] JsonElement? AudioState = null);
 }
 
 public enum SessionStoreLoadStatus
@@ -366,6 +407,9 @@ public sealed record SessionStoreFailure(string Operation, int HResult, int? Nat
 public sealed record SessionStoreLoadResult(SessionStoreLoadStatus Status, PersistedSession? Session,
     SessionStoreVersion? Version = null, Guid? LoginId = null, SessionStoreFailure? Failure = null)
 {
+    // Opaque, authenticated storage payload. Parsing it is not authorization;
+    // the audio layer must verify schema, owner, revocations and finite grants.
+    internal JsonElement? AudioState { get; init; }
     public bool Succeeded => Failure is null && Status == SessionStoreLoadStatus.Loaded && Session is not null && Version is not null;
     public bool IsQuietSignedOut => Failure is null && Status is SessionStoreLoadStatus.Missing or SessionStoreLoadStatus.Cleared;
     public static SessionStoreLoadResult Loaded(PersistedSession session, SessionStoreVersion version, Guid? loginId = null) => new(SessionStoreLoadStatus.Loaded, session, version, loginId);

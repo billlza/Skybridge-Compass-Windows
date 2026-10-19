@@ -1,7 +1,9 @@
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace Skybridge.WinClient.Services.Audio;
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record AudioCheckpointIdentity(string DeviceId, string Algorithm, string Fingerprint)
 {
     internal static AudioCheckpointIdentity From(AudioDeviceIdentity identity) => new(identity.DeviceId, identity.Algorithm, identity.Fingerprint);
@@ -20,6 +22,7 @@ internal sealed record AudioCheckpointIdentity(string DeviceId, string Algorithm
 // Storage value only: it must come from the current protected canonical account
 // record, with its login/revocation state checked before Restore is called. Never
 // accept it from a peer or treat parsing these fields as account authentication.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record AudioMembershipCheckpoint(int SchemaVersion, Guid LoginId, Guid EvidenceId,
     AudioAccountScope Scope, AudioCheckpointIdentity Local, AudioCheckpointIdentity Peer,
     AudioAuthorizationTime Issued, AudioAuthorizationTime Expires, AudioLogonSeal Continuity)

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Skybridge.WinClient.Services.Audio;
 using static AudioAccountMembershipTests;
 
@@ -10,6 +11,7 @@ internal static class AudioMembershipCheckpointTests
         ("audio checkpoint preserves evidence identity and original deadlines through serialization", RoundTrip),
         ("audio checkpoint rejects another login account tenant and exact device identity", Binding),
         ("audio checkpoint rejects unknown malformed and excessive authority before logon verification", Shape),
+        ("audio checkpoint deserialization rejects unknown authority fields", UnknownFields),
         ("audio checkpoint rejects expiry and rollback without renewing its finite interval", ClockLimits),
         ("audio checkpoint capture rejects revoked evidence and expiry during sealing", CaptureRetirement),
         ("audio checkpoint restore checks expiry after logon verification", RestoreRetirement),
@@ -18,7 +20,7 @@ internal static class AudioMembershipCheckpointTests
     ];
     // This fake checks lifecycle/encoding only. The native workflow separately
     // exercises the actual Windows protection and cross-process logon boundary.
-    private sealed class Continuity : IAudioLogonContinuity
+    internal sealed class Continuity : IAudioLogonContinuity
     {
         internal AudioLogonSeal Seal = new(Convert.ToBase64String(new byte[32]), Convert.ToBase64String(Enumerable.Repeat((byte)7, 32).ToArray()));
         internal Action? OnCreate, OnVerify;
@@ -103,6 +105,20 @@ internal static class AudioMembershipCheckpointTests
                 2 => new(p.Issued.WallMilliseconds - 1, p.Issued.ContinuousMilliseconds),
                 _ => new(p.Issued.WallMilliseconds, p.Issued.ContinuousMilliseconds - 1) };
             Reject<AudioMembershipException>(() => Restore(f, p, c));
+        }
+    }
+
+    private static async Task UnknownFields()
+    {
+        using var f = new Fixture(); var (_, p, _) = await Prepare(f);
+        foreach (string target in new[] { "root", "Local", "Peer", "Scope", "Scope.Authority", "Issued", "Expires", "Continuity" })
+        {
+            var document = JsonSerializer.SerializeToNode(p) as JsonObject ?? throw new Exception("Missing JSON object.");
+            var value = document;
+            if (target != "root") foreach (string part in target.Split('.'))
+                value = value[part] as JsonObject ?? throw new Exception("Missing nested object.");
+            value["unknownAuthorityField"] = "must not be ignored";
+            Reject<JsonException>(() => document.Deserialize<AudioMembershipCheckpoint>());
         }
     }
 

@@ -105,6 +105,7 @@
     <Compile Include="AccountAudioAuthorizationTests.cs" />
     <Compile Include="AudioAccountMembershipTests.cs" />
     <Compile Include="AudioMembershipCheckpointTests.cs" />
+    <Compile Include="AudioCheckpointStorageTests.cs" />
     <Compile Include="AudioMembershipRenewalTests.cs" />
     <Compile Include="AudioAccountRegistryTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAccountRegistryObserver.cs" Link="Services\Audio\AudioAccountRegistryObserver.cs" />

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json.Serialization;
 
 namespace Skybridge.WinClient.Services.Audio;
 
@@ -9,6 +10,7 @@ internal sealed class AudioMembershipException(AudioMembershipFailure reason, Ex
     internal AudioMembershipFailure Reason { get; } = reason;
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal readonly record struct AudioAuthorizationTime(long WallMilliseconds, long ContinuousMilliseconds)
 {
     // Stopwatch uses QPC on Windows, including system sleep/hibernation. Do not silently use
