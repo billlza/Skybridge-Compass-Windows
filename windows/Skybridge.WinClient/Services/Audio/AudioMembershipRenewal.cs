@@ -75,7 +75,7 @@ internal sealed class AudioMembershipRenewal
         { throw new OperationCanceledException(token); }
         catch (Exception failure)
         {
-            Publish(AudioMembershipRenewalState.Failed, failure); _lease.Revoke(); throw;
+            Fail(failure); throw;
         }
     }
 
@@ -94,6 +94,13 @@ internal sealed class AudioMembershipRenewal
     }
     private void Publish(AudioMembershipRenewalState state, Exception? failure = null) =>
         Volatile.Write(ref _snapshot, new(state, _lease.Evidence, failure));
+    private void Fail(Exception failure)
+    {
+        // Effects must already be denied when Failed becomes observable. The
+        // lease retains the cause for effects racing this snapshot publication.
+        _lease.Revoke(failure);
+        Publish(AudioMembershipRenewalState.Failed, failure);
+    }
 
     private async Task AttemptAsync(TimeSpan budget, CancellationToken token)
     {
@@ -125,8 +132,7 @@ internal sealed class AudioMembershipRenewal
                 finished = true;
                 if (revoke && error is not null)
                 {
-                    // Publish the actual deadline cause before render effects observe revocation.
-                    Publish(AudioMembershipRenewalState.Failed, error); _lease.Revoke();
+                    Fail(error);
                 }
                 outcome.TrySetResult(error); return true;
             }

@@ -13,6 +13,12 @@ internal static class AccountAudioAuthorizationTests
         ("audio account publication rotates on same-account sign-in and cannot revive an old epoch", SignInRotation),
         ("audio account epoch survives verified same-scope token refresh", RefreshContinuity),
         ("audio account tenant change invalidates the captured refresh requester", TenantChange),
+        ("audio account changed scope retires playback before pending user verification", ChangedScopeDuringVerification),
+        ("audio account observed scope change survives cancellation of the refresh requester", CanceledChangedScopeVerification),
+        ("audio account ambiguous refreshed scope retires playback before pending user verification", InvalidScopeDuringVerification),
+        ("audio account unchanged scope remains finite during pending user verification", SameScopeDuringVerification),
+        ("audio account changed refresh scope cannot fall back after transient user verification failure", ChangedScopeVerificationFailure),
+        ("audio account changed refresh scope retires playback before credential persistence", ChangedScopeBeforePersistence),
         ("audio account transient refresh failure preserves only existing authorization", TransientRefresh),
         ("audio auth request retains exact transport causes and allowlists temporary failures", RequestFailureClassification),
         ("audio credential adapter preserves request failure detail without extending account authority", RenewalCredentialBoundary),
@@ -77,6 +83,87 @@ internal static class AccountAudioAuthorizationTests
         var replacement = owner.RequireAudioAuthorization();
         Require(!epoch.IsCurrent && replacement.Scope.TenantId == "tenant-b" && replacement.IsCurrent,
             "Changed tenant retained old device authorization.");
+    }
+    private static Task ChangedScopeDuringVerification() => PendingVerification(
+        new { tenant_id = "tenant-b" }, expectedCurrent: false, invalidScope: false);
+    private static Task CanceledChangedScopeVerification() => PendingVerification(
+        new { tenant_id = "tenant-b" }, expectedCurrent: false, invalidScope: false, cancelRequester: true);
+    private static Task InvalidScopeDuringVerification() => PendingVerification(
+        new { tenant_id = "tenant-a", org_id = "tenant-b" }, expectedCurrent: false, invalidScope: true);
+    private static Task SameScopeDuringVerification() => PendingVerification(
+        new { tenant_id = "tenant-a" }, expectedCurrent: true, invalidScope: false);
+    private static async Task PendingVerification(object protectedMetadata, bool expectedCurrent, bool invalidScope,
+        bool cancelRequester = false)
+    {
+        var (owner, auth, _) = await SignedIn(minutes: 4);
+        var epoch = owner.RequireAudioAuthorization();
+        auth.RefreshedToken = Token(app: protectedMetadata);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<AuthClientResult<AuthUser>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        auth.UserRequest = (_, _) => { entered.TrySetResult(); return release.Task; };
+        using var cancellation = new CancellationTokenSource();
+        var request = owner.GetAudioAuthenticationAsync(epoch, cancellation.Token);
+        bool duringVerification;
+        bool publicationDuringVerification;
+        try
+        {
+            await Task.WhenAny(entered.Task, request).WaitAsync(TimeSpan.FromSeconds(5));
+            Require(entered.Task.IsCompletedSuccessfully, "Refresh did not reach the controlled user lookup.");
+            Require(!request.IsCompleted, "User lookup was not pending at the observation boundary.");
+            duringVerification = epoch.IsCurrent;
+            publicationDuringVerification = ReferenceEquals(owner.ReadAudioAuthorization(), epoch);
+            if (cancelRequester) cancellation.Cancel();
+        }
+        finally
+        {
+            release.TrySetResult(AuthClientResult<AuthUser>.Success(new AuthUser { Id = "audio-user" }));
+        }
+        if (cancelRequester)
+            await Throws<OperationCanceledException>(() => request);
+        else if (invalidScope)
+            await Throws<InvalidDataException>(() => request);
+        else if (!expectedCurrent)
+            await Throws<InvalidOperationException>(() => request);
+        else
+            Require(ReferenceEquals((await request).AudioAuthorization, epoch), "Unchanged scope replaced its live publication.");
+        Require(duringVerification == expectedCurrent && publicationDuringVerification == expectedCurrent,
+            "The refreshed scope was not reflected in playback authority while user verification was pending.");
+        if (!expectedCurrent && !invalidScope)
+        {
+            var replacement = owner.RequireAudioAuthorization();
+            Require(replacement.IsCurrent && replacement.Scope.TenantId == "tenant-b" && !ReferenceEquals(replacement, epoch),
+                "Fresh verified scope did not create a distinct publication.");
+        }
+    }
+    private static async Task ChangedScopeVerificationFailure()
+    {
+        var (owner, auth, storage) = await SignedIn(minutes: 4);
+        var epoch = owner.RequireAudioAuthorization();
+        auth.RefreshedToken = Token(app: new { tenant_id = "tenant-b" });
+        auth.UserFailure = AuthClientFailure.Create(AuthFailureKind.Network, "fixture-network-unavailable") with {
+            Cause = new HttpRequestException(HttpRequestError.ConnectionError, "Fixture connection loss.")
+        };
+        await Throws<InvalidOperationException>(() => owner.GetAudioAuthenticationAsync(epoch, default));
+        Require(!epoch.IsCurrent && owner.ReadAudioAuthorization() is null && owner.IsSignedIn,
+            "A failed user lookup concealed the already-observed account scope change.");
+        Require(storage.Value?.AccessToken == auth.RefreshedToken.AccessToken,
+            "The server-rotated credential was lost while revoking the old playback scope.");
+        auth.UserFailure = null;
+        _ = await owner.GetDeviceAuthenticationAsync(default);
+        Require(owner.RequireAudioAuthorization().Scope.TenantId == "tenant-b" && !epoch.IsCurrent,
+            "A later verified retry revived the predecessor or could not publish the confirmed scope.");
+    }
+    private static async Task ChangedScopeBeforePersistence()
+    {
+        var (owner, auth, storage) = await SignedIn(minutes: 4);
+        var epoch = owner.RequireAudioAuthorization();
+        auth.RefreshedToken = Token(app: new { tenant_id = "tenant-b" });
+        bool? liveAtCommit = null;
+        storage.BeforeSave = () => liveAtCommit = epoch.IsCurrent;
+        storage.FailSaveAt = storage.SaveCalls + 1;
+        await Throws<AccountDeviceAuthenticationException>(() => owner.GetAudioAuthenticationAsync(epoch, default));
+        Require(liveAtCommit == false && !epoch.IsCurrent,
+            "The known scope contradiction did not revoke playback before credential I/O.");
     }
     private static async Task TransientRefresh()
     {
@@ -224,13 +311,14 @@ internal static class AccountAudioAuthorizationTests
         internal AuthClientFailure? RefreshFailure, UserFailure;
         internal int RefreshCalls, SignOutCalls;
         internal Action? BeforeSignOut;
+        internal Func<string, string?, Task<AuthClientResult<AuthUser>>>? UserRequest;
         public Task<AuthClientResult<AuthToken>> SignInWithPasswordAsync(string email, string password) => throw new NotSupportedException();
         public Task<AuthClientResult<AuthToken>> RefreshAsync(string refreshToken)
         {
             RefreshCalls++;
             return Task.FromResult(RefreshFailure is { } failure ? AuthClientResult<AuthToken>.Failed(failure.Kind, failure.Code, failure.Cause, failure.StatusCode) : AuthClientResult<AuthToken>.Success(RefreshedToken));
         }
-        public Task<AuthClientResult<AuthUser>> GetUserAsync(string token, string? userId = null) => Task.FromResult(
+        public Task<AuthClientResult<AuthUser>> GetUserAsync(string token, string? userId = null) => UserRequest?.Invoke(token, userId) ?? Task.FromResult(
             UserFailure is { } failure ? AuthClientResult<AuthUser>.Failed(failure.Kind, failure.Code, failure.Cause, failure.StatusCode) :
                 AuthClientResult<AuthUser>.Success(new AuthUser { Id = userId, UserMetadata = new AuthUserMetadata { DisplayName = "Audio fixture" } }));
         public Task<AuthClientResult<AuthSignOutReceipt>> SignOutAsync(string token)
@@ -241,9 +329,11 @@ internal static class AccountAudioAuthorizationTests
         internal PersistedSession? Value;
         internal int SaveCalls, FailSaveAt;
         internal bool FailClear;
+        internal Action? BeforeSave;
         public SessionStoreLoadResult Load() => Value is null ? SessionStoreLoadResult.Missing() : SessionStoreLoadResult.Loaded(Value);
         public SessionStoreWriteResult Save(PersistedSession value)
         {
+            BeforeSave?.Invoke();
             if (++SaveCalls == FailSaveAt) return SessionStoreWriteResult.IoFailure();
             Value = value; return SessionStoreWriteResult.Saved();
         }

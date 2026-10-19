@@ -245,6 +245,11 @@ public sealed class AccountSessionCoordinator
                         : refreshTokenError);
             }
 
+            // This authenticated refresh response is already an observation of
+            // the account's protected scope. A later credential write or user
+            // lookup failure must not conceal a contradiction and retain the
+            // old playback grant while the remaining operation is pending.
+            RetireContradictedAudioAuthorization(refreshed.Value.AccessToken, subject);
             accessToken = refreshed.Value.AccessToken;
             refreshToken = refreshed.Value.RefreshToken;
             // Rotation has already happened on the server. Commit the replacement
@@ -358,6 +363,29 @@ public sealed class AccountSessionCoordinator
         Volatile.Write(ref _audioAuthorization, null);
         Volatile.Write(ref _audioAuthorizationError, null);
         _audioMayRefresh = false;
+    }
+
+    private void RetireContradictedAudioAuthorization(string refreshedToken, string subject)
+    {
+        var previous = Volatile.Read(ref _audioAuthorization);
+        if (previous is null) return;
+        InvalidDataException contradiction;
+        try
+        {
+            var authentication = AccountDeviceAuthentication.FromVerifiedSession(
+                refreshedToken, _authClient.SessionAuthority, subject);
+            if (previous.Scope == Services.Audio.AudioAccountScope.From(authentication)) return;
+            contradiction = new InvalidDataException("The authenticated refresh changed the audio account scope.");
+        }
+        catch (InvalidDataException failure) { contradiction = failure; }
+
+        previous.Revoke();
+        Volatile.Write(ref _audioAuthorization, null);
+        Volatile.Write(ref _audioAuthorizationError, contradiction);
+        // The mutation gate still owns this verified refresh. Leave its ability
+        // to publish a NEW scope after successful user verification intact, but
+        // never republish the retired object. Logout/hard rejection separately
+        // clears _audioMayRefresh and cannot be undone by this path.
     }
 
     private void PublishAudioAuthorization(bool preserveExisting)

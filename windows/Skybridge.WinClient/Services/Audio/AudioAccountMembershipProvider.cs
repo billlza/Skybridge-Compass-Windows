@@ -14,6 +14,7 @@ internal sealed class AccountAudioMembershipLease
     private readonly AudioDeviceIdentity _local, _peer;
     private AudioAccountMembershipEvidence _evidence;
     private bool _revoked;
+    private Exception? _revocationCause;
     internal AccountAudioMembershipLease(AudioAccountMembershipEvidence evidence, AccountAudioAuthorization epoch,
         ILanAudioStreamInbox inbox, Func<AudioAuthorizationTime> clock)
     {
@@ -40,12 +41,22 @@ internal sealed class AccountAudioMembershipLease
     }
     private void RequireAccountEffect()
     {
-        if (_revoked) throw new AudioMembershipException(AudioMembershipFailure.Revoked);
+        if (_revoked) throw new AudioMembershipException(AudioMembershipFailure.Revoked, _revocationCause);
         _epoch.RequireCurrent();
         _evidence.RequireValid(_epoch.Scope, _local, _peer, _clock());
         _epoch.RequireCurrent();
     }
-    internal void Revoke() { lock (_gate) _revoked = true; }
+    internal void Revoke(Exception? cause = null)
+    {
+        lock (_gate)
+        {
+            if (_revoked) return;
+            // The effect boundary observes the first terminal cause and its
+            // revocation together. A later cleanup failure cannot replace it.
+            _revocationCause = cause;
+            _revoked = true;
+        }
+    }
     internal AudioAccountMembershipEvidence RequireContinuation(AccountAudioAuthorization epoch, ILanAudioStreamInbox inbox)
     {
         RequireInbox(inbox);

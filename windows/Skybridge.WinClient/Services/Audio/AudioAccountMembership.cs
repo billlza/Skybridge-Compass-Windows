@@ -3,7 +3,8 @@ using System.Diagnostics;
 namespace Skybridge.WinClient.Services.Audio;
 
 internal enum AudioMembershipFailure { InvalidResponse = 1, InactiveDevice, Expired, ClockChanged, Revoked, IdentityChanged, ScopeChanged }
-internal sealed class AudioMembershipException(AudioMembershipFailure reason) : IOException($"Audio membership: {reason}.")
+internal sealed class AudioMembershipException(AudioMembershipFailure reason, Exception? cause = null)
+    : IOException($"Audio membership: {reason}.", cause)
 {
     internal AudioMembershipFailure Reason { get; } = reason;
 }

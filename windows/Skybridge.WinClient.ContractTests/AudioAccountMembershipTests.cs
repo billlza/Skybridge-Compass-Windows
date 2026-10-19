@@ -13,6 +13,7 @@ internal static class AudioAccountMembershipTests
         ("audio membership rejects malformed negative identity observations without revoking", MalformedNegative),
         ("audio membership uses only identity-bound GET and accepts registered offline devices", RequestShape),
         ("audio membership offline reconnect preserves the original finite evidence", OfflineReconnect),
+        ("audio membership consumer revocation preserves its first cause without revoking other consumers", ConsumerRevocationCause),
         ("audio membership explicit refresh replaces and revokes previous evidence", Refresh),
         ("audio membership continuation advances only the exact live consumer", Continuation),
         ("audio membership continuation retains existing consent without creating new consumers", ContinuationConsent),
@@ -177,6 +178,25 @@ internal static class AudioAccountMembershipTests
         f.Clock.Advance(1000); var next = await f.Lease(inbox, true);
         Require(next.Evidence.Id != old.Evidence.Id && next.Evidence.Issued == f.Clock.Now && f.HttpCalls == 2, "Explicit refresh did not issue a fresh grant.");
         await Failure(AudioMembershipFailure.Revoked, old.RequireCurrent); next.RequireCurrent();
+    }
+    private static async Task ConsumerRevocationCause()
+    {
+        using var f = new Fixture();
+        using var firstInbox = new Inbox(f.Binding);
+        using var otherInbox = new Inbox(f.Binding);
+        var first = await f.Lease(firstInbox);
+        var other = await f.Lease(otherInbox);
+        var cause = new TimeoutException("Fixture attempt deadline.");
+        first.Revoke(cause);
+        var failure = await Throws<AudioMembershipException>(() => Check(first.RequireEffectCurrent));
+        Require(failure.Reason == AudioMembershipFailure.Revoked && ReferenceEquals(failure.InnerException, cause),
+            "Effect revocation lost its terminal cause.");
+        first.Revoke(new IOException("Later fixture cleanup failure."));
+        first.Revoke();
+        var repeated = await Throws<AudioMembershipException>(() => Check(first.RequireCurrent));
+        Require(ReferenceEquals(repeated.InnerException, cause), "Later revocation replaced the first terminal cause.");
+        Require(ReferenceEquals(first.Evidence, other.Evidence), "Fixture did not share the original finite evidence.");
+        other.RequireCurrent();
     }
     private static async Task Continuation()
     {

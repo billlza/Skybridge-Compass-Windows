@@ -120,7 +120,10 @@ internal static class AudioMembershipRenewalTests
         {
             await f.Fire(0); await entered.Task.WaitAsync(TimeSpan.FromSeconds(3)); await f.Fire(35_000);
             await Until(() => f.Renewal!.Snapshot.State == AudioMembershipRenewalState.Failed);
-            await Throws<AudioMembershipException>(() => Call(f.Lease.RequireEffectCurrent));
+            var denial = await Throws<AudioMembershipException>(() => Call(f.Lease.RequireEffectCurrent));
+            Require(denial.Reason == AudioMembershipFailure.Revoked && denial.InnerException is TimeoutException &&
+                ReferenceEquals(denial.InnerException, f.Renewal!.Snapshot.Failure),
+                "The revoked effect boundary lost the actual deadline cause.");
             Require(!f.Run!.IsCompleted, "Timeout abandoned its noncooperative request.");
             release.TrySetResult();
             var error = await Throws<Exception>(() => f.Run.WaitAsync(TimeSpan.FromSeconds(3)));
