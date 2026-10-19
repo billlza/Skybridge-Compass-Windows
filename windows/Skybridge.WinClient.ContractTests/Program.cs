@@ -9,7 +9,14 @@ using Skybridge.WinClient.ViewModels;
 if (args is ["--native-quiet-file-playback", var audioEndpoint, var audioFormat])
 {
     if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Native file playback requires Windows.");
-    NativeQuietFilePlaybackValidation.Run(audioEndpoint, audioFormat);
+    Environment.ExitCode = NativeQuietFilePlaybackValidation.Run(audioEndpoint, audioFormat);
+    return;
+}
+
+if (args is ["--native-local-audio-check", var audioResultDirectory])
+{
+    if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Native audio qualification requires Windows.");
+    Environment.ExitCode = NativeQuietFilePlaybackValidation.RunLocal(audioResultDirectory);
     return;
 }
 

@@ -74,3 +74,18 @@ Observed on the same Windows 11 ARM VM on 2026-10-19:
 Both runs matched the complete original PCM byte sequence at the submission boundary, observed the exact source-end device position, waited the reported 10 ms tail (12.0022 ms and 12.9388 ms host observations respectively), and confirmed one Start, one Stop, and both native releases. Their WAVE and PCM SHA-256 values independently matched the previously prepared Python-generated one-second fixtures. These submission counts are observations, not throughput targets. Packed 48 kHz/24-bit was rejected with `0x88890008` before submission or Start and released both owners; an unknown format was rejected before endpoint activation. The cross-published diagnostic build used warnings as errors. All four native outcomes are retained under `artifacts/audio-native-20261019/native-file-pump-v1/`.
 
 This closes the short native file-refill check only. Instrumentation, Windows ARM emulation and a virtual audio endpoint do not establish long-run continuity, physical DAC integrity, or authenticated phone-to-Windows playback.
+
+## Local interactive qualification without remote access
+
+The same contract executable now accepts `--native-local-audio-check <result-directory>`. It enumerates active render endpoints through the product catalog, asks for an explicit numbered selection, then calls the existing native quiet file-pump check for 48 kHz/24-in-32, 44.1 kHz/16-bit and packed 48 kHz/24-bit, in that order. It stops after the first failed case so an uncertain native cleanup cannot be hidden by starting another output owner. A rejected format is preserved as a failed case; remaining cases are explicitly not run. There is no mixer fallback, source conversion, default-endpoint substitution, account registration or service installation.
+
+Each run has a unique result directory and an initially `running` report. Completed case receipts are retained before the next case; final report replacement is atomic. Cancellation before selecting an endpoint has a distinct result, and file errors do not produce success. The combined JSON includes the qualification assembly SHA-256, selected endpoint, runtime/platform, each native receipt and all unexecuted formats. These are qualification observations, not device attestation or account authority.
+
+```powershell
+dotnet publish windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj -c Release -r win-x64 --self-contained true -p:RuntimeFrameworkVersion=10.0.13 -p:TreatWarningsAsErrors=true -o artifacts/windows-local-audio
+& artifacts/windows-local-audio/Skybridge.WinClient.ContractTests.exe --native-local-audio-check artifacts/windows-local-audio-results
+```
+
+The Windows-target publish passed with warnings treated as errors. `dotnet run --project windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj -c Release -p:TreatWarningsAsErrors=true -- --audio-file-playback` passed all 18 file-pump contract cases on the Mac host; this is not native Windows execution. The private portable bundle includes 283 verified binary/runtime files and a double-click launcher, with no machine-wide runtime installation. It uses an isolated .NET 10.0.13 runtime override verified against Microsoft's release metadata. This does not update the full client's stack declarations or close the existing online freshness failure.
+
+Local packaging records are under `artifacts/audio-native-20261019/physical-local-audio-v1/`. At packaging time, physical execution of this interactive entry and authenticated phone-to-Windows playback remained unverified.

@@ -12,8 +12,91 @@ using Skybridge.WinClient.Services.Audio;
 // a newly synthesized, one-second quiet WAVE; no account/session is created here.
 internal static class NativeQuietFilePlaybackValidation
 {
+    // Interactive qualification only. Reuses the exact native file pump below;
+    // it never registers an account, installs a service, or changes audio settings.
     [SupportedOSPlatform("windows")]
-    internal static void Run(string endpointId, string formatName)
+    internal static int RunLocal(string resultDirectory)
+    {
+        Console.OutputEncoding = new UTF8Encoding(false);
+        string runId = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N");
+        string folder = Path.Combine(Path.GetFullPath(resultDirectory), runId);
+        Directory.CreateDirectory(folder);
+        string reportPath = Path.Combine(folder, "audio-report.json");
+        string qualifierAssemblySha256 = Convert.ToHexStringLower(SHA256.HashData(
+            File.ReadAllBytes(typeof(NativeQuietFilePlaybackValidation).Assembly.Location)));
+        string[] formats = ["48000-s24-in-s32", "44100-s16", "48000-s24"];
+        var results = new List<JsonElement>();
+        var catalog = new List<object>();
+        string status = "running";
+        string? selectedEndpoint = null;
+        object? failure = null;
+        int exitCode = 1;
+        void Save()
+        {
+            string pending = reportPath + ".pending";
+            using (var file = new StreamWriter(new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None), new UTF8Encoding(false)))
+                Write(new { schemaVersion = 1, runId, status, qualifierAssemblySha256, selectedEndpoint, catalog, results, failure,
+                    notRunFormats = formats.Skip(results.Count).ToArray(),
+                    os = RuntimeInformation.OSDescription, processArchitecture = RuntimeInformation.ProcessArchitecture.ToString(),
+                    runtime = RuntimeInformation.FrameworkDescription,
+                    scope = "native-wave-file-pump", accountAndTransport = "not-tested",
+                    verifiedPrivateArtifact = "not-tested", hardwareSampleIntegrity = "not-measured" }, file);
+            File.Move(pending, reportPath, true);
+        }
+        Save(); // An interrupted run must never leave a completed-looking report.
+        try
+        {
+            using var enumerationDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var outputs = WindowsExclusivePcmDevice.ReadOutputs(enumerationDeadline.Token);
+            Console.WriteLine("SkyBridge local audio qualification / Windows audio test");
+            Console.WriteLine("Select an output. Tests use one-second signals at -72 dBFS, without changing volume or sample format.");
+            for (int i = 0; i < outputs.Count; i++)
+            {
+                var output = outputs[i];
+                catalog.Add(new { number = i + 1, output.EndpointId, output.DisplayName });
+                Console.WriteLine($"{i + 1}. {output.DisplayName}");
+            }
+            if (outputs.Count == 0) throw new InvalidOperationException("No active output endpoint was found.");
+            Console.Write("Output number (0 cancels): ");
+            string? choice = Console.ReadLine();
+            if (choice is null || choice.Trim() == "0") { status = "cancelled"; exitCode = 2; }
+            else
+            {
+                if (!int.TryParse(choice, out int index) || index < 1 || index > outputs.Count)
+                    throw new ArgumentException("The selected output number is outside the displayed catalog.");
+                selectedEndpoint = outputs[index - 1].EndpointId;
+                Save();
+                foreach (string format in formats)
+                {
+                    Console.WriteLine($"Checking {format}...");
+                    using var text = new StringWriter();
+                    int result = Run(selectedEndpoint, format, text);
+                    string json = text.ToString();
+                    File.WriteAllText(Path.Combine(folder, format + ".json"), json, new UTF8Encoding(false));
+                    using var document = JsonDocument.Parse(json);
+                    results.Add(document.RootElement.Clone());
+                    Console.WriteLine(result == 0 ? "Completed." : "Failed or unsupported. Remaining tests will not run.");
+                    if (result != 0)
+                    {
+                        // A failure may include uncertain native cleanup. Do not start another
+                        // output owner in this process and accidentally hide that obligation.
+                        status = "failed"; exitCode = result; break;
+                    }
+                    Save();
+                }
+                if (results.Count == formats.Length && status != "failed") { status = "completed"; exitCode = 0; }
+            }
+        }
+        catch (Exception error) { status = "failed"; failure = Describe(error); }
+        Save();
+        Console.WriteLine($"Result: {status}");
+        Console.WriteLine($"Report: {reportPath}");
+        Console.WriteLine("This checks native playback only; phone connection and physical sound fidelity are not verified.");
+        return exitCode;
+    }
+
+    [SupportedOSPlatform("windows")]
+    internal static int Run(string endpointId, string formatName, TextWriter? report = null)
     {
         Console.OutputEncoding = new UTF8Encoding(false);
         var observation = new Observation();
@@ -86,15 +169,16 @@ internal static class NativeQuietFilePlaybackValidation
                 receipt, observation, os = RuntimeInformation.OSDescription,
                 processArchitecture = RuntimeInformation.ProcessArchitecture.ToString(),
                 scope = "native-wave-file-pump", accountAndTransport = "not-tested",
-                verifiedPrivateArtifact = "not-tested", hardwareSampleIntegrity = "not-measured" });
+                verifiedPrivateArtifact = "not-tested", hardwareSampleIntegrity = "not-measured" }, report);
+            return 0;
         }
         catch (Exception error)
         {
             Write(new { schemaVersion = 1, status = "failed", phase, endpointId, formatName,
                 error = Describe(error), observation, scope = "native-wave-file-pump",
                 accountAndTransport = "not-tested", verifiedPrivateArtifact = "not-tested",
-                hardwareSampleIntegrity = "not-measured" });
-            Environment.ExitCode = 1;
+                hardwareSampleIntegrity = "not-measured" }, report);
+            return 1;
         }
     }
 
@@ -136,7 +220,7 @@ internal static class NativeQuietFilePlaybackValidation
         causes = error is AggregateException aggregate ? aggregate.InnerExceptions.Select(Describe).ToArray()
             : error.InnerException is { } inner ? new[] { Describe(inner) } : Array.Empty<object>()
     };
-    private static void Write(object value) => Console.WriteLine(JsonSerializer.Serialize(value,
+    private static void Write(object value, TextWriter? report = null) => (report ?? Console.Out).WriteLine(JsonSerializer.Serialize(value,
         new JsonSerializerOptions { WriteIndented = true, IncludeFields = true, Converters = { new JsonStringEnumConverter() } }));
 
     private sealed class Observation
