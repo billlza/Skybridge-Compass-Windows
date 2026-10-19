@@ -1,6 +1,9 @@
 using System.Diagnostics;
+using System.ComponentModel;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.Win32.SafeHandles;
 using Skybridge.WinClient.Services;
 
 namespace Skybridge.AudioOfflineRecoveryProbe;
@@ -12,9 +15,10 @@ internal static class LeaseTerminationStudy
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(20);
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
     private sealed record Availability(double MillisecondsAfterExit, bool Opened, SessionStoreFailure? Failure);
+    private sealed record NativeExit(uint BeforeWrite, uint? AfterFailedWrite, uint? AfterBarrier, double? BarrierMilliseconds);
     private sealed record Attempt(int Number, string Mode, int Parent, int Child, int ExitCode,
         double FirstWriteMillisecondsAfterExit, string Status, SessionStoreFailure? Failure, SessionStoreFailure? Cleanup,
-        RestartManagerObservation.Observation? Owners, Availability[] Availability,
+        NativeExit NativeExit, RestartManagerObservation.Observation? Owners, Availability[] Availability,
         string? ReadbackStatus, bool? SameRevision, bool? SameLogin);
 
     internal static void Child(string directory, string mode)
@@ -61,28 +65,31 @@ internal static class LeaseTerminationStudy
                 { child.Process.Kill(entireProcessTree: true); await child.Process.WaitForExitAsync().WaitAsync(Limit); }
                 else await child.ReleaseAsync();
                 long exited = Stopwatch.GetTimestamp();
+                uint beforeWrite = ObserveNativeExit(child.Process.SafeHandle, 0);
                 var first = store.Save(original.Session!, original.Version, SessionStoreSaveMode.ContinueLogin);
                 double firstAt = Stopwatch.GetElapsedTime(exited).TotalMilliseconds;
+                NativeExit nativeExit = new(beforeWrite, null, null, null);
                 RestartManagerObservation.Observation? owners = null; List<Availability> availability = [];
                 SessionStoreLoadResult? readback = null;
                 if (!first.Succeeded)
                 {
+                    uint afterWrite = ObserveNativeExit(child.Process.SafeHandle, 0);
+                    long barrierStarted = Stopwatch.GetTimestamp();
+                    uint afterBarrier = ObserveNativeExit(child.Process.SafeHandle, checked((uint)Limit.TotalMilliseconds));
+                    nativeExit = new(beforeWrite, afterWrite, afterBarrier, Stopwatch.GetElapsedTime(barrierStarted).TotalMilliseconds);
+                    ObserveAvailability();
                     owners = RestartManagerObservation.Read(Path.Combine(directory, ".session.lock"));
                     // Fixed, bounded observation points after the failed write; no mutation retry.
                     foreach (int offset in new[] { 0, 10, 50, 100, 250, 500, 1000, 2000 })
                     {
                         double elapsed = Stopwatch.GetElapsedTime(exited).TotalMilliseconds;
                         if (elapsed < offset) await Task.Delay(TimeSpan.FromMilliseconds(offset - elapsed));
-                        SessionStoreFailure? error = null;
-                        try { using var probe = new FileStream(Path.Combine(directory, ".session.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None); }
-                        catch (Exception cause) when (cause is IOException or UnauthorizedAccessException)
-                        { error = SessionStoreFailure.From("ObserveLeaseAvailability", cause); }
-                        availability.Add(new(Stopwatch.GetElapsedTime(exited).TotalMilliseconds, error is null, error));
+                        ObserveAvailability();
                     }
                     readback = store.Load();
                 }
                 var result = new Attempt(number, mode, Environment.ProcessId, child.Process.Id, child.Process.ExitCode,
-                    firstAt, first.Status.ToString(), first.Failure, first.CleanupFailure, owners, availability.ToArray(),
+                    firstAt, first.Status.ToString(), first.Failure, first.CleanupFailure, nativeExit, owners, availability.ToArray(),
                     readback?.Status.ToString(), readback is null ? null : readback.Version == original.Version,
                     readback is null ? null : readback.LoginId == original.LoginId);
                 attempts.Add(result);
@@ -90,6 +97,15 @@ internal static class LeaseTerminationStudy
                 SaveReport();
                 Console.WriteLine($"LEASE_STUDY {number} {mode} {first.Status}");
                 if (!first.Succeeded) throw new IOException("The first post-exit product write failed; observations were retained without retrying it.");
+
+                void ObserveAvailability()
+                {
+                    SessionStoreFailure? error = null;
+                    try { using var probe = new FileStream(Path.Combine(directory, ".session.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None); }
+                    catch (Exception cause) when (cause is IOException or UnauthorizedAccessException)
+                    { error = SessionStoreFailure.From("ObserveLeaseAvailability", cause); }
+                    availability.Add(new(Stopwatch.GetElapsedTime(exited).TotalMilliseconds, error is null, error));
+                }
             }
         }
         catch (Exception error) { failure = error.ToString(); throw; }
@@ -103,6 +119,17 @@ internal static class LeaseTerminationStudy
             productMutationRetried = false, productPolicyChanged = false
         }, Json));
     }
+
+    private static uint ObserveNativeExit(SafeProcessHandle process, uint milliseconds)
+    {
+        uint result = WaitForSingleObject(process, milliseconds);
+        // WAIT_OBJECT_0 and WAIT_TIMEOUT are observations, not interchangeable success.
+        if (result is not (0 or 258)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        return result;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
+    private static extern uint WaitForSingleObject(SafeProcessHandle process, uint milliseconds);
 
     private static string Prepare(string root, string name)
     {
