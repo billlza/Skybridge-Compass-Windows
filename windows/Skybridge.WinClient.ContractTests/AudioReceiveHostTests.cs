@@ -9,6 +9,7 @@ internal static class AudioReceiveHostTests
 {
     internal static readonly (string Name, Func<Task> Run)[] Cases =
     [
+        ("an immediate rearm-gap withdrawal preserves ordered MAIN traffic", RearmGapWithdrawal),
         ("audio product host skips retired MAIN entries and drains current peer closure", ClosedMain),
         ("audio product host advertises only installed consumers and receives successive streams", SuccessiveStreams),
         ("audio product host rejects a competing peer without preempting an approval owner", CompetingPeer),
@@ -119,16 +120,19 @@ internal static class AudioReceiveHostTests
     {
         await using var f = await CaptureFixture.Create();
         f.Decide = async (_, token) => { await Task.Delay(Timeout.Infinite, token); return false; };
-        await using var host = Host(f, new()); await host.AttachAsync(f.Lan.Session, f.Lan.Token);
+        var devices = new ConcurrentBag<NativeDevice>();
+        await using var host = Host(f, devices); await host.AttachAsync(f.Lan.Session, f.Lan.Token);
         await host.EnableAsync(AudioCaptureReceiveSessionTests.Endpoint, f.Lan.Token); await Capabilities(f.Lan, true);
         for (int i = 0; i < 8; i++)
         {
             var id = Guid.NewGuid(); await Offer(f.Lan, id);
             await f.Lan.SendAudio(new(id, new AudioStreamingBody.Stop(AudioStreamingStopReason.UserStopped)));
-            try { await f.Lan.Barrier(); }
+            try { await f.Lan.WithdrawnOfferBarrier(id); }
             catch (InvalidDataException error)
             { throw new InvalidDataException($"Immediate withdrawal {i}, offered stream {id}.", error); }
             await Until(() => host.ReadSnapshot() is { Enabled: true, Phase: null, ListeningDevices: 1 }, f.Lan.Token);
+            await f.Lan.Barrier(); // No late/duplicate reply may survive the completed cancellation.
+            Require(devices.All(device => device.Activations == 0), "An immediately withdrawn unapproved offer activated output.");
         }
         Require(f.Lan.Session.IsReady, "Withdrawn audio retired its live MAIN owner.");
     }
@@ -192,6 +196,21 @@ internal static class AudioReceiveHostTests
             "An advertised consumer gap silently discarded the sender's request.");
         await f.Lan.Barrier();
         await f.Lan.Session.SetCaptureReceiverEnabledAsync(false, f.Lan.Token); await Capabilities(f.Lan, false);
+    }
+    private static async Task RearmGapWithdrawal()
+    {
+        await using var f = await CaptureFixture.Create();
+        var inbox = await f.Lan.OpenAudioInbox();
+        await f.Lan.Session.SetCaptureReceiverEnabledAsync(true, f.Lan.Token); await Capabilities(f.Lan, true);
+        inbox.Dispose(); // Deliberately leave the advertised receiver without an offer waiter.
+        var id = Guid.NewGuid();
+        await Offer(f.Lan, id);
+        await f.Lan.SendAudio(new(id, new AudioStreamingBody.Stop(AudioStreamingStopReason.UserStopped)));
+        Require(await f.Lan.WithdrawnOfferBarrier(id) == LanProductControlSessionTests.WithdrawnOfferBarrierReply.DeclinedThenPong,
+            "The deterministic unattended offer did not retain its exact decline before Pong.");
+        Require(f.Lan.Session.IsReady && f.Device.Activations == 0, "A withdrawn gap offer closed MAIN or activated output.");
+        await f.Lan.Session.SetCaptureReceiverEnabledAsync(false, f.Lan.Token); await Capabilities(f.Lan, false);
+        await f.Lan.Barrier();
     }
     private static TaskCompletionSource Signal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
     private static async Task Until(Func<bool> condition, CancellationToken token)

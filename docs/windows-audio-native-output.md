@@ -58,7 +58,28 @@ The controlled receive fixture's ordinary `Thread.Sleep(1)` path differed from t
 
 The controlled device still retires samples using the full observed wait (and at least the requested interval). Buffer capacity, source extent and underrun failures are unchanged. Its bounded trace names the pacing mechanism and records GC collection counts around each wait; a collection-count change is a diagnostic correlation, not proof of the scheduling cause. Related host checks passed 71 cases, including both explicit underrun rejection cases, and both projects built with zero warnings/errors. The subsequent trace-only revision passed the nine FLAC receive cases again. These Mac runs do not execute Windows pacing.
 
-The opt-in `Skybridge.WinClient.AudioProbe --pacing-study <new-result-directory>` command opens no audio endpoint. It checks the real pacing component's cancellation, ownership and release boundaries, then records four 512-sample runs in sleep/product/product/sleep order. It preserves all measured ticks and reports whether any product sample reached the existing 200 ms buffer duration. A finite passing sample cannot establish a scheduling upper bound or explain the earlier 258 ms delay. The dedicated native workflow uses the installed .NET runtime (`SelfContained=false`) and records its actual version. Native comparison and full receiver regression of this revision remain pending; evidence is retained under `artifacts/audio-native-20261019/flac-ci-underrun-v2/`.
+The opt-in `Skybridge.WinClient.AudioProbe --pacing-study <new-result-directory>` command opens no audio endpoint. It checks the real pacing component's cancellation, ownership and release boundaries, then records four 512-sample runs in sleep/product/product/sleep order. It preserves all measured ticks and reports whether any product sample reached the existing 200 ms buffer duration. A finite passing sample cannot establish a scheduling upper bound or explain the earlier 258 ms delay. The dedicated native workflow uses the installed .NET runtime (`SelfContained=false`) and records its actual version. Evidence is retained under `artifacts/audio-native-20261019/flac-ci-underrun-v2/`.
+
+Native run [39305619490](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/39305619490), source `4fe9561dc761299adb4b408601e5986b8e320625`, passed all 13 lifecycle boundaries and collected all 2,048 samples on Windows build 26100/.NET 10.0.13. Both product registrations were released. The downloaded archive matches SHA-256 `eeb3020a78e4c659336436bf4eae9ae5fc2add1ec98b333d1c9354d5491c6c5b`.
+
+| Pacing path / run | Samples | Median wait | 99th percentile | Maximum wait |
+| --- | --- | --- | --- | --- |
+| Previous sleep / 1 | 512 | 15.7739 ms | 16.8128 ms | 26.1555 ms |
+| Windows product / 1 | 512 | 1.5208 ms | 1.5636 ms | 1.5939 ms |
+| Windows product / 2 | 512 | 1.5208 ms | 1.5489 ms | 2.0215 ms |
+| Previous sleep / 2 | 512 | 15.7890 ms | 16.2670 ms | 16.4995 ms |
+
+No sample in either path reproduced the earlier 258 ms delay. The result demonstrates the pacing difference in this measured environment, not a causal explanation for the extreme pause or a physical playback repair.
+
+Native run [39305994601](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/39305994601) at the same source passed both builds with zero warnings/errors, all 766 distinct main-suite cases and both additional nine-case FLAC runs. Nineteen of twenty additional receive-host runs passed; the twentieth failed the immediate-withdrawal barrier. The log now identifies a `ReceiverDeclined` Stop for exactly the offered stream, before Pong. The main suite and FLAC replays were successful, but that additional failure still failed the step; the unchanged .NET runtime-freshness gate also failed. QR decoding was not reached, and UI smoke/package creation were not requested. The evidence archive matches SHA-256 `553ed6b13767830bdf57abfc891a7fd695620191d34371e9552f8e67991a3194`.
+
+## Withdrawal during receiver rearming
+
+The sole MAIN reader can receive a valid offer while an advertised consumer is rearming. `LanAudioReceiver.Receive` atomically retires that unattended stream and returns `DeclinedOffer`; `LanProductControlSession` awaits its exact `ReceiverDeclined` reply before reading subsequent frames. A following peer Stop for the retired stream is ignored, then Ping receives Pong. This existing negative path grants no stream or playback permission. The old generic barrier's assumption that Pong must be the first response therefore contradicted this particular immediate-withdrawal sequence.
+
+A deterministic test creates that exact gap, sends Offer/Stop/Ping and reproduces the old barrier failure. The withdrawal-specific barrier now accepts either Pong alone or one `ReceiverDeclined` for the exact offered stream followed by its exact Pong. Foreign streams, other stop reasons, positive admission, duplicate replies and a wrong Pong fail separate encrypted-TCP counterexamples. After host cancellation finishes, another strict barrier rejects any late reply; the test also checks that no unapproved output was activated. Each barrier now has a distinct nonce. Cancellation of an existing approval owner continues using the strict barrier, which permits no Stop echo.
+
+The receiver, transport and authorization code are unchanged by this test correction. The host build has zero warnings/errors and 141 related cases pass, including the deterministic gap and all five negative barrier cases. Native verification of the correction remains pending. Raw failures, source snapshots and red/green records are retained under `artifacts/audio-native-20261019/withdrawn-offer-order-v2/`.
 
 ## Exact native tail completion
 

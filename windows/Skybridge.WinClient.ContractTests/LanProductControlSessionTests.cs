@@ -27,6 +27,11 @@ internal static class LanProductControlSessionTests
         ("queued audio reply cannot outlive its stream or affect a replacement", QueuedAudioReplacement),
         ("queued audio reply owns its encoded metadata and cancellation releases its send slot", QueuedAudioSnapshot),
         ("audio replies reject foreign owners and wrong stream IDs before authorization", ForeignAudioReply),
+        ("withdrawal barrier rejects a decline for a different stream", () => RejectWithdrawalReply("foreign-stream")),
+        ("withdrawal barrier rejects another terminal reason", () => RejectWithdrawalReply("other-reason")),
+        ("withdrawal barrier rejects a positive admission reply", () => RejectWithdrawalReply("admission")),
+        ("withdrawal barrier rejects duplicate declines", () => RejectWithdrawalReply("duplicate")),
+        ("withdrawal barrier rejects a mismatched Pong", () => RejectWithdrawalReply("wrong-pong")),
         ("LAN encrypted admission rejects a different peer protocol identity", WrongIdentity)
     ];
     private const string PeerId = "id:1a2b3c4d-22aa-33bb-44cc-5555deadbeef";
@@ -375,6 +380,28 @@ internal static class LanProductControlSessionTests
         await first.Barrier(); await second.Barrier();
     }
 
+    private static async Task RejectWithdrawalReply(string variant)
+    {
+        await using var fixture = await Fixture.ConnectForAudio(); await fixture.Admit();
+        var id = Guid.NewGuid();
+        AudioStreamingMessage decline = new(id, new AudioStreamingBody.Stop(AudioStreamingStopReason.ReceiverDeclined));
+        var messages = variant switch
+        {
+            "foreign-stream" => new[] { new AudioStreamingMessage(Guid.NewGuid(), decline.Body) },
+            "other-reason" => [new AudioStreamingMessage(id, new AudioStreamingBody.Stop(AudioStreamingStopReason.UserStopped))],
+            "admission" => [new AudioStreamingMessage(id, new AudioStreamingBody.Accept(4096))],
+            "duplicate" => [decline, decline],
+            "wrong-pong" => Array.Empty<AudioStreamingMessage>(),
+            _ => throw new ArgumentException("Unknown withdrawal-barrier counterexample.", nameof(variant))
+        };
+        foreach (var message in messages) await fixture.InjectLocalReplyForTest(AudioStreamingLanEnvelope.Encode(message));
+        if (variant == "wrong-pong")
+            await fixture.InjectLocalReplyForTest(LanProductControlMessages.Encode(LanControlMessageKind.Pong, new LanProductPing(0)));
+        await ThrowsAsync<InvalidDataException>(() => fixture.WithdrawnOfferBarrier(id));
+    }
+
+    internal enum WithdrawnOfferBarrierReply { PongOnly, DeclinedThenPong }
+
     private static async Task ThrowsAsync<T>(Func<Task> action) where T : Exception
     { try { await action(); } catch (T) { return; } throw new Exception($"Expected {typeof(T).Name}."); }
 
@@ -382,6 +409,7 @@ internal static class LanProductControlSessionTests
     {
         private readonly CancellationTokenSource _deadline = new(TimeSpan.FromSeconds(10));
         private readonly WebRtcAppSecureSessionKeys _remoteKeys;
+        private long _barrierSequence = 0xAA55;
         internal ProductSessionKeys Keys { get; }
         internal TcpProductControlTransport Remote { get; }
         internal TcpProductControlTransport Local { get; }
@@ -466,20 +494,53 @@ internal static class LanProductControlSessionTests
         internal Task SendPlaintext(byte[] plaintext) => Remote.SendAsync(ProductControlTrafficPadding.Wrap(
             WebRtcControlChannelCodec.EncryptAppleLegacyAppPayload(plaintext, _remoteKeys)), Token);
         internal Task SendAudio(AudioStreamingMessage message) => SendPlaintext(AudioStreamingLanEnvelope.Encode(message));
+        // Synthetic server replies exercise the test reader's negative boundaries;
+        // no product sender or authorization path uses this fixture-only injection.
+        internal Task InjectLocalReplyForTest(byte[] plaintext)
+        {
+            using var localKeys = WebRtcProductHandshakeSessionKeys.ToWebRtcKeys(Keys);
+            var frame = ProductControlTrafficPadding.Wrap(WebRtcControlChannelCodec.EncryptAppleLegacyAppPayload(plaintext, localKeys));
+            return Local.SendAsync(frame, Token);
+        }
+        private LanProductPing NextBarrierPing() => new(checked((ulong)Interlocked.Increment(ref _barrierSequence)));
+        private async Task<byte[]> ReadBarrierPlaintext() => WebRtcControlChannelCodec.DecryptAppleLegacyAppPayload(
+            ProductControlTrafficPadding.Unwrap((await Remote.ReadAsync(Token)).ToArray()), _remoteKeys);
         internal async Task Barrier()
         {
-            var ping = new LanProductPing(0xAA55);
+            var ping = NextBarrierPing();
             await Send(LanControlMessageKind.Ping, ping);
-            var plaintext = WebRtcControlChannelCodec.DecryptAppleLegacyAppPayload(
-                ProductControlTrafficPadding.Unwrap((await Remote.ReadAsync(Token)).ToArray()), _remoteKeys);
+            RequireBarrierPong(await ReadBarrierPlaintext(), ping);
+        }
+        internal async Task<WithdrawnOfferBarrierReply> WithdrawnOfferBarrier(Guid offeredStream)
+        {
+            if (offeredStream == Guid.Empty) throw new ArgumentException("The withdrawn offer must have its actual stream ID.", nameof(offeredStream));
+            var ping = NextBarrierPing();
+            await Send(LanControlMessageKind.Ping, ping);
+            var plaintext = await ReadBarrierPlaintext();
+            var result = WithdrawnOfferBarrierReply.PongOnly;
+            if (AudioStreamingLanEnvelope.DecodeIfPresent(plaintext) is { } reply)
+            {
+                // An unaccepted offer may already have been declined by the
+                // sole MAIN reader before it reads the peer's cancellation.
+                // Only that exact single negative reply may precede this Pong.
+                if (reply.StreamId != offeredStream || reply.Body is not AudioStreamingBody.Stop { Reason: AudioStreamingStopReason.ReceiverDeclined })
+                    throw new InvalidDataException($"Withdrawal barrier received an unexpected reply for {reply.StreamId}: {reply.Body}.");
+                result = WithdrawnOfferBarrierReply.DeclinedThenPong;
+                plaintext = await ReadBarrierPlaintext();
+            }
+            RequireBarrierPong(plaintext, ping); // Rejects a second audio reply of any kind.
+            return result;
+        }
+        private static void RequireBarrierPong(byte[] plaintext, LanProductPing ping)
+        {
             if (AudioStreamingLanEnvelope.DecodeIfPresent(plaintext) is { } audio)
             {
                 var detail = audio.Body is AudioStreamingBody.Stop stop ? stop.Reason.ToString() : audio.Body.GetType().Name;
                 throw new InvalidDataException($"MAIN barrier expected Pong but received audio {audio.Body.GetType().Name} for {audio.StreamId}: {detail}.");
             }
             var message = LanProductControlMessages.Decode(plaintext);
-            Require(message.Kind == LanControlMessageKind.Pong && LanProductControlMessages.Payload<LanProductPing>(message).Id == ping.Id,
-                "MAIN did not process ordered control traffic after audio.");
+            if (message.Kind != LanControlMessageKind.Pong || LanProductControlMessages.Payload<LanProductPing>(message).Id != ping.Id)
+                throw new InvalidDataException("MAIN did not return the exact ordered control Pong after audio.");
         }
         public async ValueTask DisposeAsync()
         {
