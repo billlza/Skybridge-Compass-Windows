@@ -19,6 +19,10 @@ on:
         description: Preserve the complete Debug client for device qualification
         type: boolean
         default: false
+      diagnose_flac:
+        description: Record two additional serial FLAC receive runs after the complete contract suite
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -96,6 +100,8 @@ jobs:
         id: product-contracts
         if: ${{ !cancelled() && steps.native-client.outcome == 'success' }}
         shell: pwsh
+        env:
+          DIAGNOSE_FLAC: ${{ inputs.diagnose_flac }}
         run: |
           $project = 'windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj'
           dotnet restore $project 2>&1 | Tee-Object artifacts/native-contracts-restore.log
@@ -103,7 +109,19 @@ jobs:
           dotnet build $project --configuration Debug --no-restore /p:TreatWarningsAsErrors=true 2>&1 | Tee-Object artifacts/native-contracts-build.log
           if ($LASTEXITCODE -ne 0) { throw "Native contracts build failed: $LASTEXITCODE" }
           dotnet run --project $project --configuration Debug --no-build --no-restore 2>&1 | Tee-Object artifacts/native-contracts-run.log
-          if ($LASTEXITCODE -ne 0) { throw "Native contracts failed: $LASTEXITCODE" }
+          $contractExit = $LASTEXITCODE
+          $diagnosticFailures = @()
+          if ($env:DIAGNOSE_FLAC -eq 'true') {
+            for ($attempt = 1; $attempt -le 2; $attempt++) {
+              dotnet run --project $project --configuration Debug --no-build --no-restore -- --audio-flac-product 2>&1 | Tee-Object "artifacts/native-flac-replay-$attempt.log"
+              if ($LASTEXITCODE -ne 0) { $diagnosticFailures += @{ attempt = $attempt; exitCode = $LASTEXITCODE } }
+            }
+            @{ fullSuiteExitCode = $contractExit; additionalRuns = 2; failedAdditionalRuns = @($diagnosticFailures) } |
+              ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 artifacts/native-flac-replay.json
+          }
+          if ($contractExit -ne 0 -or $diagnosticFailures.Count -ne 0) {
+            throw "Native contracts failed: full=$contractExit; additional FLAC failures=$($diagnosticFailures.Count)"
+          }
 
       - name: Decode Windows LAN QR images with the Android decoder
         id: lan-qr

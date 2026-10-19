@@ -533,6 +533,16 @@ internal static class AudioCaptureReceiveSessionTests
         internal uint QueuedFrames => Volatile.Read(ref _queued);
         private ulong _position;
         private bool _running;
+        private ulong _submitted;
+        private readonly WaitObservation[] _waits = new WaitObservation[128];
+        private int _observedWaits;
+        internal readonly record struct WaitObservation(long RequestedTicks, long ObservedTicks, long AdvancedTicks,
+            uint QueuedBefore, uint QueuedAfter, ulong Position, ulong Submitted, bool Running, bool RetirementEnabled);
+        internal int ObservedWaits => _observedWaits;
+        // Read only after the native owner has ended. This trace does not pace,
+        // clamp, delay or otherwise alter the controlled endpoint's retirement.
+        internal WaitObservation[] WaitObservations() => Enumerable.Range(Math.Max(0, _observedWaits - _waits.Length),
+            Math.Min(_observedWaits, _waits.Length)).Select(index => _waits[index % _waits.Length]).ToArray();
         public int IsExactFormatSupported(ExactPcmFormat format) { owner.Touch(); Require(format == ExpectedFormat, "Native format changed."); return 0; }
         public int Initialize(ExactPcmFormat format, long bufferDuration100Nanoseconds)
         {
@@ -556,13 +566,14 @@ internal static class AudioCaptureReceiveSessionTests
         {
             owner.Touch(); Require(frames > 0 && frames <= BufferFrames - _queued && (long)frames * ExpectedFormat.BytesPerFrame == count,
                 "Native fixture received a partial or over-capacity packet.");
-            Submissions.Add(bytes.AsSpan(offset, count).ToArray()); _queued += frames;
+            Submissions.Add(bytes.AsSpan(offset, count).ToArray()); _queued += frames; _submitted += frames;
         }
         public void Start() { owner.Touch(); StartCalls++; Require(!_running && _queued > 0, "Native start was repeated or empty."); _running = true; }
         public void WaitForProgress(TimeSpan delay, CancellationToken cancellationToken)
         {
             owner.Touch(); WaitCalls++; ProgressEntered.TrySetResult(); if (BlockProgress) ProgressRelease.Wait();
             cancellationToken.ThrowIfCancellationRequested();
+            uint queuedBefore = _queued;
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             Thread.Sleep(1); cancellationToken.ThrowIfCancellationRequested();
             // Windows can schedule Sleep(1) much later than one millisecond.
@@ -571,6 +582,7 @@ internal static class AudioCaptureReceiveSessionTests
             // Otherwise a short source outlives the real fixture deadline merely
             // because the simulated output runs many times slower than its rate.
             var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+            var observed = elapsed;
             if (elapsed < delay) elapsed = delay;
             clock.Advance(elapsed);
             if (_running && AllowRetirement)
@@ -578,6 +590,7 @@ internal static class AudioCaptureReceiveSessionTests
                 ulong frames = Math.Max(1UL, (ulong)elapsed.Ticks * ExpectedFormat.SampleRate / TimeSpan.TicksPerSecond);
                 _position += frames; _queued -= (uint)Math.Min(_queued, frames);
             }
+            _waits[_observedWaits++ % _waits.Length] = new(delay.Ticks, observed.Ticks, elapsed.Ticks, queuedBefore, _queued, _position, _submitted, _running, AllowRetirement);
         }
         public void Stop() { owner.Touch(); _running = false; }
         public void Dispose()

@@ -29,18 +29,35 @@ internal static class AudioFlacReceiveTests
         if (output.Body is AudioStreamingBody.Stop)
         {
             var failure = await f.Main.Failure();
+            Trace();
             throw new Exception("FLAC product failed before OutputReady: " + failure.Reason, failure);
         }
         Require(output.Body is AudioStreamingBody.OutputReady ready && ready.Format == metadata.DecodedFormat,
             "OutputReady substituted FLAC precision, rate, channel order or container.");
-        Require((await f.Main.Read()).Body is AudioStreamingBody.PlaybackComplete complete &&
+        var final = await f.Main.Read();
+        if (final.Body is AudioStreamingBody.Stop)
+        {
+            var failure = await f.Main.Failure();
+            Trace();
+            throw new Exception("FLAC product failed after OutputReady: " + failure.Reason, failure);
+        }
+        Require(final.Body is AudioStreamingBody.PlaybackComplete complete &&
             complete.SourceFrames == metadata.TotalFrames && complete.TrailingPaddingFrames == 0, "Incorrect FLAC playback receipt.");
         var received = await f.Main.Run!.WaitAsync(f.Main.Lan.Token);
         Require(received is AudioPlaybackReceiveReceipt.OriginalFile file && file.FileBytes == f.Bytes.Length &&
             file.FileSha256Hex == f.Metadata.FileHash && file.Format == metadata.DecodedFormat &&
             file.Output.SourceFrames == (ulong)frames, "File, format and rendered extent were not bound.");
         Require(f.Main.Native.Submissions.SelectMany(bytes => bytes).SequenceEqual(pcm), "FLAC decoding changed reference sample bytes.");
+        Trace();
         f.Released(); f.Main.NativeReleased(); await f.Main.Lan.Barrier();
+        void Trace() => Console.WriteLine("FLAC_PROGRESS " + System.Text.Json.JsonSerializer.Serialize(new
+        {
+            fixture = name, sourceFrames = frames, format = metadata.DecodedFormat,
+            runtime = Environment.Version.ToString(), processors = Environment.ProcessorCount,
+            threadPoolThreads = ThreadPool.ThreadCount, pendingWork = ThreadPool.PendingWorkItemCount,
+            nativeReleaseConfirmed = f.Main.Receiver.NativeReleaseConfirmed,
+            observations = f.Main.Native.ObservedWaits, retained = f.Main.Native.WaitObservations()
+        }));
     }
     private static async Task Reject(string name)
     {
