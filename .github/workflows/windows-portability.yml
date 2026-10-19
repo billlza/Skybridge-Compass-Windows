@@ -27,6 +27,10 @@ on:
         description: Record up to twenty serial audio receive-host runs after the complete contract suite
         type: boolean
         default: false
+      diagnose_session_storage:
+        description: Record up to twenty serial protected account-storage runs after the complete contract suite
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -107,6 +111,7 @@ jobs:
         env:
           DIAGNOSE_FLAC: ${{ inputs.diagnose_flac }}
           DIAGNOSE_AUDIO_HOST: ${{ inputs.diagnose_audio_host }}
+          DIAGNOSE_SESSION_STORAGE: ${{ inputs.diagnose_session_storage }}
         run: |
           $project = 'windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj'
           dotnet restore $project 2>&1 | Tee-Object artifacts/native-contracts-restore.log
@@ -136,8 +141,20 @@ jobs:
               ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 artifacts/native-audio-host-replay.json
           }
           $audioHostFailures = @($audioHostRuns | Where-Object { $_.exitCode -ne 0 })
-          if ($contractExit -ne 0 -or $diagnosticFailures.Count -ne 0 -or $audioHostFailures.Count -ne 0) {
-            throw "Native contracts failed: full=$contractExit; additional FLAC failures=$($diagnosticFailures.Count); additional audio-host failures=$($audioHostFailures.Count)"
+          $sessionStorageRuns = @()
+          if ($env:DIAGNOSE_SESSION_STORAGE -eq 'true') {
+            for ($attempt = 1; $attempt -le 20; $attempt++) {
+              dotnet run --project $project --configuration Debug --no-build --no-restore -- --session-storage 2>&1 | Tee-Object "artifacts/native-session-storage-$attempt.log"
+              $storageExit = $LASTEXITCODE
+              $sessionStorageRuns += @{ attempt = $attempt; exitCode = $storageExit }
+              if ($storageExit -ne 0) { break }
+            }
+            @{ fullSuiteExitCode = $contractExit; additionalRuns = @($sessionStorageRuns) } |
+              ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 artifacts/native-session-storage-replay.json
+          }
+          $sessionStorageFailures = @($sessionStorageRuns | Where-Object { $_.exitCode -ne 0 })
+          if ($contractExit -ne 0 -or $diagnosticFailures.Count -ne 0 -or $audioHostFailures.Count -ne 0 -or $sessionStorageFailures.Count -ne 0) {
+            throw "Native contracts failed: full=$contractExit; additional FLAC failures=$($diagnosticFailures.Count); additional audio-host failures=$($audioHostFailures.Count); additional session-storage failures=$($sessionStorageFailures.Count)"
           }
 
       - name: Decode Windows LAN QR images with the Android decoder
