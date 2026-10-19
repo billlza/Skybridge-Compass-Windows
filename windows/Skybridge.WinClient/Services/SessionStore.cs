@@ -82,10 +82,11 @@ public sealed class SessionStore : ISessionStore
 
     public SessionStoreLoadResult Load()
     {
-        try { using var lease = AcquireLease(); return ReadHead(); }
+        string operation = "AcquireLease";
+        try { using var lease = AcquireLease(); operation = "ReadRecord"; return ReadHead(); }
         catch (DirectoryNotFoundException) { return SessionStoreLoadResult.Missing(); }
-        catch (IOException) { return SessionStoreLoadResult.IoFailure(); }
-        catch (UnauthorizedAccessException) { return SessionStoreLoadResult.IoFailure(); }
+        catch (IOException error) { return SessionStoreLoadResult.IoFailure(SessionStoreFailure.From(operation, error)); }
+        catch (UnauthorizedAccessException error) { return SessionStoreLoadResult.IoFailure(SessionStoreFailure.From(operation, error)); }
     }
 
     public SessionStoreWriteResult Save(PersistedSession session, SessionStoreVersion expected, SessionStoreSaveMode mode)
@@ -95,14 +96,17 @@ public sealed class SessionStore : ISessionStore
             throw new ArgumentOutOfRangeException(nameof(mode));
         var validation = Validate(session);
         if (validation != PersistedSessionValidation.Valid) return WriteValidationFailure(validation);
+        string operation = "PrepareDirectory";
         try
         {
             Directory.CreateDirectory(_directory);
+            operation = "AcquireLease";
             using var lease = AcquireLease();
+            operation = "ReadRecord";
             var current = ReadHead();
             if (current.Version is null) return SessionStoreWriteResult.InvalidRecord();
             if (current.Version != expected) return SessionStoreWriteResult.Conflict();
-            if (!current.Succeeded && !current.IsQuietSignedOut) return SessionStoreWriteResult.InvalidRecord();
+            if (!current.Succeeded && !current.IsQuietSignedOut) return SessionStoreWriteResult.InvalidRecord(current.Failure);
             if (mode == SessionStoreSaveMode.ContinueLogin)
             {
                 if (current.Session is not { } prior) return SessionStoreWriteResult.InvalidSession();
@@ -112,17 +116,20 @@ public sealed class SessionStore : ISessionStore
             var login = mode == SessionStoreSaveMode.NewLogin ? Guid.NewGuid() : current.LoginId ?? Guid.NewGuid();
             return Commit(new(EnvelopeSchema, Guid.NewGuid(), "active", login, session));
         }
-        catch (IOException) { return SessionStoreWriteResult.IoFailure(); }
-        catch (UnauthorizedAccessException) { return SessionStoreWriteResult.IoFailure(); }
+        catch (IOException error) { return SessionStoreWriteResult.IoFailure(SessionStoreFailure.From(operation, error)); }
+        catch (UnauthorizedAccessException error) { return SessionStoreWriteResult.IoFailure(SessionStoreFailure.From(operation, error)); }
     }
 
     public SessionStoreWriteResult Clear(SessionStoreVersion expected)
     {
         ArgumentNullException.ThrowIfNull(expected);
+        string operation = "PrepareDirectory";
         try
         {
             Directory.CreateDirectory(_directory);
+            operation = "AcquireLease";
             using var lease = AcquireLease();
+            operation = "ReadRecord";
             var current = ReadHead();
             if (current.Version is null) return SessionStoreWriteResult.InvalidRecord();
             if (current.Version != expected) return SessionStoreWriteResult.Conflict();
@@ -131,8 +138,8 @@ public sealed class SessionStore : ISessionStore
             // those exact bytes. Startup does not automatically invoke this path.
             return Commit(new(EnvelopeSchema, Guid.NewGuid(), "cleared", null, null));
         }
-        catch (IOException) { return SessionStoreWriteResult.IoFailure(); }
-        catch (UnauthorizedAccessException) { return SessionStoreWriteResult.IoFailure(); }
+        catch (IOException error) { return SessionStoreWriteResult.IoFailure(SessionStoreFailure.From(operation, error)); }
+        catch (UnauthorizedAccessException error) { return SessionStoreWriteResult.IoFailure(SessionStoreFailure.From(operation, error)); }
     }
 
     private FileStream AcquireLease()
@@ -197,8 +204,8 @@ public sealed class SessionStore : ISessionStore
                 _ => SessionStoreLoadResult.InvalidSession(version)
             };
         }
-        catch (CryptographicException) { return SessionStoreLoadResult.DecryptFailed(version); }
-        catch (PlatformNotSupportedException) { return SessionStoreLoadResult.DecryptFailed(version); }
+        catch (CryptographicException error) { return SessionStoreLoadResult.DecryptFailed(version, SessionStoreFailure.From("UnprotectRecord", error)); }
+        catch (PlatformNotSupportedException error) { return SessionStoreLoadResult.DecryptFailed(version, SessionStoreFailure.From("UnprotectRecord", error)); }
         catch (JsonException) { return SessionStoreLoadResult.InvalidJson(version); }
         finally
         {
@@ -212,6 +219,7 @@ public sealed class SessionStore : ISessionStore
         byte[]? json = null, protectedBytes = null;
         string? temporary = null;
         SessionStoreWriteResult? result = null;
+        string operation = "ProtectRecord";
         try
         {
             json = JsonSerializer.SerializeToUtf8Bytes(envelope, JsonOptions);
@@ -220,16 +228,18 @@ public sealed class SessionStore : ISessionStore
             if (protectedBytes.Length is <= 0 or > MaximumRecordBytes) return SessionStoreWriteResult.CryptoFailure();
             var version = SessionStoreVersion.FromBytes(protectedBytes);
             temporary = Path.Combine(_directory, $".session.bin.{Guid.NewGuid():N}.tmp");
+            operation = "WriteTemporaryRecord";
             using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
             { output.Write(protectedBytes); output.Flush(flushToDisk: true); }
+            operation = "ReplaceRecord";
             _fileCommitter.Commit(temporary, _filePath);
             temporary = null;
             result = envelope.LoginId is { } login ? SessionStoreWriteResult.Saved(version, login) : SessionStoreWriteResult.Cleared(version);
         }
-        catch (CryptographicException) { result = SessionStoreWriteResult.CryptoFailure(); }
-        catch (PlatformNotSupportedException) { result = SessionStoreWriteResult.CryptoFailure(); }
-        catch (IOException) { result = SessionStoreWriteResult.IoFailure(); }
-        catch (UnauthorizedAccessException) { result = SessionStoreWriteResult.IoFailure(); }
+        catch (CryptographicException error) { result = SessionStoreWriteResult.CryptoFailure(SessionStoreFailure.From(operation, error)); }
+        catch (PlatformNotSupportedException error) { result = SessionStoreWriteResult.CryptoFailure(SessionStoreFailure.From(operation, error)); }
+        catch (IOException error) { result = SessionStoreWriteResult.IoFailure(SessionStoreFailure.From(operation, error)); }
+        catch (UnauthorizedAccessException error) { result = SessionStoreWriteResult.IoFailure(SessionStoreFailure.From(operation, error)); }
         finally
         {
             if (json is not null) CryptographicOperations.ZeroMemory(json);
@@ -237,8 +247,11 @@ public sealed class SessionStore : ISessionStore
             if (temporary is not null)
             {
                 try { File.Delete(temporary); }
-                catch (IOException) { result = SessionStoreWriteResult.IoFailure(); }
-                catch (UnauthorizedAccessException) { result = SessionStoreWriteResult.IoFailure(); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    result = (result ?? SessionStoreWriteResult.IoFailure()) with
+                    { Status = SessionStoreWriteStatus.IoFailure, CleanupFailure = SessionStoreFailure.From("CleanupTemporaryRecord", error) };
+                }
             }
         }
         return result ?? throw new InvalidOperationException("Session commit completed without a typed result.");
@@ -340,22 +353,32 @@ public enum SessionStoreLoadStatus
     SchemaMismatch, AuthorityMismatch, SubjectMismatch, InvalidSession, IoFailure
 }
 
-public sealed record SessionStoreLoadResult(SessionStoreLoadStatus Status, PersistedSession? Session,
-    SessionStoreVersion? Version = null, Guid? LoginId = null)
+// Keep native failure context without storing exception messages, paths or credentials.
+public sealed record SessionStoreFailure(string Operation, int HResult, int? NativeErrorCode)
 {
-    public bool Succeeded => Status == SessionStoreLoadStatus.Loaded && Session is not null && Version is not null;
-    public bool IsQuietSignedOut => Status is SessionStoreLoadStatus.Missing or SessionStoreLoadStatus.Cleared;
+    internal static SessionStoreFailure From(string operation, Exception error)
+    {
+        var native = error as System.ComponentModel.Win32Exception ?? error.InnerException as System.ComponentModel.Win32Exception;
+        return new(operation, error.HResult, native?.NativeErrorCode);
+    }
+}
+
+public sealed record SessionStoreLoadResult(SessionStoreLoadStatus Status, PersistedSession? Session,
+    SessionStoreVersion? Version = null, Guid? LoginId = null, SessionStoreFailure? Failure = null)
+{
+    public bool Succeeded => Failure is null && Status == SessionStoreLoadStatus.Loaded && Session is not null && Version is not null;
+    public bool IsQuietSignedOut => Failure is null && Status is SessionStoreLoadStatus.Missing or SessionStoreLoadStatus.Cleared;
     public static SessionStoreLoadResult Loaded(PersistedSession session, SessionStoreVersion version, Guid? loginId = null) => new(SessionStoreLoadStatus.Loaded, session, version, loginId);
     public static SessionStoreLoadResult Missing() => new(SessionStoreLoadStatus.Missing, null, SessionStoreVersion.Missing);
     public static SessionStoreLoadResult Cleared(SessionStoreVersion version) => new(SessionStoreLoadStatus.Cleared, null, version);
     public static SessionStoreLoadResult EmptyFile(SessionStoreVersion? version = null) => new(SessionStoreLoadStatus.EmptyFile, null, version);
-    public static SessionStoreLoadResult DecryptFailed(SessionStoreVersion? version = null) => new(SessionStoreLoadStatus.DecryptFailed, null, version);
+    public static SessionStoreLoadResult DecryptFailed(SessionStoreVersion? version = null, SessionStoreFailure? failure = null) => new(SessionStoreLoadStatus.DecryptFailed, null, version, Failure: failure);
     public static SessionStoreLoadResult InvalidJson(SessionStoreVersion? version = null) => new(SessionStoreLoadStatus.InvalidJson, null, version);
     public static SessionStoreLoadResult SchemaMismatch(SessionStoreVersion? version = null) => new(SessionStoreLoadStatus.SchemaMismatch, null, version);
     public static SessionStoreLoadResult AuthorityMismatch(SessionStoreVersion? version = null) => new(SessionStoreLoadStatus.AuthorityMismatch, null, version);
     public static SessionStoreLoadResult SubjectMismatch(SessionStoreVersion? version = null) => new(SessionStoreLoadStatus.SubjectMismatch, null, version);
     public static SessionStoreLoadResult InvalidSession(SessionStoreVersion? version = null) => new(SessionStoreLoadStatus.InvalidSession, null, version);
-    public static SessionStoreLoadResult IoFailure() => new(SessionStoreLoadStatus.IoFailure, null);
+    public static SessionStoreLoadResult IoFailure(SessionStoreFailure? failure = null) => new(SessionStoreLoadStatus.IoFailure, null, Failure: failure);
 }
 
 public enum SessionStoreWriteStatus
@@ -364,20 +387,21 @@ public enum SessionStoreWriteStatus
     SubjectMismatch, CryptoFailure, IoFailure
 }
 
-public sealed record SessionStoreWriteResult(SessionStoreWriteStatus Status, SessionStoreVersion? Version = null, Guid? LoginId = null)
+public sealed record SessionStoreWriteResult(SessionStoreWriteStatus Status, SessionStoreVersion? Version = null, Guid? LoginId = null,
+    SessionStoreFailure? Failure = null, SessionStoreFailure? CleanupFailure = null)
 {
-    public bool Succeeded => Version is not null && (Status == SessionStoreWriteStatus.Cleared ||
+    public bool Succeeded => Failure is null && CleanupFailure is null && Version is not null && (Status == SessionStoreWriteStatus.Cleared ||
         (Status == SessionStoreWriteStatus.Saved && LoginId is { } login && login != Guid.Empty));
     public static SessionStoreWriteResult Saved(SessionStoreVersion version, Guid loginId) => new(SessionStoreWriteStatus.Saved, version, loginId);
     public static SessionStoreWriteResult Cleared(SessionStoreVersion version) => new(SessionStoreWriteStatus.Cleared, version);
     public static SessionStoreWriteResult Conflict() => new(SessionStoreWriteStatus.Conflict);
-    public static SessionStoreWriteResult InvalidRecord() => new(SessionStoreWriteStatus.InvalidRecord);
+    public static SessionStoreWriteResult InvalidRecord(SessionStoreFailure? failure = null) => new(SessionStoreWriteStatus.InvalidRecord, Failure: failure);
     public static SessionStoreWriteResult InvalidSession() => new(SessionStoreWriteStatus.InvalidSession);
     public static SessionStoreWriteResult SchemaMismatch() => new(SessionStoreWriteStatus.SchemaMismatch);
     public static SessionStoreWriteResult AuthorityMismatch() => new(SessionStoreWriteStatus.AuthorityMismatch);
     public static SessionStoreWriteResult SubjectMismatch() => new(SessionStoreWriteStatus.SubjectMismatch);
-    public static SessionStoreWriteResult CryptoFailure() => new(SessionStoreWriteStatus.CryptoFailure);
-    public static SessionStoreWriteResult IoFailure() => new(SessionStoreWriteStatus.IoFailure);
+    public static SessionStoreWriteResult CryptoFailure(SessionStoreFailure? failure = null) => new(SessionStoreWriteStatus.CryptoFailure, Failure: failure);
+    public static SessionStoreWriteResult IoFailure(SessionStoreFailure? failure = null) => new(SessionStoreWriteStatus.IoFailure, Failure: failure);
 }
 
 // The persisted identity + tokens. Kept deliberately small: enough to refresh and then

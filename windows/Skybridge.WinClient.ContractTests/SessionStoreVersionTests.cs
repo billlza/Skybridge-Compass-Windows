@@ -166,7 +166,8 @@ internal static class SessionStoreVersionTests
         using var directory = TempDir.Create(); var store = Store(directory.Path); Require(Create(store).Succeeded, "Initial save failed.");
         var before = store.Load(); var failing = new SessionStore(directory.Path, Protector(), new FailAfterCommit());
         var result = clear ? failing.Clear(before.Version!) : failing.Save(Credentials("Committed"), before.Version!, SessionStoreSaveMode.NewLogin);
-        Require(result.Status == SessionStoreWriteStatus.IoFailure, "Ambiguous completion was reported as confirmed success.");
+        Require(result.Status == SessionStoreWriteStatus.IoFailure && result.Failure?.Operation == "ReplaceRecord",
+            "Ambiguous completion was reported as confirmed success or lost its failing boundary.");
         var after = Store(directory.Path).Load();
         Require(after.Version != before.Version && (clear ? after.Status == SessionStoreLoadStatus.Cleared : after.Succeeded),
             "The failure was incorrectly treated as proof that no commit occurred.");
@@ -267,12 +268,30 @@ internal static class SessionStoreVersionTests
     {
         using var directory = TempDir.Create(); var store = Store(directory.Path); Require(Create(store).Succeeded, "Parent fixture save failed.");
         var old = store.Load(); await using var child = await Child.Start(directory.Path, "lease");
-        Require(store.Load().Status == SessionStoreLoadStatus.IoFailure &&
-            store.Save(old.Session!, old.Version!, SessionStoreSaveMode.ContinueLogin).Status == SessionStoreWriteStatus.IoFailure,
+        var blockedRead = store.Load();
+        var blockedWrite = store.Save(old.Session!, old.Version!, SessionStoreSaveMode.ContinueLogin);
+        Require(blockedRead.Status == SessionStoreLoadStatus.IoFailure && blockedRead.Failure?.Operation == "AcquireLease" &&
+            blockedWrite.Status == SessionStoreWriteStatus.IoFailure && blockedWrite.Failure?.Operation == "AcquireLease",
             "A competing process read or mutated through an occupied lease.");
         child.Process.Kill(entireProcessTree: true); await child.Process.WaitForExitAsync().WaitAsync(Limit);
-        Require(store.Save(old.Session!, old.Version!, SessionStoreSaveMode.ContinueLogin).Succeeded,
-            "The terminated process left the OS lease owned.");
+        var resumed = store.Save(old.Session!, old.Version!, SessionStoreSaveMode.ContinueLogin);
+        Console.WriteLine("SESSION_LEASE_CHECK " + JsonSerializer.Serialize(new
+        {
+            parent = Environment.ProcessId, child = child.Process.Id, childExit = child.Process.ExitCode,
+            blockedRead = blockedRead.Failure, blockedWrite = blockedWrite.Failure,
+            status = resumed.Status.ToString(), failure = resumed.Failure, cleanupFailure = resumed.CleanupFailure
+        }));
+        if (!resumed.Succeeded)
+        {
+            // Diagnostic readback/probe only: no retry of the failed commit, no lock-file deletion.
+            var readback = store.Load(); SessionStoreFailure? probeFailure = null;
+            try { using var probe = new FileStream(Path.Combine(directory.Path, ".session.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { probeFailure = SessionStoreFailure.From("ProbeLeaseAfterFailedCommit", error); }
+            Console.WriteLine("SESSION_LEASE_READBACK " + JsonSerializer.Serialize(new
+            { status = readback.Status.ToString(), sameRevision = readback.Version == old.Version, readbackFailure = readback.Failure, probeFailure }));
+        }
+        Require(resumed.Succeeded, $"Account write after lease-holder termination failed: {resumed.Status}; {resumed.Failure}; cleanup={resumed.CleanupFailure}.");
         Require(File.Exists(Path.Combine(directory.Path, ".session.lock")), "Reacquisition deleted the shared lease inode.");
     }
     private sealed class Child(Process process) : IAsyncDisposable
