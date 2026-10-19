@@ -1,0 +1,46 @@
+name: Windows Audio Offline Recovery Experiment
+
+on:
+  push:
+    paths:
+      - windows/Skybridge.AudioOfflineRecoveryProbe/**
+      - .github/workflows/windows-audio-offline-recovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-continuity:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+      - name: Pin GitHub remote to SSH
+        shell: pwsh
+        run: |
+          git remote set-url origin git@github.com:billlza/Skybridge-Compass-Windows.git
+          git remote set-url --push origin git@github.com:billlza/Skybridge-Compass-Windows.git
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Build and run isolated native experiment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path artifacts/audio-offline-continuity -Force | Out-Null
+          dotnet build windows/Skybridge.AudioOfflineRecoveryProbe/AudioOfflineRecoveryProbe.csproj -c Release 2>&1 |
+            Tee-Object -FilePath artifacts/audio-offline-continuity/build.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native experiment build failed.' }
+          dotnet run --project windows/Skybridge.AudioOfflineRecoveryProbe/AudioOfflineRecoveryProbe.csproj -c Release --no-build --no-restore -- --run artifacts/audio-offline-continuity/native 2>&1 |
+            Tee-Object -FilePath artifacts/audio-offline-continuity/run.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native continuity experiment failed.' }
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: windows-audio-offline-continuity-${{ github.sha }}
+          path: artifacts/audio-offline-continuity
+          if-no-files-found: error
