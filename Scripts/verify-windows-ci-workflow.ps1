@@ -98,6 +98,15 @@ Assert-True -Condition ($nativeBuildStepIndex -gt $pinSshRemoteStepIndex -and $c
 Assert-Contains -Text $workflow -Needle "!cancelled() && steps.rust-tooling.outcome == 'success'" -Message "The portability gate must still run after a native build or contract failure."
 Assert-True -Condition (-not $workflow.Contains("continue-on-error:")) -Message "Windows CI must not turn failed native or portability checks into success."
 
+$bundleStepIndex = $workflow.IndexOf("Preserve native client for device qualification", [StringComparison]::Ordinal)
+$qrStepIndex = $workflow.IndexOf("Decode Windows LAN QR images with the Android decoder", [StringComparison]::Ordinal)
+$uiStepIndex = $workflow.IndexOf("Verify interactive WinUI launch and controls", [StringComparison]::Ordinal)
+Assert-True -Condition ($bundleStepIndex -gt $qrStepIndex -and $bundleStepIndex -lt $uiStepIndex) -Message "Native qualification output must be captured after QR contracts and before interactive use."
+Assert-Contains -Text $workflow -Needle "inputs.package_native_client && steps.native-client.outcome == 'success' && steps.product-contracts.outcome == 'success' && steps.lan-qr.outcome == 'success'" -Message "Native qualification artifacts must be opt-in and require native build, product contracts and QR decoding success."
+Assert-Contains -Text $workflow -Needle 'windows-native-client-${{ github.sha }}' -Message "Native qualification artifact identity must include the built commit."
+Assert-Contains -Text $workflow -Needle 'bundleFiles = $bundleFiles' -Message "Native qualification evidence must bind all output files."
+Assert-Contains -Text $workflow -Needle 'windows/Skybridge.WinClient/bin/Debug/net10.0-windows10.0.22621.0/win-x64/**' -Message "Native qualification artifacts must carry the complete self-contained output."
+
 foreach ($forbidden in @(
     "-RequireGitRemoteAccess",
     "-RequireMacSshReady",

@@ -15,6 +15,10 @@ on:
         description: Verify actual WinUI launch and UI Automation on this runner
         type: boolean
         default: false
+      package_native_client:
+        description: Preserve the complete Debug client for device qualification
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -78,7 +82,15 @@ jobs:
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing native product output: $path" }
             @{ name = $_; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
           })
-          @{ schemaVersion = 1; commit = $env:GITHUB_SHA; configuration = 'Debug'; runtimeIdentifier = 'win-x64'; build = 'passed'; interactiveLaunch = 'not-run'; deviceAudioPlayback = 'not-run'; files = $hashes } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 artifacts/native-client-build.json
+          $outputRoot = (Resolve-Path -LiteralPath $output).Path
+          $entries = @(Get-ChildItem -LiteralPath $outputRoot -Force -Recurse)
+          if ($entries | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }) {
+            throw 'Native client output contains a reparse point.'
+          }
+          $bundleFiles = @($entries | Where-Object { -not $_.PSIsContainer } | Sort-Object FullName | ForEach-Object {
+            @{ name = [IO.Path]::GetRelativePath($outputRoot, $_.FullName).Replace('\', '/'); bytes = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+          })
+          @{ schemaVersion = 2; commit = $env:GITHUB_SHA; configuration = 'Debug'; runtimeIdentifier = 'win-x64'; build = 'passed'; interactiveLaunch = 'not-run'; deviceAudioPlayback = 'not-run'; files = $hashes; bundleFiles = $bundleFiles } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 artifacts/native-client-build.json
 
       - name: Run product contracts on Windows
         id: product-contracts
@@ -94,12 +106,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Native contracts failed: $LASTEXITCODE" }
 
       - name: Decode Windows LAN QR images with the Android decoder
+        id: lan-qr
         if: ${{ !cancelled() && steps.product-contracts.outcome == 'success' }}
         shell: pwsh
         run: |
           dotnet run --project windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj --configuration Debug --no-build --no-restore -- --export-lan-qr artifacts/lan-qr-images
           if ($LASTEXITCODE -ne 0) { throw 'Native QR image export failed.' }
           .\Scripts\verify-windows-lan-qr-images.ps1 -ImageDir artifacts/lan-qr-images -EvidenceDir artifacts/lan-qr-decode
+
+      - name: Preserve native client for device qualification
+        if: ${{ !cancelled() && inputs.package_native_client && steps.native-client.outcome == 'success' && steps.product-contracts.outcome == 'success' && steps.lan-qr.outcome == 'success' }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: windows-native-client-${{ github.sha }}
+          path: |
+            windows/Skybridge.WinClient/bin/Debug/net10.0-windows10.0.22621.0/win-x64/**
+            artifacts/native-client-build.json
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Verify interactive WinUI launch and controls
         if: ${{ !cancelled() && inputs.run_ui_smoke && steps.native-client.outcome == 'success' }}
