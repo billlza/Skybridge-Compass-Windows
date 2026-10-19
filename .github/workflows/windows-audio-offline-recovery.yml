@@ -6,6 +6,8 @@ on:
       - windows/Skybridge.AudioOfflineRecoveryProbe/**
       - .github/workflows/windows-audio-offline-recovery.yml
       - windows/Skybridge.WinClient/Services/SessionPersistenceContracts.cs
+      - windows/Skybridge.WinClient/Services/SessionStore.cs
+      - windows/Skybridge.WinClient/Services/ISupabaseAuthClient.cs
       - windows/Skybridge.WinClient.ContractTests/SessionFileCommitTests.cs
   workflow_dispatch:
 
@@ -36,6 +38,9 @@ jobs:
           dotnet build windows/Skybridge.AudioOfflineRecoveryProbe/AudioOfflineRecoveryProbe.csproj -c Release 2>&1 |
             Tee-Object -FilePath artifacts/audio-offline-continuity/build.log
           if ($LASTEXITCODE -ne 0) { throw 'Native experiment build failed.' }
+          dotnet run --project windows/Skybridge.AudioOfflineRecoveryProbe/AudioOfflineRecoveryProbe.csproj -c Release --no-build --no-restore -- --lease-study artifacts/audio-offline-continuity/lease 2>&1 |
+            Tee-Object -FilePath artifacts/audio-offline-continuity/lease-run.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native product lease termination study failed; no mutation retry was allowed.' }
           dotnet run --project windows/Skybridge.AudioOfflineRecoveryProbe/AudioOfflineRecoveryProbe.csproj -c Release --no-build --no-restore -- --run artifacts/audio-offline-continuity/native 2>&1 |
             Tee-Object -FilePath artifacts/audio-offline-continuity/run.log
           if ($LASTEXITCODE -ne 0) { throw 'Native continuity experiment failed.' }

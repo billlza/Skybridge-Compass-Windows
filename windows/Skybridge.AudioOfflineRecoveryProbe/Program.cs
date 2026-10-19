@@ -11,6 +11,17 @@ using Skybridge.AudioOfflineRecoveryProbe;
 if (!OperatingSystem.IsWindows())
     throw new PlatformNotSupportedException("This experiment requires native Windows DPAPI, CryptProtectMemory and QPC.");
 
+if (args is ["--lease-child", var leaseDirectory, var leaseMode])
+{
+    LeaseTerminationStudy.Child(leaseDirectory, leaseMode);
+    return;
+}
+if (args is ["--lease-study", var leaseResultDirectory])
+{
+    await LeaseTerminationStudy.RunAsync(leaseResultDirectory);
+    return;
+}
+
 if (args is ["--commit-child", var commitDirectory, var commitOperation])
 {
     CommitExperiment.Child(commitDirectory, commitOperation);
