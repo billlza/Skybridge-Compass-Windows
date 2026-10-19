@@ -28,7 +28,7 @@ public sealed partial class MainWindow
         var membership = _audioMembership ?? throw new InvalidOperationException("Audio account authorization is not configured.");
         _audioApprovals = new(new NativeAudioApproval(this));
         _audioReceiveHost = new((session, endpoint) => new(session,
-            (inbox, token) => membership.LeaseAsync(inbox, token), _ => Task.FromResult(endpoint), _audioApprovals,
+            (inbox, token) => membership.LeaseAsync(inbox, token), membership.RenewAsync, _ => Task.FromResult(endpoint), _audioApprovals,
             originalFiles: _remoteControlWorkspace.OriginalAudioFiles), _remoteControlWorkspace.OriginalAudioFiles);
         _remoteControlWorkspace.ConfigureAudioReception(_audioReceiveHost);
         AutomationProperties.SetName(AudioOutputPicker, RemoteControlText("AudioReceiveOutputLabel"));
@@ -83,11 +83,13 @@ public sealed partial class MainWindow
         bool ordinaryPairingEnd = incoming?.Failure is LanPibRejectedException
             { Code: "userRejected" or "expired" or "transactionMissingOrExpired" };
         bool failed = _audioUiError is not null || incoming?.Failure is not null && !ordinaryPairingEnd ||
-            state.Failure is not null && !ordinaryStop || state.NativeReleaseUnconfirmed || _audioCatalogUnreleased is not null;
+            state.Failure is not null && !ordinaryStop || state.NativeReleaseUnconfirmed || _audioCatalogUnreleased is not null ||
+            state.Renewal?.State == AudioMembershipRenewalState.Failed;
         if (_audioCatalogUnreleased is not null || state.NativeReleaseUnconfirmed) text = RemoteControlText("AudioReceiveReleaseUnconfirmed");
         else if (_audioUiError is { } localFailure) text = localFailure;
         else if (incoming?.Failure is not null && !ordinaryPairingEnd) text = RemoteControlText("AudioReceiveConnectionFailed");
         else if (state.Failure is not null) text = AudioFailureText(state.Failure);
+        else if (state.Renewal?.State == AudioMembershipRenewalState.Failed) text = RemoteControlText("AudioRenewalFailed");
         else if (state.Stopping) text = RemoteControlText("AudioReceiveStopping");
         else if (state.Phase is { } phase) text = RemoteControlText(phase switch
         {
@@ -101,6 +103,20 @@ public sealed partial class MainWindow
         else if (state.Enabled) text = RemoteControlText(state.ListeningDevices > 0 ? "AudioReceiveWaiting" :
             ordinaryPairingEnd ? "LanPairingEnded" : "AudioReceiveNoConnectedDevice");
         else text = RemoteControlText("AudioReceiveDisabled");
+        if (!failed && !state.Stopping && state.Phase is not AudioCaptureReceivePhase.Stopping and not AudioCaptureReceivePhase.Completed and not AudioCaptureReceivePhase.Failed &&
+            state.Renewal is { } renewal)
+        {
+            string key = renewal.State switch
+            {
+                AudioMembershipRenewalState.Checking => "AudioRenewalChecking",
+                AudioMembershipRenewalState.RetryPending or AudioMembershipRenewalState.Unavailable => "AudioRenewalPending",
+                AudioMembershipRenewalState.Failed => "AudioRenewalFailed",
+                _ => "AudioRenewalValid"
+            };
+            var expiry = DateTimeOffset.FromUnixTimeMilliseconds(renewal.Evidence.Expires.WallMilliseconds).ToLocalTime();
+            text += "\n" + RemoteControlText(key) + " " + string.Format(System.Globalization.CultureInfo.CurrentCulture,
+                RemoteControlText("AudioRenewalExpiry"), expiry);
+        }
         if (incoming?.Endpoint is { } address) text += $"\n{RemoteControlText("AudioReceiveListeningAt")} {address}";
         AudioReceiveStatus.Message = text;
         AudioReceiveStatus.Severity = failed ? InfoBarSeverity.Error : InfoBarSeverity.Informational;

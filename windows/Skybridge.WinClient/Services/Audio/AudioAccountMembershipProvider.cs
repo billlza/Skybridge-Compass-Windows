@@ -3,22 +3,26 @@ using System.Net.Http;
 namespace Skybridge.WinClient.Services.Audio;
 
 /// <summary>A finite account grant bound to one exact inbox. Playback still requires separate
-/// source/output consent. Effect checks never acquire the account, cache or carrier locks.</summary>
+/// source/output consent. Effect checks use only this lease's bounded gate, never
+/// the account owner's mutation gate, cache gate or carrier locks.</summary>
 internal sealed class AccountAudioMembershipLease
 {
+    private readonly object _gate = new();
     private readonly AccountAudioAuthorization _epoch;
     private readonly ILanAudioStreamInbox _inbox;
     private readonly Func<AudioAuthorizationTime> _clock;
     private readonly AudioDeviceIdentity _local, _peer;
+    private AudioAccountMembershipEvidence _evidence;
+    private bool _revoked;
     internal AccountAudioMembershipLease(AudioAccountMembershipEvidence evidence, AccountAudioAuthorization epoch,
         ILanAudioStreamInbox inbox, Func<AudioAuthorizationTime> clock)
     {
-        Evidence = evidence; _epoch = epoch; _inbox = inbox; _clock = clock;
+        _evidence = evidence; _epoch = epoch; _inbox = inbox; _clock = clock;
         _local = AudioDeviceIdentity.From(inbox.Binding.LocalDeviceId, inbox.Binding.LocalProtocolIdentity);
         _peer = AudioDeviceIdentity.From(inbox.Binding.PeerDeviceId, inbox.Binding.PeerProtocolIdentity);
         RequireCurrent();
     }
-    internal AudioAccountMembershipEvidence Evidence { get; }
+    internal AudioAccountMembershipEvidence Evidence { get { lock (_gate) return _evidence; } }
     internal Guid StreamId => _inbox.StreamId;
     internal string SessionId => _inbox.Binding.SessionId;
     internal void RequireInbox(ILanAudioStreamInbox inbox)
@@ -31,10 +35,47 @@ internal sealed class AccountAudioMembershipLease
     internal void RequireEffectCurrent()
     {
         _inbox.RequireEffectCurrent();
-        _epoch.RequireCurrent();
-        Evidence.RequireValid(_epoch.Scope, _local, _peer, _clock());
-        _epoch.RequireCurrent();
+        lock (_gate) RequireAccountEffect();
         _inbox.RequireEffectCurrent();
+    }
+    private void RequireAccountEffect()
+    {
+        if (_revoked) throw new AudioMembershipException(AudioMembershipFailure.Revoked);
+        _epoch.RequireCurrent();
+        _evidence.RequireValid(_epoch.Scope, _local, _peer, _clock());
+        _epoch.RequireCurrent();
+    }
+    internal void Revoke() { lock (_gate) _revoked = true; }
+    internal AudioAccountMembershipEvidence RequireContinuation(AccountAudioAuthorization epoch, ILanAudioStreamInbox inbox)
+    {
+        RequireInbox(inbox);
+        if (!ReferenceEquals(_epoch, epoch)) throw new AudioMembershipException(AudioMembershipFailure.ScopeChanged);
+        RequireCurrent();
+        lock (_gate) { RequireAccountEffect(); return _evidence; }
+    }
+    // Called only after a fresh provider observation on the original request.
+    // No carrier/cache lock is acquired while holding this lease's effect gate.
+    internal void ContinueWith(AudioAccountMembershipEvidence expected, AudioAccountMembershipEvidence replacement,
+        CancellationToken cancellationToken)
+    {
+        _inbox.RequireCurrent();
+        lock (_gate)
+        {
+            RequireAccountEffect();
+            if (!ReferenceEquals(_evidence, expected) || replacement.Id == expected.Id ||
+                replacement.Issued.WallMilliseconds <= expected.Issued.WallMilliseconds ||
+                replacement.Issued.ContinuousMilliseconds <= expected.Issued.ContinuousMilliseconds ||
+                replacement.Expires.WallMilliseconds <= expected.Expires.WallMilliseconds ||
+                replacement.Expires.ContinuousMilliseconds <= expected.Expires.ContinuousMilliseconds)
+                throw new InvalidOperationException("Audio continuation requires fresh evidence for its exact predecessor.");
+            var now = _clock();
+            expected.RequireValid(_epoch.Scope, _local, _peer, now);
+            replacement.RequireValid(_epoch.Scope, _local, _peer, now);
+            _inbox.RequireEffectCurrent(); _epoch.RequireCurrent();
+            cancellationToken.ThrowIfCancellationRequested();
+            _evidence = replacement;
+            expected.Revoke(); // Other consumers remain finite; only this one was explicitly continued.
+        }
     }
 }
 
@@ -66,8 +107,19 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
         _client = new(http, _clock, queryTimeout);
     }
 
-    internal async Task<AccountAudioMembershipLease> LeaseAsync(ILanAudioStreamInbox inbox,
-        CancellationToken cancellationToken, bool refresh = false)
+    internal Task<AccountAudioMembershipLease> LeaseAsync(ILanAudioStreamInbox inbox,
+        CancellationToken cancellationToken, bool refresh = false) =>
+        AcquireAsync(inbox, cancellationToken, refresh, continuing: null);
+
+    internal Task<AccountAudioMembershipLease> RenewAsync(ILanAudioStreamInbox inbox,
+        AccountAudioMembershipLease continuing, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(continuing);
+        return AcquireAsync(inbox, cancellationToken, refresh: true, continuing: continuing);
+    }
+
+    private async Task<AccountAudioMembershipLease> AcquireAsync(ILanAudioStreamInbox inbox,
+        CancellationToken cancellationToken, bool refresh, AccountAudioMembershipLease? continuing)
     {
         ArgumentNullException.ThrowIfNull(inbox);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetimeToken);
@@ -78,11 +130,13 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
         var binding = inbox.Binding;
         var local = AudioDeviceIdentity.From(binding.LocalDeviceId, binding.LocalProtocolIdentity);
         var peer = AudioDeviceIdentity.From(binding.PeerDeviceId, binding.PeerProtocolIdentity);
+        var predecessor = continuing?.RequireContinuation(epoch, inbox);
         Request request;
         lock (_gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
             RequireEpoch(epoch); Prune();
+            if (continuing is not null) RequireContinuation();
             if (!refresh && _entries.FirstOrDefault(entry => ReferenceEquals(entry.Epoch, epoch) &&
                 entry.Evidence.Local == local && entry.Evidence.Peer == peer) is { } cached)
             {
@@ -90,7 +144,7 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
                 cancellationToken.ThrowIfCancellationRequested();
                 return cachedLease;
             }
-            if (_pending is not null) throw new InvalidOperationException("An audio membership request is already in progress.");
+            if (_pending is not null) throw new AudioMembershipRequestBusyException();
             request = new(epoch, local, peer); _pending = request;
         }
         try
@@ -106,6 +160,12 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
                 lock (_gate) RevokeIdentity(epoch, local);
                 throw;
             }
+            catch (Exception error) when (continuing is not null && IsTemporaryRequest(error))
+            {
+                cancellationToken.ThrowIfCancellationRequested(); RequireEpoch(epoch);
+                continuing.RequireContinuation(epoch, inbox);
+                throw new AudioMembershipRequestUnavailableException(error);
+            }
             ObserveFresh(epoch, observation);
             // Observe a completed, valid response before rejecting the now-ended requesting stream.
             cancellationToken.ThrowIfCancellationRequested(); RequireEpoch(epoch); inbox.RequireCurrent();
@@ -117,14 +177,18 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
                 if (!ReferenceEquals(_pending, request) || request.Contradicted)
                     throw new InvalidOperationException("Device authorization changed during this audio membership request.");
                 Prune();
+                if (continuing is not null) RequireContinuation();
                 var previous = _entries.Where(entry => ReferenceEquals(entry.Epoch, epoch) &&
                     entry.Evidence.Local == local && entry.Evidence.Peer == peer).ToArray();
                 if (_entries.Count - previous.Length >= Capacity)
                     throw new InvalidOperationException("The audio membership cache is full.");
-                var lease = new AccountAudioMembershipLease(evidence, epoch, inbox, _clock);
+                var next = new Entry(epoch, evidence);
+                var lease = continuing ?? new AccountAudioMembershipLease(evidence, epoch, inbox, _clock);
                 cancellationToken.ThrowIfCancellationRequested();
+                if (continuing is not null)
+                    continuing.ContinueWith(predecessor ?? throw new InvalidOperationException("Missing audio predecessor."), evidence, cancellationToken);
                 foreach (var entry in previous) { entry.Evidence.Revoke(); _entries.Remove(entry); }
-                _entries.Add(new(epoch, evidence));
+                _entries.Add(next);
                 return lease;
             }
         }
@@ -132,6 +196,13 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
         {
             lock (_gate) { if (ReferenceEquals(_pending, request)) _pending = null; }
             request.Completion.TrySetResult();
+        }
+        void RequireContinuation()
+        {
+            if (continuing is null || predecessor is null ||
+                !ReferenceEquals(continuing.RequireContinuation(epoch, inbox), predecessor) ||
+                !_entries.Any(entry => ReferenceEquals(entry.Epoch, epoch) && ReferenceEquals(entry.Evidence, predecessor)))
+                throw new InvalidOperationException("The original audio authorization can no longer be continued.");
         }
     }
 
@@ -246,6 +317,15 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
     }
     private static bool IsDeviceDenial(CurrentPathSignalServerException error) => AccountDeviceWire.ErrorCode(error) is
         "device_not_registered" or "device_not_active" or "device_frozen" or "device_revoked";
+    private static bool IsTemporaryRequest(Exception error) => error switch
+    {
+        AudioMembershipQueryTimeoutException => true,
+        HttpRequestException request => AudioMembershipRequestFailure.IsTemporary(request),
+        HttpIOException response => AudioMembershipRequestFailure.IsTemporary(response),
+        CurrentPathSignalServerException response => AccountDeviceWire.ErrorCode(response) != "current_identity_mismatch" &&
+            AudioMembershipRequestFailure.IsTemporary(response.StatusCode),
+        _ => false
+    };
     private sealed record Entry(AccountAudioAuthorization Epoch, AudioAccountMembershipEvidence Evidence);
     private sealed class Request(AccountAudioAuthorization epoch, AudioDeviceIdentity local, AudioDeviceIdentity peer)
     {

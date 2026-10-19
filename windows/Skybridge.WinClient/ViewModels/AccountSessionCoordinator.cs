@@ -220,7 +220,7 @@ public sealed class AccountSessionCoordinator
                 || string.IsNullOrWhiteSpace(refreshed.Value.RefreshToken))
             {
                 if (IsTransientAuthFailure(refreshed.Failure))
-                    return requestRefresh ? AccountSessionResult.Failed(AccountSessionFailureKind.Network, refreshed.Failure.Code) : DeferHydration(refreshed.Failure.Code);
+                    return requestRefresh ? AccountSessionResult.Failed(AccountSessionFailureKind.Network, refreshed.Failure.Code, refreshed.Failure) : DeferHydration(refreshed.Failure.Code);
                 return ClearStoredSessionAfterFailure(
                     AccountSessionFailureKind.RefreshRejected,
                     refreshed.Failure?.Code ?? "auth_refresh_missing_rotated_token");
@@ -273,7 +273,7 @@ public sealed class AccountSessionCoordinator
             || returnedSubjectMismatch)
         {
             if (!returnedSubjectMismatch && IsTransientAuthFailure(user.Failure))
-                return requestRefresh ? AccountSessionResult.Failed(AccountSessionFailureKind.Network, user.Failure.Code) : DeferHydration(user.Failure.Code);
+                return requestRefresh ? AccountSessionResult.Failed(AccountSessionFailureKind.Network, user.Failure.Code, user.Failure) : DeferHydration(user.Failure.Code);
             return ClearStoredSessionAfterFailure(
                 FailureKindForUserFailure(user.Failure, returnedSubjectMismatch),
                 user.Failure?.Code ?? "auth_user_subject_mismatch");
@@ -325,8 +325,18 @@ public sealed class AccountSessionCoordinator
         Services.Audio.AccountAudioAuthorization expected, CancellationToken cancellationToken)
     {
         RequireAudioAuthorization(expected);
-        var authentication = await GetDeviceAuthenticationAsync(cancellationToken).ConfigureAwait(true)
-            ?? throw new InvalidOperationException("The audio account signed out during authentication.");
+        AccountDeviceAuthentication authentication;
+        try
+        {
+            authentication = await GetDeviceAuthenticationAsync(cancellationToken).ConfigureAwait(true)
+                ?? throw new InvalidOperationException("The audio account signed out during authentication.");
+        }
+        catch (AccountDeviceAuthenticationException error) when
+            (Services.Audio.AudioMembershipRequestFailure.IsTemporary(error.AuthenticationFailure))
+        {
+            cancellationToken.ThrowIfCancellationRequested(); RequireAudioAuthorization(expected);
+            throw new Services.Audio.AudioMembershipRequestUnavailableException(error);
+        }
         cancellationToken.ThrowIfCancellationRequested();
         RequireAudioAuthorization(expected);
         expected.RequireAuthentication(authentication);
@@ -396,7 +406,7 @@ public sealed class AccountSessionCoordinator
             if (NeedsRefresh(claims.ExpiresAtUnix))
             {
                 var refreshed = await HydrateFromStoreCoreAsync(requestRefresh: true).ConfigureAwait(true);
-                if (!refreshed.Success) throw new AccountDeviceAuthenticationException(refreshed.FailureKind);
+                if (!refreshed.Success) throw new AccountDeviceAuthenticationException(refreshed.FailureKind, refreshed.AuthenticationFailure);
             }
             cancellationToken.ThrowIfCancellationRequested();
             if (!IsSignedIn || _accessToken is null || _userId is null) return null;
@@ -764,12 +774,13 @@ public readonly record struct AccountSessionResult(
     AccountSessionFailureKind? FailureKind,
     string ErrorCode)
 {
+    internal AuthClientFailure? AuthenticationFailure { get; init; }
     public static AccountSessionResult Succeeded() => new(true, false, null, string.Empty);
 
     public static AccountSessionResult SignedOutResult() => new(true, true, null, string.Empty);
 
-    public static AccountSessionResult Failed(AccountSessionFailureKind kind, string errorCode) =>
-        new(false, false, kind, errorCode);
+    public static AccountSessionResult Failed(AccountSessionFailureKind kind, string errorCode, AuthClientFailure? authenticationFailure = null) =>
+        new(false, false, kind, errorCode) { AuthenticationFailure = authenticationFailure };
 
     public static AccountSessionResult FailedSignedOut(AccountSessionFailureKind kind, string errorCode) =>
         new(false, true, kind, errorCode);

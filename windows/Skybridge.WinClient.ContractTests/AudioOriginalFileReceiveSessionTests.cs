@@ -12,6 +12,7 @@ internal static class AudioOriginalFileReceiveSessionTests
     internal static readonly (string Name, Func<Task> Run)[] Cases =
     [
         ("file product receives real classic TCP after MAIN approval and completes exact native frames", Complete),
+        ("file product continues its admitted transfer and exact native frames after membership renewal", RenewedFile),
         ("file product does not turn transfer receipt into playback completion before native release", Tail),
         ("file product rejects foreign metadata without consuming the approved file slot", WrongMetadata),
         ("file product refuses unsolicited classic bytes without creating an artifact", Unsolicited),
@@ -54,11 +55,11 @@ internal static class AudioOriginalFileReceiveSessionTests
                 catch (Exception error) { ReceiveFailures.Enqueue(error); throw; }
             }, () => true);
         }
-        internal static async Task<Fixture> Create()
+        internal static async Task<Fixture> Create(bool enableRenewal = false)
         {
             var f = new Fixture(); Directory.CreateDirectory(f.Root);
             f.Listener.Start(IPAddress.Loopback, CancellationToken.None); f.Registry.Bind(f.Listener, f.Root);
-            f.Main = await AudioCaptureReceiveSessionTests.Fixture.Create(f.Registry, checked((ushort)f.Endpoint.Port));
+            f.Main = await AudioCaptureReceiveSessionTests.Fixture.Create(f.Registry, checked((ushort)f.Endpoint.Port), enableRenewal);
             f.Key = ClassicFileTransferWire.DeriveTransferKey(f.Main.Lan.Keys, f.TransferId.ToString("D"));
             return f;
         }
@@ -133,6 +134,16 @@ internal static class AudioOriginalFileReceiveSessionTests
     {
         await using var f = await Fixture.Create(); f.Main.Native.AllowRetirement = true; f.Bytes = Wave(Pcm(25001));
         await f.Offer(); await f.Transfer(); await f.Ready(); await f.CompletePlayback();
+    }
+    private static async Task RenewedFile()
+    {
+        await using var f = await Fixture.Create(enableRenewal: true);
+        var delays = AudioCaptureReceiveSessionTests.ConfigureRenewal(f.Main);
+        f.Main.Native.AllowRetirement = true; f.Bytes = Wave(Pcm(25001));
+        await f.Offer(); var initial = f.Main.Receiver.RenewalSnapshot?.Evidence ?? throw new Exception("Missing file renewal owner.");
+        (await delays.Next()).Release.TrySetResult();
+        await AudioMembershipRenewalTests.Until(() => f.Main.Receiver.RenewalSnapshot is { State: AudioMembershipRenewalState.Waiting } state && state.Evidence.Id != initial.Id);
+        await f.Transfer(); await f.Ready(); await f.CompletePlayback();
     }
     private static async Task Tail()
     {

@@ -2398,7 +2398,7 @@ public sealed class CurrentPathSignalServerException : Exception
 
     private static bool IsKnownServerErrorCode(string value) =>
         value is
-            "device_not_registered" or "device_not_active" or "device_pending" or "device_frozen" or "device_revoked" or
+            "device_not_registered" or "device_not_active" or "device_pending" or "device_frozen" or "device_revoked" or "current_identity_mismatch" or
             "registry_not_configured" or "registry_unavailable" or "registry_schema_outdated" or
             "client_upgrade_required" or "protocol_upgrade_required" or
             "admission_expired" or

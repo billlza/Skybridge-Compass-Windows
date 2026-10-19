@@ -2,7 +2,8 @@ namespace Skybridge.WinClient.Services.Audio;
 
 internal sealed record AudioReceiveHostSnapshot(bool Enabled, bool Stopping, int ConnectedDevices, int ListeningDevices,
     string? OutputEndpointId, string? PeerName, AudioCaptureReceivePhase? Phase,
-    Exception? Failure, bool NativeReleaseConfirmed, bool NativeReleaseUnconfirmed);
+    Exception? Failure, bool NativeReleaseConfirmed, bool NativeReleaseUnconfirmed,
+    AudioMembershipRenewalSnapshot? Renewal);
 
 /// <summary>Product owner of audio reception on at most eight existing MAIN
 /// sessions. Idle peers wait asynchronously. At most one offer owns approval and
@@ -30,7 +31,8 @@ internal sealed class AudioReceiveHost : IAsyncDisposable
             _sessions.Count(item => item.Key.IsReady),
             _sessions.Count(item => item.Value.Listening && item.Key.IsReady),
             _endpoint, _active?.Entry.Session.PeerDisplayName, _active?.Operation?.Phase,
-            _unreleased ?? _lastFailure, _unreleased is null && (_active?.Operation?.ResourcesReleaseConfirmed ?? true), _unreleased is not null);
+            _unreleased ?? _lastFailure, _unreleased is null && (_active?.Operation?.ResourcesReleaseConfirmed ?? true), _unreleased is not null,
+            _active?.Operation?.RenewalSnapshot);
     }
 
     internal async Task AttachAsync(LanProductControlSession session, CancellationToken token)

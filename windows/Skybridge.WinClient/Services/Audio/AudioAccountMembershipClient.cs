@@ -30,8 +30,9 @@ internal sealed class AudioAccountMembershipClient
         var started = _clock();
         AccountDeviceRosterSnapshot snapshot;
         try { snapshot = await client.ListAccountDevicesAsync(binding, deadline.Token).ConfigureAwait(false); }
-        catch (OperationCanceledException failure) when (!cancellationToken.IsCancellationRequested && deadline.IsCancellationRequested)
-        { throw new TimeoutException("Audio account device query exceeded its finite deadline.", failure); }
+        catch (OperationCanceledException failure) when (!cancellationToken.IsCancellationRequested &&
+            (deadline.IsCancellationRequested || failure.InnerException is TimeoutException))
+        { throw new AudioMembershipQueryTimeoutException(failure); }
         // A complete fresh response may revoke other grants even when its requester just canceled.
         return AudioRegistryObservation.FromResponse(authentication, local, snapshot, started, _clock());
     }

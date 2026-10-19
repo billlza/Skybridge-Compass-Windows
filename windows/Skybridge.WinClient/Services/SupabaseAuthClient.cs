@@ -163,7 +163,7 @@ public sealed class SupabaseAuthClient : ISupabaseAuthClient
             {
                 return AuthClientResult<AuthUser>.Failed(
                     MapHttpFailure(response.StatusCode, AuthFailureKind.Unauthorized),
-                    "auth_user_rejected");
+                    "auth_user_rejected", statusCode: response.StatusCode);
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
@@ -234,7 +234,7 @@ public sealed class SupabaseAuthClient : ISupabaseAuthClient
             {
                 return AuthClientResult<AuthSignOutReceipt>.Failed(
                     MapHttpFailure(response.StatusCode, AuthFailureKind.HttpFailure),
-                    "auth_sign_out_rejected");
+                    "auth_sign_out_rejected", statusCode: response.StatusCode);
             }
 
             return AuthClientResult<AuthSignOutReceipt>.Success(new AuthSignOutReceipt(ServerRevoked: true));
@@ -257,7 +257,7 @@ public sealed class SupabaseAuthClient : ISupabaseAuthClient
         {
             return AuthClientResult<AuthToken>.Failed(
                 MapHttpFailure(response.StatusCode, defaultFailureKind),
-                "auth_token_rejected");
+                "auth_token_rejected", statusCode: response.StatusCode);
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
@@ -368,13 +368,13 @@ public sealed class SupabaseAuthClient : ISupabaseAuthClient
         };
 
     private static AuthClientResult<AuthToken> TokenExceptionFailure(Exception ex, string code) =>
-        AuthClientResult<AuthToken>.Failed(MapException(ex), code);
+        AuthClientResult<AuthToken>.Failed(MapException(ex), code, cause: ex);
 
     private static AuthClientResult<AuthUser> UserExceptionFailure(Exception ex, string code) =>
-        AuthClientResult<AuthUser>.Failed(MapException(ex), code);
+        AuthClientResult<AuthUser>.Failed(MapException(ex), code, cause: ex);
 
     private static AuthClientResult<AuthSignOutReceipt> SignOutExceptionFailure(Exception ex, string code) =>
-        AuthClientResult<AuthSignOutReceipt>.Failed(MapException(ex), code);
+        AuthClientResult<AuthSignOutReceipt>.Failed(MapException(ex), code, cause: ex);
 
     private static AuthFailureKind MapException(Exception ex) =>
         ex switch

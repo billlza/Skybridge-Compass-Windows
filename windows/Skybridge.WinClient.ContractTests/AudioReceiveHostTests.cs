@@ -42,7 +42,7 @@ internal static class AudioReceiveHostTests
         => new((session, endpoint) =>
         {
             var device = new NativeDevice(authority.Clock); configure?.Invoke(device); devices.Add(device);
-            return new(session, (inbox, _) => Task.FromResult(authority.Lease(inbox)), _ => Task.FromResult(endpoint),
+            return new(session, (inbox, _) => Task.FromResult(authority.Lease(inbox)), null, _ => Task.FromResult(endpoint),
                 authority.Approvals, _ => { device.Touch(); return device; }, authority.Clock);
         });
     private static async Task Capabilities(LanProductControlSessionTests.Fixture lan, bool enabled)

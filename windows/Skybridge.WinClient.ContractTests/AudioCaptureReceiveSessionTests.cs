@@ -21,6 +21,9 @@ internal static class AudioCaptureReceiveSessionTests
         ("capture receiver open cleanup failure retains the exact native owners and causes", OpenCleanupFailure),
         ("capture receiver final native release failure cannot produce playbackComplete", FinalCleanupFailure),
         ("capture receiver active cancellation drains its writer without inventing cleanup failure", ActiveCancellation),
+        ("capture receiver continuation preserves actual encrypted PCM and committed expiry", RenewedStream),
+        ("capture receiver renewal timeout closes native output before joining account cleanup", RenewalTimeout),
+        ("capture receiver user stop closes native output before joining account cleanup", RenewalCancellation),
         ("capture receiver peer Stop ends only its audio operation and retains MAIN", PeerStop),
         ("capture receiver input after End invalidates a pending native tail", InputAfterEnd),
         ("capture receiver admission uses a cumulative budget across individually valid phases", CumulativeAdmissionDeadline)
@@ -48,30 +51,35 @@ internal static class AudioCaptureReceiveSessionTests
         internal Func<CancellationToken, Task<string>>? SelectOutput;
         internal Func<AudioPlaybackApprovalRequest, CancellationToken, Task<bool>> Decide = (_, _) => Task.FromResult(true);
         internal Action? ReleaseAdmission;
+        internal Func<ILanAudioStreamInbox, AccountAudioMembershipLease, CancellationToken, Task<AccountAudioMembershipLease>>? Renew;
+        internal Func<TimeSpan, CancellationToken, Task>? RenewalDelay;
         internal Task<AudioPlaybackReceiveReceipt>? Run;
         internal uint Window;
         private AudioCaptureReceiveException? _observedFailure;
 
-        private Fixture(LanProductControlSessionTests.Fixture lan, AudioOriginalFileReceiveRegistry? originalFiles = null)
+        private Fixture(LanProductControlSessionTests.Fixture lan, AudioOriginalFileReceiveRegistry? originalFiles = null, bool enableRenewal = false)
         {
             Lan = lan; Device = new(Clock);
             Approvals = new(new Presenter((request, token) => Decide(request, token)), Clock.AuthorizationNow);
             Receiver = new(lan.Session,
                 (inbox, token) => Authorize?.Invoke(inbox, token) ?? Task.FromResult(Lease(inbox)),
+                enableRenewal ? (inbox, lease, token) => (Renew ?? throw new InvalidOperationException("Missing fixture renewal port."))(inbox, lease, token) : null,
                 token => SelectOutput?.Invoke(token) ?? Task.FromResult(Endpoint), Approvals,
-                endpoint => { Require(endpoint == Endpoint, "Native open substituted the approved endpoint."); Device.Touch(); return Device; }, Clock, originalFiles);
+                endpoint => { Require(endpoint == Endpoint, "Native open substituted the approved endpoint."); Device.Touch(); return Device; }, Clock, originalFiles,
+                Clock.AuthorizationNow, (duration, token) => RenewalDelay?.Invoke(duration, token) ?? Task.Delay(duration, token));
         }
-        internal static async Task<Fixture> Create(AudioOriginalFileReceiveRegistry? originalFiles = null, ushort? localFilePort = 8080)
+        internal static async Task<Fixture> Create(AudioOriginalFileReceiveRegistry? originalFiles = null, ushort? localFilePort = 8080, bool enableRenewal = false)
         {
             var lan = await LanProductControlSessionTests.Fixture.ConnectForAudio(localFilePort, generalFiles: originalFiles is null);
-            try { await lan.Admit(); return new(lan, originalFiles); }
+            try { await lan.Admit(); return new(lan, originalFiles, enableRenewal); }
             catch { await lan.DisposeAsync(); throw; }
         }
-        internal AccountAudioMembershipLease Lease(ILanAudioStreamInbox inbox)
+        internal AccountAudioMembershipLease Lease(ILanAudioStreamInbox inbox, long ageMilliseconds = 0)
         {
             var authentication = AudioAccountMembershipTests.Authentication();
             var local = AudioAccountMembershipTests.Local(inbox.Binding); var peer = AudioAccountMembershipTests.Peer(inbox.Binding);
-            var now = Clock.AuthorizationNow();
+            var current = Clock.AuthorizationNow();
+            var now = new AudioAuthorizationTime(current.WallMilliseconds - ageMilliseconds, current.ContinuousMilliseconds - ageMilliseconds);
             var observation = AudioRegistryObservation.FromResponse(authentication, local,
                 new(now.WallMilliseconds, local.DeviceId, false,
                     [AudioAccountMembershipTests.Entry(local, true), AudioAccountMembershipTests.Entry(peer)]), now, now);
@@ -358,6 +366,54 @@ internal static class AudioCaptureReceiveSessionTests
         Require(failure.Reason == AudioStreamingStopReason.UserStopped && failure.CleanupFailures.Count == 0,
             "Clean receiver cancellation was reported as a linked-writer cleanup failure: " + failure);
         _ = await f.UntilStop(); f.NativeReleased(); await f.Lan.Barrier();
+    }
+    internal static AudioMembershipRenewalTests.ManualDelay ConfigureRenewal(Fixture f)
+    {
+        var delays = new AudioMembershipRenewalTests.ManualDelay();
+        f.Clock.Advance(TimeSpan.FromHours(1));
+        f.Authorize = (inbox, _) => Task.FromResult(f.Lease(inbox, AudioAccountMembershipEvidence.MaximumLifetimeMilliseconds - 60_000));
+        f.RenewalDelay = delays.Delay;
+        f.Renew = (inbox, lease, token) =>
+        {
+            var fresh = f.Lease(inbox).Evidence;
+            lease.ContinueWith(lease.Evidence, fresh, token);
+            return Task.FromResult(lease);
+        };
+        return delays;
+    }
+    private static async Task RenewedStream()
+    {
+        await using var f = await Fixture.Create(enableRenewal: true); var delays = ConfigureRenewal(f);
+        await f.Ready(); var initial = f.Receiver.RenewalSnapshot?.Evidence ?? throw new Exception("No renewal state.");
+        var first = await delays.Next(); Require(first.Duration == TimeSpan.Zero, "Old valid grant did not request renewal promptly."); first.Release.TrySetResult();
+        await AudioMembershipRenewalTests.Until(() => f.Receiver.RenewalSnapshot is { State: AudioMembershipRenewalState.Waiting } state && state.Evidence.Id != initial.Id);
+        var bytes = Pcm(17 * (int)Format.BytesPerFrame); await f.Data(0, bytes); await f.End(bytes); f.Native.AllowRetirement = true;
+        await AssertCompletion(f, bytes); f.NativeReleased();
+        Require(f.Native.Submissions.SelectMany(packet => packet).SequenceEqual(bytes), "Renewal changed source PCM.");
+    }
+    private static Task RenewalTimeout() => RenewalOwnership(timeout: true);
+    private static Task RenewalCancellation() => RenewalOwnership(timeout: false);
+    private static async Task RenewalOwnership(bool timeout)
+    {
+        await using var f = await Fixture.Create(enableRenewal: true); var delays = ConfigureRenewal(f);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        f.ReleaseAdmission = () => release.TrySetResult();
+        f.Renew = async (_, lease, token) => { entered.TrySetResult(); await release.Task; token.ThrowIfCancellationRequested(); return lease; };
+        await f.Ready(); (await delays.Next()).Release.TrySetResult(); await entered.Task.WaitAsync(f.Lan.Token);
+        if (timeout)
+        {
+            var timer = await delays.Next(); Require(timer.Duration == TimeSpan.FromSeconds(35), "Attempt lost its bounded deadline.");
+            timer.Release.TrySetResult(); // Controlled timer firing; native progress time remains unchanged.
+        }
+        else f.Caller.Cancel();
+        await Until(() => f.Receiver.NativeReleaseConfirmed && f.Device.DisposeCalls == 1, f.Lan.Token);
+        Require(!f.Run!.IsCompleted, "Receive completion escaped its still-owned credential request.");
+        if (timeout) Require(f.Receiver.RenewalSnapshot is { State: AudioMembershipRenewalState.Failed, Failure: TimeoutException }, "Original renewal failure was hidden.");
+        release.TrySetResult(); var failure = await f.Failure();
+        Require(failure.Reason == (timeout ? AudioStreamingStopReason.AccountRevoked : AudioStreamingStopReason.UserStopped) && failure.CleanupFailures.Count == 0,
+            "Renewal teardown changed stop reason or invented cleanup failure.");
+        f.NativeReleased(); await f.UntilStop(); await f.Lan.Barrier();
     }
 
     private static async Task PeerStop()

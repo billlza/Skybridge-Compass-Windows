@@ -32,6 +32,11 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
     private readonly object _gate = new();
     private readonly LanProductControlSession _session;
     private readonly Func<ILanAudioStreamInbox, CancellationToken, Task<AccountAudioMembershipLease>> _authorize;
+    private readonly Func<ILanAudioStreamInbox, AccountAudioMembershipLease, CancellationToken, Task<AccountAudioMembershipLease>>? _renewMembership;
+    private readonly Func<AudioAuthorizationTime>? _membershipClock;
+    private readonly Func<TimeSpan, CancellationToken, Task>? _renewalDelay;
+    private AudioMembershipRenewal? _renewal;
+    private Task? _renewalTask;
     private readonly Func<CancellationToken, Task<string>> _selectOutput;
     private readonly AudioPlaybackApprovalService _approvals;
     private readonly Func<string, IExclusivePcmDevice> _openDevice;
@@ -72,12 +77,15 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
 
     internal AudioCaptureReceiveSession(LanProductControlSession session,
         Func<ILanAudioStreamInbox, CancellationToken, Task<AccountAudioMembershipLease>> authorize,
+        Func<ILanAudioStreamInbox, AccountAudioMembershipLease, CancellationToken, Task<AccountAudioMembershipLease>>? renewMembership,
         Func<CancellationToken, Task<string>> selectOutput, AudioPlaybackApprovalService approvals,
         Func<string, IExclusivePcmDevice>? openDevice = null, TimeProvider? time = null,
-        AudioOriginalFileReceiveRegistry? originalFiles = null)
+        AudioOriginalFileReceiveRegistry? originalFiles = null, Func<AudioAuthorizationTime>? membershipClock = null,
+        Func<TimeSpan, CancellationToken, Task>? renewalDelay = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _authorize = authorize ?? throw new ArgumentNullException(nameof(authorize));
+        _renewMembership = renewMembership; _membershipClock = membershipClock; _renewalDelay = renewalDelay;
         _selectOutput = selectOutput ?? throw new ArgumentNullException(nameof(selectOutput));
         _approvals = approvals ?? throw new ArgumentNullException(nameof(approvals));
         _openDevice = openDevice ?? OpenNative;
@@ -89,6 +97,7 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
     internal bool FileReleaseConfirmed => _fileTicket is null || _fileTicket.ReleaseConfirmed;
     internal bool ResourcesReleaseConfirmed => NativeReleaseConfirmed && FileReleaseConfirmed;
     internal Exception? Failure => Volatile.Read(ref _failure);
+    internal AudioMembershipRenewalSnapshot? RenewalSnapshot => Volatile.Read(ref _renewal)?.Snapshot;
     // The host must install the actual offer waiter before advertising/using the consumer.
     internal Task ReadyForOffer => _offerReady.Task;
     private static IExclusivePcmDevice OpenNative(string endpoint)
@@ -176,6 +185,9 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
             if (primary is not null && _inbox is { } inbox && !_peerEnded)
                 Try(() => _session.SendAudioStopAsync(inbox, reason, CancellationToken.None).GetAwaiter().GetResult());
             if (_inbox is { } ownedInbox) Try(ownedInbox.Dispose);
+            // Native/file/carrier effects have ended before joining account I/O.
+            // A request ignoring cancellation still belongs to this receive session.
+            if (_renewalTask is { } renewal) Try(() => renewal.GetAwaiter().GetResult(), expectedCancellation: true);
             _scope!.Dispose();
         }
         if (primary is null && cleanup.Count == 0 && receipt is not null && ResourcesReleaseConfirmed)
@@ -231,7 +243,8 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
         _endpoint = AwaitAdmission(_selectOutput(Token), TimeSpan.FromSeconds(5));
         PhaseIs(AudioCaptureReceivePhase.AwaitingApproval);
         _permission = AwaitAdmission(_approvals.RequestAsync(_inbox, membership, _endpoint, Token), TimeSpan.FromSeconds(65));
-        if (source is AudioPlaybackSource.OriginalFile original) return ReceiveFile(original);
+        if (source is AudioPlaybackSource.OriginalFile original) return ReceiveFile(original, membership);
+        StartRenewal(membership);
         var format = source is AudioPlaybackSource.CapturedPcm capturedSource ? capturedSource.Format
             : throw new StreamFailure(AudioStreamingStopReason.UnsupportedSource, "Unsupported audio source type.");
         PhaseIs(AudioCaptureReceivePhase.Preparing); RequireEffect(); RejectPrematureInput();
@@ -297,11 +310,12 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
         }
     }
 
-    private AudioPlaybackReceiveReceipt ReceiveFile(AudioPlaybackSource.OriginalFile source)
+    private AudioPlaybackReceiveReceipt ReceiveFile(AudioPlaybackSource.OriginalFile source, AccountAudioMembershipLease membership)
     {
         RequireEffect(); RejectPrematureInput();
         _fileTicket = (_originalFiles ?? throw new InvalidOperationException("No file receiver is installed.")).Register(
             new AudioOriginalFileAdmission(_session, _inbox!, _permission!, _endpoint!));
+        StartRenewal(membership);
         _writer = new(_session, _inbox!, _permission!, Token, RequireControlDeadline);
         AwaitAdmissionControl(_writer.Queue(new AudioStreamingBody.Accept(0)));
         Volatile.Write(ref _admissionPending, 0);
@@ -436,9 +450,20 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
             _lastCredit = flow.RetiredBytes;
         }
     }
+    private void StartRenewal(AccountAudioMembershipLease membership)
+    {
+        if (_renewMembership is not { } renew) return; // Explicit offline/test configuration; no account request.
+        var inbox = _inbox ?? throw new InvalidOperationException("No renewal stream owner.");
+        membership.RequireInbox(inbox); membership.RequireCurrent();
+        var renewal = new AudioMembershipRenewal(membership, token => renew(inbox, membership, token), _membershipClock, _renewalDelay);
+        Volatile.Write(ref _renewal, renewal);
+        _renewalTask = Task.Run(() => renewal.RunAsync(Token));
+    }
     private void RequireEffect()
     {
         Token.ThrowIfCancellationRequested();
+        if (RenewalSnapshot is { State: AudioMembershipRenewalState.Failed, Failure: { } failure })
+            throw new StreamFailure(AudioStreamingStopReason.AccountRevoked, "Account renewal ended this playback authorization.", failure);
         if (_writer?.Completion.IsCompleted == true) _writer.Completion.GetAwaiter().GetResult();
         if (_creditDelivery?.IsCompleted == true) _creditDelivery.GetAwaiter().GetResult();
         var inbox = _inbox ?? throw new InvalidOperationException("No captured stream owner.");

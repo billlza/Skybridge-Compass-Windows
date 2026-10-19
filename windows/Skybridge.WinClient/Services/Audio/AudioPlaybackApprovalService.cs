@@ -22,18 +22,25 @@ internal sealed class AudioPlaybackApprovalRequest
             throw new InvalidDataException("Playback approval requires an explicit bounded output endpoint ID.");
         membership.RequireInbox(inbox);
         _inbox = inbox; _membership = membership;
+        MembershipId = membership.Evidence.Id;
         Source = inbox.Source; OutputEndpointId = outputEndpointId;
         RequireCurrent();
     }
     internal Guid Id { get; } = Guid.NewGuid();
     internal Guid StreamId => _inbox.StreamId;
     internal string SessionId => _membership.SessionId;
-    internal Guid MembershipId => _membership.Evidence.Id;
+    internal Guid MembershipId { get; }
     internal AudioDeviceIdentity Sender => _membership.Evidence.Peer;
     internal AudioPlaybackSource Source { get; }
     internal string OutputEndpointId { get; }
     internal void RequireCurrent() => _membership.RequireCurrent();
     internal void RequireEffectCurrent() => _membership.RequireEffectCurrent();
+    internal void RequireInitialMembership()
+    {
+        RequireCurrent();
+        if (_membership.Evidence.Id != MembershipId)
+            throw new InvalidDataException("A renewed membership cannot use old consent to create a new playback consumer.");
+    }
     internal void RequireTarget(ILanAudioStreamInbox inbox, AudioPlaybackSource source, string outputEndpointId)
     {
         if (!ReferenceEquals(inbox, _inbox) || source != Source || outputEndpointId != OutputEndpointId)
@@ -42,7 +49,8 @@ internal sealed class AudioPlaybackApprovalRequest
 }
 
 // Only local one-stream consent. Every effect also checks the original membership
-// and stream owner; a new account lease cannot extend or inherit this permission.
+// and stream owner. An explicitly continued lease retains this same consent;
+// a replacement lease, source, connection or output cannot inherit it.
 internal sealed class AudioPlaybackPermission
 {
     private int _revoked;

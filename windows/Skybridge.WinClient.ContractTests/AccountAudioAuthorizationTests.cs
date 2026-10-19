@@ -1,5 +1,7 @@
 using System.Text;
 using System.Text.Json;
+using System.Net;
+using System.Net.Http;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.Services.Audio;
 using Skybridge.WinClient.ViewModels;
@@ -12,6 +14,8 @@ internal static class AccountAudioAuthorizationTests
         ("audio account epoch survives verified same-scope token refresh", RefreshContinuity),
         ("audio account tenant change invalidates the captured refresh requester", TenantChange),
         ("audio account transient refresh failure preserves only existing authorization", TransientRefresh),
+        ("audio auth request retains exact transport causes and allowlists temporary failures", RequestFailureClassification),
+        ("audio credential adapter preserves request failure detail without extending account authority", RenewalCredentialBoundary),
         ("audio account hard refresh rejection revokes even when disk cleanup fails", RejectedRefresh),
         ("audio logout revokes before failed local cleanup and refresh cannot recreate it", FailedSignOut),
         ("audio account failed replacement cannot revive restored UI state", FailedReplacement),
@@ -95,6 +99,67 @@ internal static class AccountAudioAuthorizationTests
         auth.RefreshFailure = null; _ = await owner.GetDeviceAuthenticationAsync(default);
         await Throws<InvalidOperationException>(() => Task.FromResult(owner.RequireAudioAuthorization()));
     }
+    private static async Task RequestFailureClassification()
+    {
+        foreach (var kind in Enum.GetValues<HttpRequestError>())
+        {
+            var cause = new HttpRequestException(kind, "Fixture request failure.");
+            using var http = new HttpClient(new FailureHandler(_ => throw cause));
+            var client = new SupabaseAuthClient(http, "https://audio-account-test.supabase.co", "fixture-public-key");
+            var result = await client.RefreshAsync("fixture-refresh");
+            bool expected = kind is HttpRequestError.NameResolutionError or HttpRequestError.ConnectionError or HttpRequestError.ResponseEnded;
+            Require(ReferenceEquals(result.Failure?.Cause, cause) && result.Failure.StatusCode is null &&
+                AudioMembershipRequestFailure.IsTemporary(result.Failure) == expected,
+                "Auth transport detail was lost or a TLS/protocol/unknown error became retryable.");
+        }
+        foreach (var status in new[] { HttpStatusCode.BadRequest, HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden,
+            HttpStatusCode.RequestTimeout, HttpStatusCode.TooManyRequests, HttpStatusCode.InternalServerError,
+            HttpStatusCode.BadGateway, HttpStatusCode.ServiceUnavailable, HttpStatusCode.GatewayTimeout, HttpStatusCode.NotImplemented })
+        {
+            using var http = new HttpClient(new FailureHandler(_ => Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent("{}") })));
+            var client = new SupabaseAuthClient(http, "https://audio-account-test.supabase.co", "fixture-public-key");
+            var result = await client.RefreshAsync("fixture-refresh");
+            bool expected = (int)status is 408 or 429 or 500 or 502 or 503 or 504;
+            Require(result.Failure?.StatusCode == status && AudioMembershipRequestFailure.IsTemporary(result.Failure) == expected,
+                "Auth HTTP detail was lost or an auth/unknown status became retryable.");
+        }
+        Require(!AudioMembershipRequestFailure.IsTemporary(AuthClientFailure.Create(AuthFailureKind.Network, "unknown")),
+            "An unqualified network label became retryable.");
+        Require(!AudioMembershipRequestFailure.IsTemporary(AuthClientFailure.Create(AuthFailureKind.Timeout, "unknown")),
+            "An unqualified timeout label became retryable.");
+        foreach (var kind in new[] { HttpRequestError.ResponseEnded, HttpRequestError.InvalidResponse, HttpRequestError.Unknown })
+        {
+            var cause = new HttpIOException(kind, "Fixture body failure.");
+            using var http = new HttpClient(new FailureHandler(_ => throw cause));
+            var result = await new SupabaseAuthClient(http, "https://audio-account-test.supabase.co", "fixture-public-key").RefreshAsync("fixture-refresh");
+            Require(ReferenceEquals(result.Failure?.Cause, cause) &&
+                AudioMembershipRequestFailure.IsTemporary(result.Failure) == (kind == HttpRequestError.ResponseEnded),
+                "Auth response truncation was confused with invalid or unknown response data.");
+        }
+    }
+    private static async Task RenewalCredentialBoundary()
+    {
+        foreach (bool temporary in new[] { true, false })
+        {
+            var (owner, auth, _) = await SignedIn(minutes: 4); var epoch = owner.RequireAudioAuthorization();
+            var cause = new HttpRequestException(temporary ? HttpRequestError.ConnectionError : HttpRequestError.SecureConnectionError,
+                "Fixture refresh failure.");
+            auth.RefreshFailure = new(AuthFailureKind.Network, "fixture-refresh-failed") { Cause = cause };
+            Exception observed;
+            try { await owner.GetAudioAuthenticationAsync(epoch, default); throw new Exception("Expected credential failure."); }
+            catch (AudioMembershipRequestUnavailableException error) when (temporary) { observed = error.InnerException ?? throw new Exception("Missing request cause."); }
+            catch (AccountDeviceAuthenticationException error) when (!temporary) { observed = error; }
+            Require(observed is AccountDeviceAuthenticationException detail &&
+                ReferenceEquals(detail.AuthenticationFailure?.Cause, cause) && ReferenceEquals(detail.InnerException, cause),
+                "The audio adapter discarded the exact authentication failure.");
+            Require(epoch.IsCurrent && ReferenceEquals(epoch, owner.RequireAudioAuthorization()),
+                "A failed credential request replaced or extended account authority.");
+        }
+    }
+    private sealed class FailureHandler(Func<CancellationToken, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => respond(cancellationToken);
+    }
     private static async Task FailedSignOut()
     {
         var (owner, auth, storage) = await SignedIn(minutes: 4); var epoch = owner.RequireAudioAuthorization();
@@ -163,10 +228,10 @@ internal static class AccountAudioAuthorizationTests
         public Task<AuthClientResult<AuthToken>> RefreshAsync(string refreshToken)
         {
             RefreshCalls++;
-            return Task.FromResult(RefreshFailure is { } failure ? AuthClientResult<AuthToken>.Failed(failure.Kind, failure.Code) : AuthClientResult<AuthToken>.Success(RefreshedToken));
+            return Task.FromResult(RefreshFailure is { } failure ? AuthClientResult<AuthToken>.Failed(failure.Kind, failure.Code, failure.Cause, failure.StatusCode) : AuthClientResult<AuthToken>.Success(RefreshedToken));
         }
         public Task<AuthClientResult<AuthUser>> GetUserAsync(string token, string? userId = null) => Task.FromResult(
-            UserFailure is { } failure ? AuthClientResult<AuthUser>.Failed(failure.Kind, failure.Code) :
+            UserFailure is { } failure ? AuthClientResult<AuthUser>.Failed(failure.Kind, failure.Code, failure.Cause, failure.StatusCode) :
                 AuthClientResult<AuthUser>.Success(new AuthUser { Id = userId, UserMetadata = new AuthUserMetadata { DisplayName = "Audio fixture" } }));
         public Task<AuthClientResult<AuthSignOutReceipt>> SignOutAsync(string token)
         { SignOutCalls++; BeforeSignOut?.Invoke(); return Task.FromResult(AuthClientResult<AuthSignOutReceipt>.Success(new(true))); }

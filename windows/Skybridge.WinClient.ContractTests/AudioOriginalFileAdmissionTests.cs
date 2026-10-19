@@ -15,6 +15,7 @@ internal static class AudioOriginalFileAdmissionTests
         ("original audio rejects wrong transfer length hash peer and address before consuming its grant", MetadataBinding),
         ("original audio rejects an invalid metadata MAC before private storage", MetadataMac),
         ("original audio permission cannot borrow another MAIN inbox or output", PermissionBinding),
+        ("original audio continuation retains admitted bytes but cannot create another transfer from old consent", ContinuationAdmission),
         ("original audio rechecks revoked approval after a network read before disk effect", RevokedAfterRead),
         ("original audio rejects corrupt authenticated content and consumes only its failed attempt", BadContent),
         ("original audio receipt failure releases private storage and never returns playback input", ReceiptFailure),
@@ -33,6 +34,7 @@ internal static class AudioOriginalFileAdmissionTests
         internal AudioCaptureReceiveSessionTests.Fixture Main { get; }
         internal ILanAudioStreamInbox Inbox { get; }
         internal AudioPlaybackPermission Permission { get; }
+        internal AccountAudioMembershipLease Membership { get; }
         internal AudioOriginalFileAdmission Admission { get; }
         internal ClassicFileMetadata Metadata { get; }
         internal byte[] Key { get; }
@@ -40,9 +42,9 @@ internal static class AudioOriginalFileAdmissionTests
         internal string Root { get; } = Path.Combine(AppContext.BaseDirectory, "original-audio-test-" + Guid.NewGuid().ToString("N"));
         internal string Marker => Path.Combine(Root, "existing.txt");
         private Fixture(AudioCaptureReceiveSessionTests.Fixture main, ILanAudioStreamInbox inbox,
-            AudioPlaybackPermission permission, Guid transfer, TimeSpan? timeout, byte[] bytes)
+            AudioPlaybackPermission permission, AccountAudioMembershipLease membership, Guid transfer, TimeSpan? timeout, byte[] bytes)
         {
-            Main = main; Inbox = inbox; Permission = permission;
+            Main = main; Inbox = inbox; Permission = permission; Membership = membership;
             SourceBytes = bytes;
             Key = ClassicFileTransferWire.DeriveTransferKey(main.Lan.Keys, transfer.ToString("D"));
             Metadata = ClassicFileTransferWire.Authenticate(new ClassicFileMetadata(transfer.ToString("D"), "source.wav", bytes.Length,
@@ -62,8 +64,9 @@ internal static class AudioOriginalFileAdmissionTests
                 await main.Lan.SendAudio(new(main.StreamId, new AudioStreamingBody.FileOffer(transfer, bytes.Length, SHA256.HashData(bytes))));
                 inbox = await accepting;
                 Require((await inbox.ReadAsync(main.Lan.Token)).Body is AudioStreamingBody.FileOffer, "File offer did not reach the actual MAIN reader.");
-                var permission = await main.Approvals.RequestAsync(inbox, main.Lease(inbox), AudioCaptureReceiveSessionTests.Endpoint, main.Caller.Token);
-                return new(main, inbox, permission, transfer, timeout, bytes);
+                var membership = main.Lease(inbox);
+                var permission = await main.Approvals.RequestAsync(inbox, membership, AudioCaptureReceiveSessionTests.Endpoint, main.Caller.Token);
+                return new(main, inbox, permission, membership, transfer, timeout, bytes);
             }
             catch { inbox?.Dispose(); await main.DisposeAsync(); throw; }
         }
@@ -125,6 +128,22 @@ internal static class AudioOriginalFileAdmissionTests
         }
         finally { await artifact.DisposeAsync(); }
         Require(artifact.IsReleased, "File release was not confirmed."); f.RequirePrivateReleased();
+    }
+    private static async Task ContinuationAdmission()
+    {
+        await using var f = await Fixture.Create(); using var wire = await f.Body();
+        var initial = f.Membership.Evidence;
+        f.Main.Clock.Advance(TimeSpan.FromSeconds(1));
+        var fresh = f.Main.Lease(f.Inbox).Evidence;
+        f.Membership.ContinueWith(initial, fresh, default);
+        f.Admission.RequireCurrent();
+        await Throws<InvalidDataException>(() => Task.FromResult(new AudioOriginalFileAdmission(
+            f.Main.Lan.Session, f.Inbox, f.Permission, AudioCaptureReceiveSessionTests.Endpoint)));
+        await using var artifact = await f.Receive(wire);
+        Require(artifact.Length == Bytes.Length && artifact.Sha256Hex == f.Metadata.FileHash,
+            "Renewal changed or prevented the already admitted original-file transfer.");
+        Require(f.Permission.Request.MembershipId == initial.Id && f.Membership.Evidence.Id == fresh.Id,
+            "Continuation rewrote the approval's initial grant identity.");
     }
     private static async Task VerifiedWave()
     {

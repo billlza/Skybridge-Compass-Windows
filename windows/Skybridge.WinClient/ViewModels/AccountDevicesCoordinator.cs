@@ -229,8 +229,9 @@ internal sealed class AccountDevicesCoordinator : INotifyPropertyChanged, IAsync
     }
 }
 
-internal sealed class AccountDeviceAuthenticationException(AccountSessionFailureKind? kind)
-    : Exception("Account request authentication is unavailable.")
+internal sealed class AccountDeviceAuthenticationException(AccountSessionFailureKind? kind, AuthClientFailure? authenticationFailure = null)
+    : Exception("Account request authentication is unavailable.", authenticationFailure?.Cause)
 {
     internal AccountSessionFailureKind? Kind { get; } = kind;
+    internal AuthClientFailure? AuthenticationFailure { get; } = authenticationFailure;
 }

@@ -14,6 +14,14 @@ internal static class AudioAccountMembershipTests
         ("audio membership uses only identity-bound GET and accepts registered offline devices", RequestShape),
         ("audio membership offline reconnect preserves the original finite evidence", OfflineReconnect),
         ("audio membership explicit refresh replaces and revokes previous evidence", Refresh),
+        ("audio membership continuation advances only the exact live consumer", Continuation),
+        ("audio membership continuation retains existing consent without creating new consumers", ContinuationConsent),
+        ("audio membership continuation rejects changed inbox epoch and revoked consumers before HTTP", ContinuationBinding),
+        ("audio membership late renewal cannot resurrect an expired consumer", ContinuationExpiry),
+        ("audio membership revoked consumer and negative observations defeat pending renewal", ContinuationRevocation),
+        ("audio membership continuation cancellation and expiry are checked at publication", ContinuationPublication),
+        ("audio membership failed continuation preserves finite authority without fallback", ContinuationFailure),
+        ("audio membership request retry classification preserves denials and rejects TLS errors", ContinuationRequestFailures),
         ("audio membership expiry and clock rollback are terminal in either time domain", ClockBoundaries),
         ("audio membership rejects stale slow and truncated positive evidence", Freshness),
         ("audio membership distinguishes truncated absence from explicit negative observations", NegativeObservations),
@@ -87,7 +95,7 @@ internal static class AudioAccountMembershipTests
     }
     private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
     { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) => send(request, ct); }
-    private sealed class Fixture : IDisposable
+    internal sealed class Fixture : IDisposable
     {
         internal readonly Clock Clock = new();
         internal readonly AccountDeviceAuthentication Auth = Authentication();
@@ -169,6 +177,145 @@ internal static class AudioAccountMembershipTests
         f.Clock.Advance(1000); var next = await f.Lease(inbox, true);
         Require(next.Evidence.Id != old.Evidence.Id && next.Evidence.Issued == f.Clock.Now && f.HttpCalls == 2, "Explicit refresh did not issue a fresh grant.");
         await Failure(AudioMembershipFailure.Revoked, old.RequireCurrent); next.RequireCurrent();
+    }
+    private static async Task Continuation()
+    {
+        using var f = new Fixture(); using var inbox = new Inbox(f.Binding);
+        var live = await f.Lease(inbox); var previous = live.Evidence;
+        using var otherInbox = new Inbox(Binding()); var other = await f.Lease(otherInbox);
+        Require(ReferenceEquals(other.Evidence, previous), "Fixture did not share the finite cached grant.");
+        f.Clock.Advance(1000);
+        var continued = await f.Provider.RenewAsync(inbox, live, default);
+        Require(ReferenceEquals(live, continued) && live.Evidence.Id != previous.Id &&
+            live.Evidence.Issued == f.Clock.Now && live.Evidence.Expires.WallMilliseconds > previous.Expires.WallMilliseconds &&
+            live.Evidence.Expires.ContinuousMilliseconds > previous.Expires.ContinuousMilliseconds && f.HttpCalls == 2,
+            "Explicit continuation did not atomically advance its original consumer.");
+        live.RequireCurrent(); live.RequireEffectCurrent();
+        await Failure(AudioMembershipFailure.Revoked, other.RequireEffectCurrent);
+        Require(ReferenceEquals((await f.Lease(inbox)).Evidence, live.Evidence), "Cache did not publish the committed continuation.");
+    }
+    private static async Task ContinuationConsent()
+    {
+        using var f = new Fixture(); using var inbox = new Inbox(f.Binding); var live = await f.Lease(inbox);
+        var request = new AudioPlaybackApprovalRequest(inbox, live, "fixture-output");
+        var permission = new AudioPlaybackPermission(request, default, default); var initial = request.MembershipId;
+        request.RequireInitialMembership(); f.Clock.Advance(1000);
+        await f.Provider.RenewAsync(inbox, live, default);
+        permission.RequireCurrent(inbox, inbox.Source, "fixture-output");
+        permission.RequireEffectCurrent(inbox, inbox.Source, "fixture-output");
+        Require(request.MembershipId == initial && initial != live.Evidence.Id, "Renewal rewrote the displayed consent identity.");
+        await Throws<InvalidDataException>(() => Check(request.RequireInitialMembership));
+        await Throws<InvalidDataException>(() => Check(() => permission.RequireCurrent(inbox, inbox.Source, "other-output")));
+        permission.Revoke();
+        await Throws<AudioPlaybackApprovalException>(() => Check(() => permission.RequireEffectCurrent(inbox, inbox.Source, "fixture-output")));
+    }
+    private static async Task ContinuationBinding()
+    {
+        foreach (string mode in new[] { "inbox", "epoch", "revoked", "closed" })
+        {
+            using var f = new Fixture(); using var inbox = new Inbox(f.Binding); var live = await f.Lease(inbox);
+            using var otherInbox = new Inbox(f.Binding);
+            if (mode == "epoch") f.Epoch = new(f.Epoch.Scope);
+            if (mode == "revoked") live.Revoke();
+            if (mode == "closed") inbox.Dispose();
+            f.Clock.Advance(1000);
+            Func<Task> renew = () => f.Provider.RenewAsync(mode == "inbox" ? otherInbox : inbox, live, default);
+            if (mode == "inbox") await Throws<InvalidDataException>(renew);
+            else if (mode == "epoch") await Failure(AudioMembershipFailure.ScopeChanged, renew);
+            else if (mode == "revoked") await Failure(AudioMembershipFailure.Revoked, renew);
+            else await Throws<InvalidOperationException>(renew);
+            Require(f.HttpCalls == 1 && f.AuthCalls == 1, "A foreign or ended consumer began a new account request.");
+        }
+    }
+    private static async Task ContinuationExpiry()
+    {
+        using var f = new Fixture(); using var inbox = new Inbox(f.Binding); var live = await f.Lease(inbox); var previous = live.Evidence;
+        f.Clock.Advance(AudioAccountMembershipEvidence.MaximumLifetimeMilliseconds - 1000);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        f.Respond = async ct => { entered.SetResult(); await release.Task.WaitAsync(ct); return Reply(f.Body()); };
+        var pending = f.Provider.RenewAsync(inbox, live, default); await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        f.Clock.Advance(2000); release.SetResult();
+        await Failure(AudioMembershipFailure.Expired, () => pending);
+        Require(ReferenceEquals(previous, live.Evidence), "Late fresh evidence resurrected the expired consumer.");
+        await Failure(AudioMembershipFailure.Expired, live.RequireEffectCurrent);
+    }
+    private static async Task ContinuationRevocation()
+    {
+        foreach (string mode in new[] { "consumer", "removal", "negative" })
+        {
+            using var f = new Fixture(); using var inbox = new Inbox(f.Binding); var live = await f.Lease(inbox); var previous = live.Evidence;
+            f.Clock.Advance(1000);
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            string positive = f.Body();
+            f.Respond = async ct => {
+                if (f.HttpCalls == 2) { entered.SetResult(); await release.Task.WaitAsync(ct); return Reply(positive); }
+                return Reply(f.Body());
+            };
+            var pending = f.Provider.RenewAsync(inbox, live, default); await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            if (mode == "consumer") live.Revoke();
+            else if (mode == "removal") f.Provider.Removed(f.Epoch, Entry(Peer(f.Binding)));
+            else { f.Rows[1]["status"] = "frozen"; f.Provider.ObserveFresh(f.Epoch, await f.Observe()); }
+            release.SetResult();
+            if (mode == "consumer") await Failure(AudioMembershipFailure.Revoked, () => pending);
+            else await Throws<InvalidOperationException>(() => pending);
+            Require(ReferenceEquals(previous, live.Evidence), "A rejected continuation changed its consumer's grant.");
+            await Failure(AudioMembershipFailure.Revoked, live.RequireEffectCurrent);
+        }
+    }
+    private static async Task ContinuationPublication()
+    {
+        foreach (bool cancel in new[] { true, false })
+        {
+            using var f = new Fixture(); using var inbox = new Inbox(f.Binding); var live = await f.Lease(inbox); var previous = live.Evidence;
+            f.Clock.Advance(1000);
+            var replacement = AudioAccountMembershipEvidence.Create(await f.Observe(), Local(f.Binding), Peer(f.Binding));
+            using var source = new CancellationTokenSource();
+            // Change state on the final handoff clock read, after its earlier consumer check.
+            f.Clock.OnRead = () => f.Clock.OnRead = () => { if (cancel) source.Cancel(); else f.Clock.Now = previous.Expires; };
+            if (cancel) await Throws<OperationCanceledException>(() => Check(() => live.ContinueWith(previous, replacement, source.Token)));
+            else await Failure(AudioMembershipFailure.Expired, () => Check(() => live.ContinueWith(previous, replacement, source.Token)));
+            Require(ReferenceEquals(previous, live.Evidence), "Canceled or expired publication replaced the finite grant.");
+            if (cancel) live.RequireEffectCurrent(); else await Failure(AudioMembershipFailure.Expired, live.RequireEffectCurrent);
+        }
+    }
+    private static async Task ContinuationFailure()
+    {
+        using var f = new Fixture(); using var inbox = new Inbox(f.Binding); var live = await f.Lease(inbox); var previous = live.Evidence;
+        f.Clock.Advance(1000);
+        var failure = new HttpRequestException("Fixture unavailable.");
+        f.Respond = _ => throw failure;
+        var observed = await Throws<HttpRequestException>(() => f.Provider.RenewAsync(inbox, live, default));
+        Require(ReferenceEquals(failure, observed) && ReferenceEquals(previous, live.Evidence) && f.HttpCalls == 2,
+            "Failed continuation swallowed its cause, retried or changed the finite expiry.");
+        live.RequireEffectCurrent(); f.Clock.Now = previous.Expires;
+        await Failure(AudioMembershipFailure.Expired, live.RequireEffectCurrent);
+    }
+    private static async Task ContinuationRequestFailures()
+    {
+        foreach (string mode in new[] { "connection", "tls", "503", "401", "revoked-503", "identity-503", "json" })
+        {
+            using var f = new Fixture(); using var inbox = new Inbox(f.Binding); var live = await f.Lease(inbox); var previous = live.Evidence;
+            f.Clock.Advance(1000);
+            var transport = new HttpRequestException(mode == "tls" ? HttpRequestError.SecureConnectionError : HttpRequestError.ConnectionError,
+                "Fixture account query failed.");
+            f.Respond = _ => mode is "connection" or "tls" ? throw transport : Task.FromResult(
+                mode == "json" ? Reply("{invalid") : Reply(JsonSerializer.Serialize(new { error = mode == "revoked-503" ? "device_revoked" : mode == "identity-503" ? "current_identity_mismatch" : "fixture-unavailable" }),
+                mode == "401" ? HttpStatusCode.Unauthorized : HttpStatusCode.ServiceUnavailable));
+            Func<Task> renew = () => f.Provider.RenewAsync(inbox, live, default);
+            if (mode is "connection" or "503")
+            {
+                var failure = await Throws<AudioMembershipRequestUnavailableException>(renew);
+                Require(mode == "connection" ? ReferenceEquals(failure.InnerException, transport) : failure.InnerException is CurrentPathSignalServerException,
+                    "Temporary renewal lost its original request cause.");
+            }
+            else if (mode == "tls") Require(ReferenceEquals(transport, await Throws<HttpRequestException>(renew)), "TLS failure was rewritten.");
+            else if (mode == "json") await Throws<InvalidDataException>(renew);
+            else await Throws<CurrentPathSignalServerException>(renew);
+            Require(f.HttpCalls == 2 && ReferenceEquals(previous, live.Evidence), "Failed renewal retried or extended its grant.");
+            if (mode == "revoked-503") await Failure(AudioMembershipFailure.Revoked, live.RequireCurrent); else live.RequireCurrent();
+        }
     }
     private static async Task ClockBoundaries()
     {

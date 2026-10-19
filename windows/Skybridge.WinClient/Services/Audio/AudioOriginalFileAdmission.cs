@@ -30,6 +30,7 @@ internal sealed class AudioOriginalFileAdmission
             ?? throw new InvalidDataException("Original-file admission requires its exact file offer.");
         if (Source.Length > ClassicFileTransferWire.MaximumFileBytes)
             throw new InvalidDataException("The file exceeds the current classic receive limit.");
+        permission.Request.RequireInitialMembership();
         RequireCurrent();
     }
     internal AudioPlaybackSource.OriginalFile Source { get; }

@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -61,6 +62,10 @@ public enum AuthFailureKind
 
 public sealed record AuthClientFailure(AuthFailureKind Kind, string Code)
 {
+    // Retain transport detail in memory so request adapters need not guess that
+    // every Network/HttpFailure is retryable. Never persist exception contents.
+    [JsonIgnore] public Exception? Cause { get; init; }
+    public HttpStatusCode? StatusCode { get; init; }
     public static AuthClientFailure Create(AuthFailureKind kind, string code) => new(kind, code);
 }
 
@@ -85,8 +90,9 @@ public sealed record AuthClientResult<T>
         return new(value, null);
     }
 
-    public static AuthClientResult<T> Failed(AuthFailureKind kind, string code) =>
-        new(default, AuthClientFailure.Create(kind, code));
+    public static AuthClientResult<T> Failed(AuthFailureKind kind, string code,
+        Exception? cause = null, HttpStatusCode? statusCode = null) =>
+        new(default, new(kind, code) { Cause = cause, StatusCode = statusCode });
 }
 
 public sealed record AuthSignOutReceipt(bool ServerRevoked);

@@ -1974,4 +1974,9 @@
   <data name="AudioConnectionQrNotice.Title" xml:space="preserve"><value>连接二维码暂不可用</value></data>
   <data name="AudioConnectionQrNotice.Message" xml:space="preserve"><value>请检查网络后重试。所选网络发生变化时，请停止接收后重新选择网络。</value></data>
   <data name="AudioConnectionQrRetry.Content" xml:space="preserve"><value>重试二维码</value></data>
+  <data name="AudioRenewalChecking" xml:space="preserve"><value>正在更新账号设备授权…</value></data>
+  <data name="AudioRenewalPending" xml:space="preserve"><value>暂时无法续期，现有授权到期前可继续播放。</value></data>
+  <data name="AudioRenewalFailed" xml:space="preserve"><value>账号设备授权续期失败，正在停止播放。</value></data>
+  <data name="AudioRenewalValid" xml:space="preserve"><value>账号设备授权有效。</value></data>
+  <data name="AudioRenewalExpiry" xml:space="preserve"><value>有效至 {0:g}。</value></data>
 </root>

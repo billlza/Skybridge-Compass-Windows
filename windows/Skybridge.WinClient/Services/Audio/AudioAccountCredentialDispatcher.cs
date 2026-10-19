@@ -36,7 +36,7 @@ internal sealed class AudioAccountCredentialDispatcher : IAsyncDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_closed, this);
-            if (_pending is not null) throw new InvalidOperationException("An audio account callback is still queued or executing.");
+            if (_pending is not null) throw new AudioMembershipRequestBusyException();
             request = new(epoch, token); _pending = request;
         }
         using var registration = token.Register(() =>
