@@ -43,7 +43,8 @@ internal static class CommitExperiment
                 using (var reader = sharing is { } share ? new FileStream(Head(directory), FileMode.Open, FileAccess.Read, share) : null)
                 {
                     try { Attempt(); committed = true; }
-                    catch (IOException error) { errorCode = error.InnerException is Win32Exception native ? native.NativeErrorCode : error.HResult; }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                    { errorCode = error.InnerException is Win32Exception native ? native.NativeErrorCode : error.HResult; }
                     if (reader is not null)
                     {
                         var bytes = new byte[checked((int)reader.Length)]; reader.ReadExactly(bytes);
@@ -156,14 +157,31 @@ internal static class CommitExperiment
                     [Environment.ProcessId, holder.Id], native.NativeErrorCode));
             }
 
-            current = "reader-keeps-old-complete-record-across-replacement";
+            foreach (var sharing in new[] { FileShare.Read | FileShare.Delete, FileShare.ReadWrite | FileShare.Delete })
             {
+                current = "open-target-" + sharing;
                 var directory = NewCase(current); Prepare(directory, "original"); Commit(directory);
-                using var reader = new FileStream(Head(directory), FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
-                Prepare(directory, "replacement"); Commit(directory);
-                var bytes = new byte[checked((int)reader.Length)]; reader.ReadExactly(bytes);
-                RequireEncryptedValue(bytes, "original"); RequireValue(Head(directory), "replacement");
-                Record(new(current, "old open handle and new canonical path each expose one complete authenticated record", [Environment.ProcessId]));
+                int nativeError;
+                using (var reader = new FileStream(Head(directory), FileMode.Open, FileAccess.Read, sharing))
+                {
+                    Prepare(directory, "replacement");
+                    IOException? rejected = null;
+                    try { Commit(directory); }
+                    catch (IOException error) { rejected = error; }
+                    if (rejected?.InnerException is not Win32Exception native || native.NativeErrorCode == 0)
+                        throw new InvalidOperationException("A standard rename must reject an existing open target.", rejected);
+                    nativeError = native.NativeErrorCode;
+                    var bytes = new byte[checked((int)reader.Length)]; reader.ReadExactly(bytes);
+                    RequireEncryptedValue(bytes, "original"); RequireValue(Head(directory), "original");
+                    RequireValue(Temporary(directory), "replacement");
+                }
+                // FILE_SHARE_DELETE is not FILE_RENAME_POSIX_SEMANTICS. The
+                // baseline File.Move comparison also rejects this open target.
+                // Require the original failure, preserved records, and a new
+                // successful attempt only after the reader closes.
+                Commit(directory); RequireValue(Head(directory), "replacement");
+                Record(new(current, "open target rejected with both records intact; replacement succeeds after reader closes",
+                    [Environment.ProcessId], nativeError));
             }
 
             current = "cross-process-file-lease-released-after-holder-termination";
