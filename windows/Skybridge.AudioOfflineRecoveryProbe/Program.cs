@@ -21,6 +21,11 @@ if (args is ["--commit-run", var commitResultDirectory])
     await CommitExperiment.RunAsync(commitResultDirectory);
     return;
 }
+if (args is ["--observe-rename-sharing", var sharingResultDirectory])
+{
+    CommitExperiment.ObserveSharing(sharingResultDirectory);
+    return;
+}
 if (args is ["--write", var writeFolder, var writeCase])
 {
     Probe.Write(writeFolder, writeCase);

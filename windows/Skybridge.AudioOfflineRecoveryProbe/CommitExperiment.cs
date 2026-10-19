@@ -14,6 +14,62 @@ namespace Skybridge.AudioOfflineRecoveryProbe;
 internal static class CommitExperiment
 {
     private sealed record Result(string Name, string Observation, int[] ProcessIds, int? NativeError = null);
+    private sealed record SharingObservation(string Method, string Sharing, bool CommitReturnedSuccess, int? ErrorCode,
+        string CanonicalValue, string? HeldReaderValue, bool PreparedFileRemained, bool CompletedAfterReaderClosed);
+
+    // A controlled comparison, not acceptance of either success or failure as
+    // product qualification. Run before the strict assertion to preserve the
+    // old File.Move behavior under the same native reader-sharing conditions.
+    internal static void ObserveSharing(string resultDirectory)
+    {
+        resultDirectory = Path.GetFullPath(resultDirectory);
+        if (Directory.Exists(resultDirectory) || File.Exists(resultDirectory)) throw new IOException("Use a new sharing-observation directory.");
+        Directory.CreateDirectory(resultDirectory);
+        List<SharingObservation> observations = [];
+        string? failure = null;
+        try
+        {
+            foreach (var method in new[] { "previous-File.Move", "product-write-through" })
+            foreach (FileShare? sharing in new FileShare?[] { null, FileShare.Read | FileShare.Delete, FileShare.ReadWrite | FileShare.Delete })
+            {
+                var directory = Directory.CreateDirectory(Path.Combine(resultDirectory, method + "-" + (sharing?.ToString() ?? "closed"))).FullName;
+                Prepare(directory, "original"); Commit(directory); Prepare(directory, "replacement");
+                bool committed = false; int? errorCode = null; string? heldValue = null;
+                void Attempt()
+                {
+                    if (method == "previous-File.Move") File.Move(Temporary(directory), Head(directory), overwrite: true);
+                    else Commit(directory);
+                }
+                using (var reader = sharing is { } share ? new FileStream(Head(directory), FileMode.Open, FileAccess.Read, share) : null)
+                {
+                    try { Attempt(); committed = true; }
+                    catch (IOException error) { errorCode = error.InnerException is Win32Exception native ? native.NativeErrorCode : error.HResult; }
+                    if (reader is not null)
+                    {
+                        var bytes = new byte[checked((int)reader.Length)]; reader.ReadExactly(bytes);
+                        heldValue = ReadEncryptedValue(bytes);
+                        Require(heldValue == "original", "An open reader observed a partial or replaced record.");
+                    }
+                    RequireValue(Head(directory), committed ? "replacement" : "original");
+                    if (!committed) RequireValue(Temporary(directory), "replacement");
+                    Require(File.Exists(Temporary(directory)) != committed, "Observed commit has inconsistent prepared-file ownership.");
+                }
+                if (!committed) { Attempt(); RequireValue(Head(directory), "replacement"); }
+                observations.Add(new(method, sharing?.ToString() ?? "closed", committed, errorCode,
+                    committed ? "replacement" : "original", heldValue, !committed, true));
+            }
+        }
+        catch (Exception error) { failure = error.ToString(); throw; }
+        finally
+        {
+            File.WriteAllBytes(Path.Combine(resultDirectory, "sharing-observations.json"), JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                kind = "native-rename-sharing-comparison", runtime = RuntimeInformation.FrameworkDescription,
+                operatingSystem = RuntimeInformation.OSDescription, observations, failure,
+                qualification = "observations only; strict commit experiment remains a separate gate"
+            }, new JsonSerializerOptions { WriteIndented = true }));
+        }
+    }
 
     internal static void Child(string directory, string operation)
     {
@@ -157,9 +213,16 @@ internal static class CommitExperiment
     private static void Commit(string directory) => AtomicSessionFileCommitter.Instance.Commit(Temporary(directory), Head(directory));
     private static void RequireValue(string path, string value) => RequireEncryptedValue(File.ReadAllBytes(path), value);
     private static void RequireEncryptedValue(byte[] bytes, string value)
+        => Require(ReadEncryptedValue(bytes) == value, "The canonical record was incomplete or unexpected.");
+    private static string ReadEncryptedValue(byte[] bytes)
     {
         var plaintext = ProtectedData.Unprotect(bytes, null, DataProtectionScope.CurrentUser);
-        try { Require(plaintext.AsSpan().SequenceEqual(Payload(value)), "The canonical record was incomplete or unexpected."); }
+        try
+        {
+            foreach (var value in new[] { "original", "replacement" })
+                if (plaintext.AsSpan().SequenceEqual(Payload(value))) return value;
+            throw new InvalidDataException("The synthetic record has unexpected plaintext.");
+        }
         finally { CryptographicOperations.ZeroMemory(plaintext); }
     }
     private static void WaitAtBarrier(string message)

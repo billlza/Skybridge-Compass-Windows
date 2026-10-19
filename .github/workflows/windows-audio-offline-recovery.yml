@@ -39,6 +39,9 @@ jobs:
           dotnet run --project windows/Skybridge.AudioOfflineRecoveryProbe/AudioOfflineRecoveryProbe.csproj -c Release --no-build --no-restore -- --run artifacts/audio-offline-continuity/native 2>&1 |
             Tee-Object -FilePath artifacts/audio-offline-continuity/run.log
           if ($LASTEXITCODE -ne 0) { throw 'Native continuity experiment failed.' }
+          dotnet run --project windows/Skybridge.AudioOfflineRecoveryProbe/AudioOfflineRecoveryProbe.csproj -c Release --no-build --no-restore -- --observe-rename-sharing artifacts/audio-offline-continuity/sharing 2>&1 |
+            Tee-Object -FilePath artifacts/audio-offline-continuity/sharing-run.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native rename-sharing observation failed.' }
           dotnet run --project windows/Skybridge.AudioOfflineRecoveryProbe/AudioOfflineRecoveryProbe.csproj -c Release --no-build --no-restore -- --commit-run artifacts/audio-offline-continuity/commit 2>&1 |
             Tee-Object -FilePath artifacts/audio-offline-continuity/commit-run.log
           if ($LASTEXITCODE -ne 0) { throw 'Native protected commit experiment failed.' }
