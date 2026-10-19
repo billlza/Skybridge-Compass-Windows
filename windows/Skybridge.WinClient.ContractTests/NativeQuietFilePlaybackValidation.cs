@@ -228,7 +228,58 @@ internal static class NativeQuietFilePlaybackValidation
         public int SourceReads;
         public int Submissions, RefillSubmissions, SubmittedBytes;
         public int Starts, StartNotifications, Stops, ClientReleases, DeviceReleases;
+        public int? FormatSupportResult, InitializeResult;
+        public long? RequestedBufferDuration100Nanoseconds, StreamLatency100Nanoseconds;
+        public uint? NativeBufferFrames;
+        public long PostStartQueueReads, PostStartClockReads, PostStartPreciseClockReads;
+        public uint? MinimumPostStartQueuedFrames, MaximumPostStartQueuedFrames, LastQueuedFrames;
+        public ulong? FirstPostStartPrecisePosition, LastPostStartPrecisePosition;
+        public long CompletedPacingWaits;
+        public double TotalPacingWaitMilliseconds, MaximumPacingWaitMilliseconds;
+        public double? StartElapsedMilliseconds, StopElapsedMilliseconds;
+        public int OmittedProgressSamples;
+        public List<NativeProgress> ProgressSamples { get; } = new(128);
+        public NativeProgress? LastProgress { get; private set; }
+        private readonly long _started = Stopwatch.GetTimestamp();
+        private long _lastSample;
+        public double ElapsedMilliseconds => Stopwatch.GetElapsedTime(_started).TotalMilliseconds;
+
+        public void ObserveQueue(uint queued)
+        {
+            LastQueuedFrames = queued;
+            if (Starts == 0 || Stops != 0) return;
+            PostStartQueueReads++;
+            MinimumPostStartQueuedFrames = MinimumPostStartQueuedFrames is { } minimum ? Math.Min(minimum, queued) : queued;
+            MaximumPostStartQueuedFrames = MaximumPostStartQueuedFrames is { } maximum ? Math.Max(maximum, queued) : queued;
+        }
+
+        public void ObserveClock(int result, ulong position, ulong frequency)
+        {
+            bool afterStart = Starts != 0 && Stops == 0;
+            if (afterStart)
+            {
+                PostStartClockReads++;
+                if (result == 0)
+                {
+                    PostStartPreciseClockReads++;
+                    FirstPostStartPrecisePosition ??= position;
+                    LastPostStartPrecisePosition = position;
+                }
+            }
+            long now = Stopwatch.GetTimestamp();
+            var sample = new NativeProgress(Stopwatch.GetElapsedTime(_started, now).TotalMilliseconds,
+                afterStart, LastQueuedFrames, result, position, frequency);
+            LastProgress = sample;
+            // Raw clock results and the preceding queue read are diagnostic observations,
+            // not an atomic hardware snapshot. Do not change any product clock acceptance.
+            if (ProgressSamples.Count != 0 && Stopwatch.GetElapsedTime(_lastSample, now) < TimeSpan.FromMilliseconds(100)) return;
+            _lastSample = now;
+            if (ProgressSamples.Count < 128) ProgressSamples.Add(sample);
+            else OmittedProgressSamples++;
+        }
     }
+    private readonly record struct NativeProgress(double ElapsedMilliseconds, bool AfterStart,
+        uint? PrecedingQueuedFrames, int ClockResult, ulong Position, ulong Frequency);
     private sealed class ObservedDevice(IExclusivePcmDevice device, byte[] source, Observation observation) : IExclusivePcmDevice
     {
         public IExclusivePcmClient Activate() => new ObservedClient(device.Activate(), source, observation);
@@ -236,13 +287,35 @@ internal static class NativeQuietFilePlaybackValidation
     }
     private sealed class ObservedClient(IExclusivePcmClient client, byte[] source, Observation observation) : IExclusivePcmClient
     {
-        public int IsExactFormatSupported(ExactPcmFormat format) => client.IsExactFormatSupported(format);
-        public int Initialize(ExactPcmFormat format, long bufferDuration100Nanoseconds) => client.Initialize(format, bufferDuration100Nanoseconds);
-        public uint GetBufferFrames() => client.GetBufferFrames();
-        public int GetStreamLatency(out long latency100Nanoseconds) => client.GetStreamLatency(out latency100Nanoseconds);
+        public int IsExactFormatSupported(ExactPcmFormat format)
+        {
+            int result = client.IsExactFormatSupported(format); observation.FormatSupportResult = result; return result;
+        }
+        public int Initialize(ExactPcmFormat format, long bufferDuration100Nanoseconds)
+        {
+            observation.RequestedBufferDuration100Nanoseconds = bufferDuration100Nanoseconds;
+            int result = client.Initialize(format, bufferDuration100Nanoseconds); observation.InitializeResult = result; return result;
+        }
+        public uint GetBufferFrames()
+        {
+            uint frames = client.GetBufferFrames(); observation.NativeBufferFrames = frames; return frames;
+        }
+        public int GetStreamLatency(out long latency100Nanoseconds)
+        {
+            int result = client.GetStreamLatency(out latency100Nanoseconds);
+            if (result == 0) observation.StreamLatency100Nanoseconds = latency100Nanoseconds;
+            return result;
+        }
         public void Prepare() => client.Prepare();
-        public uint GetQueuedFrames() => client.GetQueuedFrames();
-        public int GetClockPosition(out ulong position, out ulong frequency) => client.GetClockPosition(out position, out frequency);
+        public uint GetQueuedFrames()
+        {
+            uint queued = client.GetQueuedFrames(); observation.ObserveQueue(queued); return queued;
+        }
+        public int GetClockPosition(out ulong position, out ulong frequency)
+        {
+            int result = client.GetClockPosition(out position, out frequency);
+            observation.ObserveClock(result, position, frequency); return result;
+        }
         public void Submit(byte[] bytes, int offset, int count, uint frames)
         {
             if (count <= 0 || observation.SubmittedBytes > source.Length - count ||
@@ -252,9 +325,16 @@ internal static class NativeQuietFilePlaybackValidation
             observation.SubmittedBytes += count; observation.Submissions++;
             if (observation.Starts != 0) observation.RefillSubmissions++;
         }
-        public void Start() { client.Start(); observation.Starts++; }
-        public void WaitForProgress(TimeSpan delay, CancellationToken cancellationToken) => client.WaitForProgress(delay, cancellationToken);
-        public void Stop() { client.Stop(); observation.Stops++; }
+        public void Start() { client.Start(); observation.Starts++; observation.StartElapsedMilliseconds = observation.ElapsedMilliseconds; }
+        public void WaitForProgress(TimeSpan delay, CancellationToken cancellationToken)
+        {
+            long started = Stopwatch.GetTimestamp();
+            client.WaitForProgress(delay, cancellationToken);
+            double elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            observation.CompletedPacingWaits++; observation.TotalPacingWaitMilliseconds += elapsed;
+            observation.MaximumPacingWaitMilliseconds = Math.Max(observation.MaximumPacingWaitMilliseconds, elapsed);
+        }
+        public void Stop() { client.Stop(); observation.Stops++; observation.StopElapsedMilliseconds = observation.ElapsedMilliseconds; }
         public void Dispose() { client.Dispose(); observation.ClientReleases++; }
     }
 }
