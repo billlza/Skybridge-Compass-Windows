@@ -90,4 +90,23 @@ zero compiler warnings/errors. These counts overlap and are not physical output
 evidence. Replacing only the session disposal method with the preceding logic
 reproduces failed key erasure under an injected carrier release error; restoring
 the corrected method passes the same test. Both the counterexample and successful
-rerun are retained. Windows-native validation of this integration is still pending.
+rerun are retained.
+
+At source commit `ac4668d35a51990e3098ecce5bb16ba4a447ba44`, Windows-native carrier
+run [39449870945](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/39449870945)
+passes all 37 cases. All eight recorded source inputs match the committed files
+with their exact Windows checkout line endings, and all 192 package files match
+their manifest. Archive SHA-256:
+`a90df41ee188dbcdbb8e23da0555b24ac3693232d345402f57ab77f04feef9a7`.
+
+The complete client run
+[39450247566](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/39450247566)
+passes the native WinUI build, complete product contract suite (877 PASS records,
+including the new key-erasure check), 21 QR image vectors through the Android
+decoder, and interactive launch/control checks with 14 workspace captures.
+Client and contract builds report zero compiler warnings/errors. The full workflow
+**fails** its existing online SDK freshness gate: the project pins Windows App SDK
+2.3.1 while the gate finds stable 2.5.1. The same failure occurs in preceding run
+39384990653. Later portability and Rust coverage gates therefore remain incomplete.
+No actual Windows Apple service, authenticated USB device session or hardware
+audio playback is verified by these runs.
