@@ -396,14 +396,28 @@ try {
         $beforePair = Read-UsbFixtureReceipt (Join-Path $UsbFixtureDirectory 'observations.json')
         $pair = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId 'Skybridge.Usb.Pair'
         $pair.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-        [void](Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId 'Skybridge.Account.SignInOverlay')
+        # The custom UserControl itself has no UIA peer. Require the actual
+        # interactive sign-in controls observed in the native automation tree.
+        $signInAnchors = @('EmailInput', 'PasswordInput', 'EmailSignInButton', 'Skybridge.Account.ContinueAsGuest')
+        foreach ($anchor in $signInAnchors) {
+            [void](Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId $anchor)
+        }
         [void](Save-WindowScreenshot -Window $window -Path (Join-Path $EvidenceDir 'usb-pair-signin.png'))
         $guest = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId 'Skybridge.Account.ContinueAsGuest'
         $guest.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-        $overlay = Find-ByAutomationId -Root $window -AutomationId 'Skybridge.Account.SignInOverlay'
-        Assert-True ($null -eq $overlay -or $overlay.Current.IsOffscreen) 'The sign-in overlay did not dismiss.'
+        $dismissLimit = [DateTimeOffset]::UtcNow.AddSeconds(10)
+        do {
+            $visibleSignIn = @($signInAnchors | ForEach-Object {
+                $element = Find-ByAutomationId -Root $window -AutomationId $_
+                if ($null -ne $element -and -not $element.Current.IsOffscreen) { $_ }
+            })
+            if ($visibleSignIn.Count -eq 0) { break }
+            Start-Sleep -Milliseconds 100
+        } while ([DateTimeOffset]::UtcNow -lt $dismissLimit)
+        Assert-True ($visibleSignIn.Count -eq 0) 'The sign-in controls did not dismiss.'
         $pair = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId 'Skybridge.Usb.Pair'
         Assert-True $pair.Current.IsEnabled 'Dismissing sign-in left USB pairing disabled.'
+        [void](Save-WindowScreenshot -Window $window -Path (Join-Path $EvidenceDir 'usb-pair-return.png'))
         $afterPair = Read-UsbFixtureReceipt (Join-Path $UsbFixtureDirectory 'observations.json')
         Assert-True ($afterPair.responses -eq $beforePair.responses -and $afterPair.earlyCloses -eq $beforePair.earlyCloses) 'Signed-out pairing touched the USB carrier.'
         @{
@@ -411,6 +425,7 @@ try {
             states = $usbStates.ToArray(); actualAppleService = $false; actualUsbDevice = $false
             authenticatedSession = $false; audioPlayed = $false
             pairingEntryVisible = $true; signInRequired = $true; trustCreated = $false
+            signInControlsObserved = $signInAnchors; signInDismissed = $true
         } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'usb-discovery-ui.json')
     }
 
