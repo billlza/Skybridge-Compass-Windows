@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using Skybridge.WinClient.Services.FileTransfer;
+using Skybridge.WinClient.Services.Connection;
 
 namespace Skybridge.WinClient.Services.Audio;
 
@@ -55,7 +56,20 @@ internal sealed class AudioOriginalFileAdmission
     private byte[] AuthorizeMetadata(ClassicFileMetadata metadata, IPAddress remoteAddress)
     {
         RequireCurrent();
-        var key = _session.AuthorizeIncomingTransfer(metadata, remoteAddress);
+        return BindMetadata(metadata, _session.AuthorizeIncomingTransfer(metadata, remoteAddress));
+    }
+    internal void ValidateIncomingUsbMetadata(ClassicFileMetadata metadata, UsbControlRoute route)
+    {
+        var key = AuthorizeUsbMetadata(metadata, route);
+        CryptographicOperations.ZeroMemory(key);
+    }
+    private byte[] AuthorizeUsbMetadata(ClassicFileMetadata metadata, UsbControlRoute route)
+    {
+        RequireCurrent();
+        return BindMetadata(metadata, _session.AuthorizeUsbIncomingTransfer(metadata, route));
+    }
+    private byte[] BindMetadata(ClassicFileMetadata metadata, byte[] key)
+    {
         try
         {
             if (!Guid.TryParseExact(metadata.TransferId, "D", out var transfer) || transfer != Source.TransferId ||
@@ -68,20 +82,28 @@ internal sealed class AudioOriginalFileAdmission
 
     // The listener retains and awaits this actual producer during cancellation.
     // No registered capability or network endpoint is implied by creating admission.
-    internal async Task<AudioOriginalFileArtifact> ReceiveAsync(Stream network, ClassicFileMetadata metadata,
-        IPAddress remoteAddress, string privateDirectory, CancellationToken token)
+    internal Task<AudioOriginalFileArtifact> ReceiveAsync(Stream network, ClassicFileMetadata metadata,
+        IPAddress remoteAddress, string privateDirectory, CancellationToken token) =>
+        ReceiveScopedAsync(network, metadata, () => AuthorizeMetadata(metadata, remoteAddress), privateDirectory, token);
+
+    internal Task<AudioOriginalFileArtifact> ReceiveUsbAsync(Stream stream, ClassicFileMetadata metadata,
+        UsbControlRoute route, string privateDirectory, CancellationToken token) =>
+        ReceiveScopedAsync(stream, metadata, () => AuthorizeUsbMetadata(metadata, route), privateDirectory, token);
+
+    private async Task<AudioOriginalFileArtifact> ReceiveScopedAsync(Stream network, ClassicFileMetadata metadata,
+        Func<byte[]> authorizeMetadata, string privateDirectory, CancellationToken token)
     {
         using var scope = CancellationTokenSource.CreateLinkedTokenSource(token, _session.Lifetime);
         scope.CancelAfter(_transferTimeout);
-        try { return await ReceiveCoreAsync(network, metadata, remoteAddress, privateDirectory, scope.Token).ConfigureAwait(false); }
+        try { return await ReceiveCoreAsync(network, metadata, authorizeMetadata, privateDirectory, scope.Token).ConfigureAwait(false); }
         catch (OperationCanceledException error) when (!token.IsCancellationRequested && !_session.Lifetime.IsCancellationRequested && scope.IsCancellationRequested)
         { throw new TimeoutException("The original audio file exceeded its transfer deadline.", error); }
     }
     private async Task<AudioOriginalFileArtifact> ReceiveCoreAsync(Stream network, ClassicFileMetadata metadata,
-        IPAddress remoteAddress, string privateDirectory, CancellationToken token)
+        Func<byte[]> authorizeMetadata, string privateDirectory, CancellationToken token)
     {
         token.ThrowIfCancellationRequested(); RequireCurrent();
-        var key = AuthorizeMetadata(metadata, remoteAddress);
+        var key = authorizeMetadata();
         AudioOriginalFileArtifact? artifact = null;
         try
         {

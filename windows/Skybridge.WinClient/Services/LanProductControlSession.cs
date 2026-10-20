@@ -39,6 +39,7 @@ internal sealed partial class LanProductControlSession : IAsyncDisposable
     private volatile bool _captureReceiverEnabled;
     private volatile bool _originalFileReceiverEnabled;
     private volatile bool _flacFileReceiverEnabled;
+    private Audio.AudioOriginalFileReceiveRegistry.UsbRegistration? _usbFileReceiver;
     internal const string CaptureReceiveCapability = "audio_capture_receive_v1";
     internal const string OriginalFileReceiveCapability = "audio_file_receive_v1";
     internal const string FlacFileReceiveCapability = "audio_flac_file_receive_v1";
@@ -194,17 +195,24 @@ internal sealed partial class LanProductControlSession : IAsyncDisposable
         SetAudioReceiverCapabilitiesAsync(capture, originalFile ? Audio.AudioOriginalFileReceiveSupport.Wave :
             Audio.AudioOriginalFileReceiveSupport.Unavailable, cancellationToken);
 
-    internal async Task SetAudioReceiverCapabilitiesAsync(bool capture, Audio.AudioOriginalFileReceiveSupport fileSupport, CancellationToken cancellationToken)
+    internal async Task SetAudioReceiverCapabilitiesAsync(bool capture, Audio.AudioOriginalFileReceiveSupport fileSupport, CancellationToken cancellationToken,
+        Audio.AudioOriginalFileReceiveRegistry.UsbRegistration? usbReceiver = null)
     {
         if (!Enum.IsDefined(fileSupport)) throw new ArgumentOutOfRangeException(nameof(fileSupport));
         bool originalFile = fileSupport != Audio.AudioOriginalFileReceiveSupport.Unavailable;
         lock (_stateGate)
         {
-            if (originalFile && _localIdentity.FileTransferPort is null or 0)
-                throw new InvalidOperationException("Original-file reception requires its actual authenticated listener port.");
+            if (originalFile)
+            {
+                if (Carrier is ProductControlCarrier.Usb)
+                    (usbReceiver ?? throw new InvalidOperationException("USB file reception requires its installed return owner.")).RequireCurrentFor(this);
+                else if (_localIdentity.FileTransferPort is null or 0 || usbReceiver is not null)
+                    throw new InvalidOperationException("Original-file reception requires its actual authenticated listener port.");
+            }
             _audio.SetConsumerAdvertisement(capture || originalFile);
             _captureReceiverEnabled = capture; _originalFileReceiverEnabled = originalFile;
             _flacFileReceiverEnabled = fileSupport == Audio.AudioOriginalFileReceiveSupport.WaveAndFlac;
+            _usbFileReceiver = originalFile ? usbReceiver : null;
         }
         // A retired session has no peer to notify; disabling is still immediate.
         if (!IsReady && !capture && !originalFile) return;
@@ -229,11 +237,18 @@ internal sealed partial class LanProductControlSession : IAsyncDisposable
             }
         }, cancellationToken).ConfigureAwait(false);
     }
-    private string[] CurrentCapabilities() => (_localIdentity.Capabilities ?? [])
-        .Where(value => value != CaptureReceiveCapability && value != OriginalFileReceiveCapability && value != FlacFileReceiveCapability)
-        .Concat(_captureReceiverEnabled ? [CaptureReceiveCapability] : Array.Empty<string>())
-        .Concat(_originalFileReceiverEnabled ? [OriginalFileReceiveCapability] : Array.Empty<string>())
-        .Concat(_flacFileReceiverEnabled ? [FlacFileReceiveCapability] : Array.Empty<string>()).ToArray();
+    private string[] CurrentCapabilities()
+    {
+        bool usbReturn = _originalFileReceiverEnabled && _usbFileReceiver?.IsCurrentFor(this) == true;
+        bool file = _originalFileReceiverEnabled && (Carrier is ProductControlCarrier.Network || usbReturn);
+        return (_localIdentity.Capabilities ?? [])
+            .Where(value => value != CaptureReceiveCapability && value != OriginalFileReceiveCapability && value != FlacFileReceiveCapability &&
+                value != Audio.AudioStreamingWire.UsbFileReturnReceiveCapability && value != FileTransfer.ClassicFileTransferWire.ApprovalCapability)
+            .Concat(_captureReceiverEnabled ? [CaptureReceiveCapability] : Array.Empty<string>())
+            .Concat(file ? [OriginalFileReceiveCapability] : Array.Empty<string>())
+            .Concat(file && _flacFileReceiverEnabled ? [FlacFileReceiveCapability] : Array.Empty<string>())
+            .Concat(usbReturn ? [Audio.AudioStreamingWire.UsbFileReturnReceiveCapability, FileTransfer.ClassicFileTransferWire.ApprovalCapability] : Array.Empty<string>()).ToArray();
+    }
 
     private async Task DeclineUnattendedAudioOfferAsync(Guid streamId)
     {

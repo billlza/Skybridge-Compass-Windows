@@ -42,9 +42,15 @@ internal sealed class AccountAudioMembershipLease
     private void RequireAccountEffect()
     {
         if (_revoked) throw new AudioMembershipException(AudioMembershipFailure.Revoked, _revocationCause);
-        _epoch.RequireCurrent();
+        RequireEpochCurrent();
         _evidence.RequireValid(_epoch.Scope, _local, _peer, _clock());
-        _epoch.RequireCurrent();
+        RequireEpochCurrent();
+    }
+    private void RequireEpochCurrent()
+    {
+        // Every lease consumer needs the same typed terminal cause, including
+        // asynchronous file readers that finish before the rendering worker polls.
+        if (!_epoch.IsCurrent) throw new AudioMembershipException(AudioMembershipFailure.Revoked);
     }
     internal void Revoke(Exception? cause = null)
     {
@@ -82,7 +88,7 @@ internal sealed class AccountAudioMembershipLease
             var now = _clock();
             expected.RequireValid(_epoch.Scope, _local, _peer, now);
             replacement.RequireValid(_epoch.Scope, _local, _peer, now);
-            _inbox.RequireEffectCurrent(); _epoch.RequireCurrent();
+            _inbox.RequireEffectCurrent(); RequireEpochCurrent();
             cancellationToken.ThrowIfCancellationRequested();
             _evidence = replacement;
             expected.Revoke(); // Other consumers remain finite; only this one was explicitly continued.

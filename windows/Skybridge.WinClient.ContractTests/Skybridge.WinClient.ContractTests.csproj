@@ -33,6 +33,7 @@
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioFilePcmPlayback.cs" Link="Services\Audio\AudioFilePcmPlayback.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioOriginalFileReceiveRegistry.cs" Link="Services\Audio\AudioOriginalFileReceiveRegistry.cs" />
     <Compile Include="AudioOriginalFileAdmissionTests.cs" />
+    <Compile Include="AudioUsbFileReceiveTests.cs" />
     <Compile Include="AudioWavePcmFileTests.cs" />
     <Compile Include="AudioFlacFileTests.cs" />
     <Compile Include="AudioFlacReceiveTests.cs" />

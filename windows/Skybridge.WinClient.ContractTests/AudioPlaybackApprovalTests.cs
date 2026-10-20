@@ -157,8 +157,8 @@ internal static class AudioPlaybackApprovalTests
             }));
             var error = await Throws<Exception>(() => f.Request(cancel.Token));
             Require(variant switch {
-                0 => Has<OperationCanceledException>(error), 1 => Has<InvalidOperationException>(error),
-                2 => Has<AudioMembershipException>(error), _ => Has<LanAudioStreamException>(error)
+                0 => Has<OperationCanceledException>(error), 1 or 2 => HasRevokedMembership(error),
+                _ => Has<LanAudioStreamException>(error)
             }, "Decision race failed without preserving its actual cause.");
         }
     }
@@ -279,6 +279,8 @@ internal static class AudioPlaybackApprovalTests
     }
     private static Task Call(Action action) { action(); return Task.CompletedTask; }
     private static bool Has<T>(Exception error) where T : Exception => error is T || error is AggregateException aggregate && aggregate.Flatten().InnerExceptions.Any(e => e is T);
+    private static bool HasRevokedMembership(Exception error) => error is AudioMembershipException { Reason: AudioMembershipFailure.Revoked } ||
+        error is AggregateException aggregate && aggregate.Flatten().InnerExceptions.Any(e => e is AudioMembershipException { Reason: AudioMembershipFailure.Revoked });
     private static async Task Failure(AudioPlaybackApprovalFailure reason, Func<Task> action)
     { var error = await Throws<AudioPlaybackApprovalException>(action); Require(error.Reason == reason, $"Expected {reason}, got {error.Reason}."); }
     private static async Task<T> Throws<T>(Func<Task> action) where T : Exception

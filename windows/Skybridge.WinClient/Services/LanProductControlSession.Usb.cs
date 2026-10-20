@@ -92,6 +92,22 @@ internal sealed partial class LanProductControlSession
         }
     }
 
+    internal byte[] AuthorizeUsbIncomingTransfer(FileTransfer.ClassicFileMetadata metadata, UsbControlRoute route)
+    {
+        ArgumentNullException.ThrowIfNull(metadata); ArgumentNullException.ThrowIfNull(route);
+        lock (_stateGate)
+        {
+            if (!IsReady || Carrier is not ProductControlCarrier.Usb usb || usb.Route != route ||
+                metadata.ApprovalProtocol != FileTransfer.ClassicFileTransferWire.ApprovalProtocol ||
+                metadata.SenderDeviceId is null ||
+                RemoteControlHandshakeBinding.CanonicalDeviceId(metadata.SenderDeviceId) != _peer.PeerDeviceId)
+                throw new InvalidDataException("The USB file has no matching live route, sender and approval protocol.");
+            var key = FileTransfer.ClassicFileTransferWire.DeriveTransferKey(_keys, metadata.TransferId);
+            try { FileTransfer.ClassicFileTransferWire.Verify(metadata, key); return key; }
+            catch { System.Security.Cryptography.CryptographicOperations.ZeroMemory(key); throw; }
+        }
+    }
+
     private sealed class UsbHandshakeTransport(ProductControlStreamTransport transport, Action requireCurrent) : IProductHandshakeTransport
     {
         public Task SendAsync(ReadOnlyMemory<byte> frame, CancellationToken cancellationToken = default) =>

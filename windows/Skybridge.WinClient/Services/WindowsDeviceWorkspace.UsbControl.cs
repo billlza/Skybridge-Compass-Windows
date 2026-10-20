@@ -39,6 +39,9 @@ internal sealed partial class WindowsDeviceWorkspace
                         () => !_disposed && account.IsCurrent, lifetime, token, workspaceLifetime).ConfigureAwait(false);
                 }, token, connector).ConfigureAwait(false);
             lock (_stateGate) _controlSessions.Add(peerId, session);
+            var privateDirectory = Path.Combine(_stateDirectory, "audio-playback");
+            Directory.CreateDirectory(privateDirectory);
+            OriginalAudioFiles.BindUsb(session, connector ?? UsbMuxConnector.WindowsService(), privateDirectory);
             // Like the network path, retain an installed MAIN even if starting a
             // feature fails. Explicit disconnect drains the actual consumer.
             if (_audioReceiveHost is { } receiver) await receiver.AttachAsync(session, token).ConfigureAwait(false);

@@ -29,7 +29,8 @@ internal static class AudioOriginalFileReceiveSessionTests
         ("file registry closing a ticket remains safe for an already captured cancellation", CancelClosedTicket),
         ("file registry rejects a different MAIN owner and a second live ticket", ForeignOwner),
         ("file product host installs file capability then receives and releases its real stream", HostReception),
-        ("file listener stop drains a partial producer and its playback owner", ListenerStop)
+        ("file listener stop drains a partial producer and its playback owner", ListenerStop),
+        .. AudioUsbFileReceiveTests.Cases
     ];
     private static readonly AudioStreamingPcmFormat Format = new(48000, 2, AudioStreamingEncoding.Float32, 32, 3);
     internal sealed class Fixture : IAsyncDisposable
@@ -324,14 +325,14 @@ internal static class AudioOriginalFileReceiveSessionTests
         var permission = await f.Main.Approvals.RequestAsync(inbox, f.Main.Lease(inbox), AudioCaptureReceiveSessionTests.Endpoint, f.Main.Caller.Token);
         return (inbox, permission, new(f.Main.Lan.Session, inbox, permission, AudioCaptureReceiveSessionTests.Endpoint));
     }
-    private static byte[] Pcm(int frames)
+    internal static byte[] Pcm(int frames)
     {
         var bytes = new byte[frames * 8];
         for (int offset = 0; offset < bytes.Length; offset += 4)
             BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(offset), BitConverter.SingleToInt32Bits((offset / 4 % 23 - 11) / 16f));
         return bytes;
     }
-    private static byte[] Wave(byte[] pcm)
+    internal static byte[] Wave(byte[] pcm)
     {
         var bytes = new byte[68 + pcm.Length]; "RIFF"u8.CopyTo(bytes);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), (uint)bytes.Length - 8);

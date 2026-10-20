@@ -56,8 +56,9 @@ internal static class UsbControlWorkspaceTests
                 await Reject<InvalidOperationException>(() => Task.Run(() => _ = session.RemoteAddress));
                 var metadata = new ClassicFileMetadata("transfer","f",0,new string('a',64),65536,2,SenderDeviceId:session.PeerDeviceId);
                 await Reject<InvalidDataException>(() => Task.Run(() => session.AuthorizeIncomingTransfer(metadata,IPAddress.Loopback)));
-                Require(session.LocalFileTransferPort is null && !workspace.OriginalAudioFiles.CanReceiveFor(session),
-                    "MAIN alone manufactured file-return readiness.");
+                Require(session.LocalFileTransferPort is null && workspace.OriginalAudioFiles.CanReceiveFor(session) &&
+                    workspace.OriginalAudioFiles.UsbReceiverFor(session) is { } registration && registration.IsCurrentFor(session),
+                    "USB connection did not install its exact return owner independently of a TCP listener.");
                 var after = await File.ReadAllBytesAsync(path,limit.Token);
                 Require(before.AsSpan().SequenceEqual(after), "USB handshake persisted temporary KEM or replaced trust.");
                 account.Revoke(); Require(!session.IsReady, "Revoked account retained USB readiness.");

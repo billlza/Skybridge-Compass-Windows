@@ -109,7 +109,7 @@ internal static class LanProductControlSessionTests
     }
 
     private static AudioAccountScope UsbScope() => new(SessionAuthority.ForSupabaseProject("https://audio-account-test.supabase.co"), "audio-user", "audio-user");
-    private static UsbPeerInspection UsbInspection(string udid = "00008132-1111111111111111")
+    internal static UsbPeerInspection UsbInspection(string udid = "00008132-1111111111111111")
     {
         // Controlled advertisement port for these already-constructed session
         // keys. Native mux/ML-DSA/Finished validation is a separate Windows case.
@@ -525,8 +525,8 @@ internal static class LanProductControlSessionTests
                 Keys.SessionId, Keys.TranscriptHash, Keys.ReceiveKey, Keys.SendKey);
             _remoteKeys = WebRtcProductHandshakeSessionKeys.ToWebRtcKeys(reversed);
         }
-        internal static Task<Fixture> ConnectForAudio(ushort? localFilePort = 8080, bool generalFiles = true) =>
-            Connect(extensions: Soa(ProductHandshakeRole.Initiator), localFilePort: localFilePort, generalFiles: generalFiles);
+        internal static Task<Fixture> ConnectForAudio(ushort? localFilePort = 8080, bool generalFiles = true, ProductControlCarrier? carrier = null) =>
+            Connect(extensions: Soa(ProductHandshakeRole.Initiator), localFilePort: localFilePort, generalFiles: generalFiles, carrier: carrier);
         internal static async Task<Fixture> Connect(ProductHandshakeRole role = ProductHandshakeRole.Initiator, byte[]? extensions = null,
             ushort? localFilePort = 8080, bool generalFiles = true, Exception? releaseFailure = null,
             ProductControlCarrier? carrier = null, Func<bool>? isAuthorityCurrent = null)

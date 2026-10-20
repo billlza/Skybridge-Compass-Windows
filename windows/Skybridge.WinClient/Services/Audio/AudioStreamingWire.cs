@@ -78,6 +78,7 @@ internal abstract record AudioStreamingBody
     internal sealed record OpusData(long Sequence, byte[] Bytes) : AudioStreamingBody;
     internal sealed record OpusEnd(long SourceFrames, long PacketCount, long TotalEncodedBytes, byte[] Sha256) : AudioStreamingBody;
     internal sealed record OpusOutputReady() : AudioStreamingBody;
+    internal sealed record UsbFileRoute(ushort Port) : AudioStreamingBody;
 }
 internal sealed record AudioStreamingMessage(Guid StreamId, AudioStreamingBody Body);
 
@@ -91,6 +92,7 @@ internal static class AudioStreamingWire
     public const long MaximumFileBytes = 16L * 1024 * 1024 * 1024;
     public const string FileReceiveCapability = "audio_file_receive_v1";
     public const string CaptureReceiveCapability = "audio_capture_receive_v1";
+    public const string UsbFileReturnReceiveCapability = "audio_file_usb_return_receive_v1";
     // Structural codec availability does not install or advertise a receiving consumer.
     public const string OpusReceiveCapability = "audio_opus_bluetooth_receive_v1";
     public const int MaximumOpusPacketBytes = 640;
@@ -110,6 +112,7 @@ internal static class AudioStreamingWire
             AudioStreamingBody.OpusOffer => (11, 16), AudioStreamingBody.OpusConfiguration => (12, 4),
             AudioStreamingBody.OpusData data => (13, 8 + data.Bytes.Length), AudioStreamingBody.OpusEnd => (14, 56),
             AudioStreamingBody.OpusOutputReady => (15, 0),
+            AudioStreamingBody.UsbFileRoute => (17, 4),
             _ => throw new InvalidDataException("Unknown audio message.")
         };
         var bytes = new byte[28 + size]; var writer = new Writer(bytes);
@@ -135,6 +138,7 @@ internal static class AudioStreamingWire
             case AudioStreamingBody.OpusEnd m:
                 writer.Counter(m.SourceFrames); writer.Counter(m.PacketCount); writer.Counter(m.TotalEncodedBytes); writer.Bytes(m.Sha256); break;
             case AudioStreamingBody.OpusOutputReady: break;
+            case AudioStreamingBody.UsbFileRoute m: writer.U16(m.Port); writer.U16(0); break;
         }
         return bytes;
     }
@@ -182,6 +186,10 @@ internal static class AudioStreamingWire
             case 14:
                 body = new AudioStreamingBody.OpusEnd(reader.Counter(), reader.Counter(), reader.Counter(), reader.Bytes(32)); break;
             case 15: body = new AudioStreamingBody.OpusOutputReady(); break;
+            case 17:
+                var port = reader.U16();
+                if (reader.U16() != 0) throw new InvalidDataException("Nonzero USB file-route reserved bits.");
+                body = new AudioStreamingBody.UsbFileRoute(port); break;
             default: throw new InvalidDataException("Unknown audio opcode.");
         }
         if (reader.Remaining != 0) throw new InvalidDataException("Trailing audio body bytes.");
@@ -236,6 +244,9 @@ internal static class AudioStreamingWire
                     throw new InvalidDataException("Invalid Opus end counters.");
                 Hash(m.Sha256); break;
             case AudioStreamingBody.OpusOutputReady: break;
+            case AudioStreamingBody.UsbFileRoute m:
+                if (m.Port == 0) throw new InvalidDataException("USB file return requires a nonzero port.");
+                break;
             default: throw new InvalidDataException("Unknown audio message body.");
         }
     }

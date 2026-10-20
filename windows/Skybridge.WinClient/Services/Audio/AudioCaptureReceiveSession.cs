@@ -362,9 +362,17 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
     private void RequireFileEffect()
     {
         RequireEffect();
-        if (_read is { IsCompleted: true } input)
+        if (_read is { IsCompleted: true })
         {
-            _ = input.GetAwaiter().GetResult(); // Preserve an actual Stop/owner failure.
+            var message = TakeRead(); // Preserve an actual Stop/owner failure.
+            if (Phase == AudioCaptureReceivePhase.ReceivingFile &&
+                _fileTicket is { UsesUsbReturn: true, HasStarted: false } ticket &&
+                message.Body is AudioStreamingBody.UsbFileRoute route)
+            {
+                _read = _inbox!.ReadAsync(Token);
+                ticket.StartUsbReturn(route.Port, Token);
+                return;
+            }
             throw new StreamFailure(AudioStreamingStopReason.ProtocolViolation, "Original-file playback does not accept capture controls.");
         }
     }

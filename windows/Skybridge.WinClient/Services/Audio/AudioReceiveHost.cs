@@ -116,7 +116,8 @@ internal sealed class AudioReceiveHost : IAsyncDisposable
                 if (!published)
                 {
                     await entry.Session.SetAudioReceiverCapabilitiesAsync(true,
-                        _originalFiles?.ReceiveSupportFor(entry.Session) ?? AudioOriginalFileReceiveSupport.Unavailable, token).ConfigureAwait(false);
+                        _originalFiles?.ReceiveSupportFor(entry.Session) ?? AudioOriginalFileReceiveSupport.Unavailable, token,
+                        _originalFiles?.UsbReceiverFor(entry.Session)).ConfigureAwait(false);
                     published = true; entry.Ready!.TrySetResult();
                 }
                 ILanAudioStreamInbox inbox;

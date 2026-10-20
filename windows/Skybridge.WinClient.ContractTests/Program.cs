@@ -127,6 +127,13 @@ if (args.SequenceEqual(["--audio-file-product"]))
     return;
 }
 
+if (args.SequenceEqual(["--audio-usb-file"]))
+{
+    foreach (var test in AudioUsbFileReceiveTests.Cases)
+    { await test.Run(); Console.WriteLine("PASS " + test.Name); }
+    return;
+}
+
 if (args.SequenceEqual(["--audio-file-playback"]))
 {
     foreach (var test in AudioFilePcmPlaybackTests.Cases)

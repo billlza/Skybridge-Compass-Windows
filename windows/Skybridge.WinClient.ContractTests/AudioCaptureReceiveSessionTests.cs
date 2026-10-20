@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Security.Cryptography;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.Services.Audio;
+using Skybridge.WinClient.Services.Connection;
 
 internal static class AudioCaptureReceiveSessionTests
 {
@@ -68,9 +69,10 @@ internal static class AudioCaptureReceiveSessionTests
                 endpoint => { Require(endpoint == Endpoint, "Native open substituted the approved endpoint."); Device.Touch(); return Device; }, Clock, originalFiles,
                 Clock.AuthorizationNow, (duration, token) => RenewalDelay?.Invoke(duration, token) ?? Task.Delay(duration, token));
         }
-        internal static async Task<Fixture> Create(AudioOriginalFileReceiveRegistry? originalFiles = null, ushort? localFilePort = 8080, bool enableRenewal = false)
+        internal static async Task<Fixture> Create(AudioOriginalFileReceiveRegistry? originalFiles = null, ushort? localFilePort = 8080, bool enableRenewal = false,
+            ProductControlCarrier? carrier = null)
         {
-            var lan = await LanProductControlSessionTests.Fixture.ConnectForAudio(localFilePort, generalFiles: originalFiles is null);
+            var lan = await LanProductControlSessionTests.Fixture.ConnectForAudio(localFilePort, generalFiles: originalFiles is null, carrier: carrier);
             try { await lan.Admit(); return new(lan, originalFiles, enableRenewal); }
             catch { await lan.DisposeAsync(); throw; }
         }

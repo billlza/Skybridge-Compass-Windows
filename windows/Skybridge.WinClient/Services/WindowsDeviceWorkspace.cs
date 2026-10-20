@@ -436,6 +436,7 @@ internal sealed partial class WindowsDeviceWorkspace : IAsyncDisposable
         foreach (var stale in _controlSessions.Where(entry => !entry.Value.IsReady).ToArray())
         {
             if (_audioReceiveHost is { } audio) await audio.DetachAsync(stale.Value).ConfigureAwait(false);
+            await OriginalAudioFiles.UnbindUsbAsync(stale.Value).ConfigureAwait(false);
             await stale.Value.DisposeAsync().ConfigureAwait(false);
             lock (_stateGate) _controlSessions.Remove(stale.Key);
         }
@@ -462,6 +463,7 @@ internal sealed partial class WindowsDeviceWorkspace : IAsyncDisposable
                 try
                 {
                     if (_audioReceiveHost is { } audio) await audio.DetachAsync(entry.Value).ConfigureAwait(false);
+                    await OriginalAudioFiles.UnbindUsbAsync(entry.Value).ConfigureAwait(false);
                     await entry.Value.DisposeAsync().ConfigureAwait(false);
                     lock (_stateGate) _controlSessions.Remove(entry.Key);
                 }

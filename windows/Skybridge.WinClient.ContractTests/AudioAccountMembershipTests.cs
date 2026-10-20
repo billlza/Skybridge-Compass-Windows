@@ -476,7 +476,9 @@ internal static class AudioAccountMembershipTests
         f.Respond = async ct => { entered.SetResult(); await release.Task.WaitAsync(ct); return Reply(f.Body()); };
         var pending = f.Lease(inbox, true); await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
         oldEpoch.Revoke(); f.Epoch = new(oldEpoch.Scope); release.SetResult();
-        await Throws<InvalidOperationException>(() => pending); await Throws<InvalidOperationException>(() => Check(lease.RequireCurrent));
+        await Throws<InvalidOperationException>(() => pending);
+        await Failure(AudioMembershipFailure.Revoked, lease.RequireCurrent);
+        await Failure(AudioMembershipFailure.Revoked, lease.RequireEffectCurrent);
         f.Respond = null; var next = await f.Lease(inbox); Require(next.Evidence.Id != lease.Evidence.Id, "Re-login reused old account evidence.");
     }
     private static async Task Deadlines()
