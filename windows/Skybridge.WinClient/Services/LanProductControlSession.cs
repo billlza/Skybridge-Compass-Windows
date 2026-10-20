@@ -2,11 +2,12 @@ using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using Skybridge.WinClient.Services.Connection;
 
 namespace Skybridge.WinClient.Services;
 
 /// <summary>One authenticated compatible-LAN control session shared by native feature operations.</summary>
-internal sealed class LanProductControlSession : IAsyncDisposable
+internal sealed partial class LanProductControlSession : IAsyncDisposable
 {
     private readonly ProductControlStreamTransport _transport;
     private readonly ProductSessionKeys _keys;
@@ -16,7 +17,7 @@ internal sealed class LanProductControlSession : IAsyncDisposable
     private readonly byte[] _initiatorExtensions;
     // Incoming TCP identifies its actual remote address, not a discovered listening
     // endpoint. It cannot authorize a selected outbound file route by implication.
-    private readonly DiscoveryPeerEndpoint? _controlEndpoint;
+    private readonly Func<bool> _isAuthorityCurrent;
     private readonly CancellationTokenSource _lifetime;
     private readonly Audio.LanAudioReceiver _audio;
     private readonly TaskCompletionSource _admitted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -48,7 +49,24 @@ internal sealed class LanProductControlSession : IAsyncDisposable
         IPAddress remoteAddress, CancellationToken cancellationToken,
         ProductHandshakeProtocolIdentity localHandshakeIdentity, ProductHandshakeProtocolIdentity peerHandshakeIdentity,
         ReadOnlyMemory<byte> initiatorExtensions)
+        : this(transport, keys, peer, localIdentity, new ProductControlCarrier.Network(remoteAddress, controlEndpoint),
+            cancellationToken, localHandshakeIdentity, peerHandshakeIdentity, initiatorExtensions, static () => true) { }
+
+    internal LanProductControlSession(ProductControlStreamTransport transport, ProductSessionKeys keys,
+        ProductHandshakePeerContext peer, LanProductIdentity localIdentity, ProductControlCarrier carrier,
+        CancellationToken cancellationToken,
+        ProductHandshakeProtocolIdentity localHandshakeIdentity, ProductHandshakeProtocolIdentity peerHandshakeIdentity,
+        ReadOnlyMemory<byte> initiatorExtensions, Func<bool> isAuthorityCurrent, CancellationToken ownerLifetime = default)
     {
+        ArgumentNullException.ThrowIfNull(carrier); ArgumentNullException.ThrowIfNull(isAuthorityCurrent);
+        if (carrier is ProductControlCarrier.Network { RemoteAddress: null } || carrier is ProductControlCarrier.Usb { Route: null } ||
+            carrier is ProductControlCarrier.Usb usb && (usb.Route.PeerDeviceId != peer.PeerDeviceId || usb.Route.Fingerprint != peer.PeerPublicKeyFingerprint))
+            throw new InvalidDataException("The control carrier does not match the authenticated peer.");
+        if (carrier is ProductControlCarrier.Usb usbCarrier)
+        {
+            ArgumentNullException.ThrowIfNull(usbCarrier.AccountScope);
+            usbCarrier.AccountScope.Validate();
+        }
         ArgumentNullException.ThrowIfNull(localHandshakeIdentity);
         ArgumentNullException.ThrowIfNull(peerHandshakeIdentity);
         if (peerHandshakeIdentity.Fingerprint != peer.PeerPublicKeyFingerprint)
@@ -62,9 +80,8 @@ internal sealed class LanProductControlSession : IAsyncDisposable
         _appKeys = WebRtcProductHandshakeSessionKeys.ToWebRtcKeys(keys);
         _peer = peer;
         _localIdentity = localIdentity;
-        _controlEndpoint = controlEndpoint;
-        RemoteAddress = remoteAddress;
-        _lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Carrier = carrier; _isAuthorityCurrent = isAuthorityCurrent;
+        _lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, ownerLifetime);
         Lifetime = _lifetime.Token;
         _audio = new(() => IsReady, Lifetime);
         _receiver = ReceiveAsync();
@@ -74,14 +91,16 @@ internal sealed class LanProductControlSession : IAsyncDisposable
 
     internal Task<Exception?> Completion => _completion;
     internal CancellationToken Lifetime { get; }
-    internal IPAddress RemoteAddress { get; }
+    internal ProductControlCarrier Carrier { get; }
+    internal IPAddress RemoteAddress => Carrier is ProductControlCarrier.Network network ? network.RemoteAddress
+        : throw new InvalidOperationException("USB sessions have no remote IP address.");
     internal string SessionId => _keys.SessionId;
     internal string PeerDeviceId => _peer.PeerDeviceId;
     internal LanProductIdentity LocalIdentity => _localIdentity;
     // Historical handshake evidence; callers must also enforce this owner's current IsReady/Lifetime.
     internal ProductHandshakeProtocolIdentity LocalHandshakeIdentity { get; }
     internal ProductHandshakeProtocolIdentity PeerHandshakeIdentity { get; }
-    internal bool IsReady => Volatile.Read(ref _ready) && !Lifetime.IsCancellationRequested && Volatile.Read(ref _disposed) == 0;
+    internal bool IsReady => Volatile.Read(ref _ready) && !Lifetime.IsCancellationRequested && Volatile.Read(ref _disposed) == 0 && _isAuthorityCurrent();
     internal long UnavailableAudioFrames => Interlocked.Read(ref _unavailableAudioFrames);
     internal long AudioQueueOverflows => Interlocked.Read(ref _audioQueueOverflows);
     internal string PeerDisplayName => Volatile.Read(ref _remoteIdentity)?.DeviceName ?? _peer.PeerDeviceId;
@@ -146,6 +165,7 @@ internal sealed class LanProductControlSession : IAsyncDisposable
             throw new IOException("The peer did not complete authenticated LAN admission.", await _completion.ConfigureAwait(false));
         await _admitted.Task.ConfigureAwait(false);
         if (Lifetime.IsCancellationRequested) throw new IOException("The LAN session ended during peer admission.");
+        RequireAuthorityCurrent();
         Volatile.Write(ref _ready, true);
         _readyForHeartbeat.TrySetResult();
     }
@@ -295,13 +315,13 @@ internal sealed class LanProductControlSession : IAsyncDisposable
         lock (_stateGate)
         {
             if (!IsReady) throw new InvalidOperationException("An established LAN control session is required for file transfer.");
-            if (_controlEndpoint is null)
+            if (Carrier is not ProductControlCarrier.Network { OutboundEndpoint: { } controlEndpoint })
                 throw new InvalidDataException("An incoming MAIN session has no admitted outbound discovery route.");
             var identity = Volatile.Read(ref _remoteIdentity) ?? throw new InvalidOperationException("Peer identity is not established.");
             var route = candidate.Routes.FileTransfer ?? throw new InvalidOperationException("The peer has no resolved file-transfer route.");
             var control = candidate.Routes.Control ?? throw new InvalidOperationException("The peer has no resolved control route.");
             if (RemoteControlHandshakeBinding.CanonicalDeviceId(candidate.Peer.DeviceId) != _peer.PeerDeviceId ||
-                candidate.Peer.PublicKeyFingerprint != _peer.PeerPublicKeyFingerprint || control != _controlEndpoint ||
+                candidate.Peer.PublicKeyFingerprint != _peer.PeerPublicKeyFingerprint || control != controlEndpoint ||
                 route.Service != SkyBridgeProtocolConstants.FileTransferDnsSdService || route.Provenance != "resolved-dns-sd-endpoint" ||
                 !string.Equals(route.HostName.TrimEnd('.'), control.HostName.TrimEnd('.'), StringComparison.OrdinalIgnoreCase) ||
                 route.Port != identity.FileTransferPort || identity.Capabilities?.Contains("file_transfer", StringComparer.Ordinal) != true)
@@ -313,7 +333,8 @@ internal sealed class LanProductControlSession : IAsyncDisposable
     {
         lock (_stateGate)
         {
-            if (!IsReady || !RemoteAddress.MapToIPv6().Equals(remoteAddress.MapToIPv6()) || metadata.SenderDeviceId is null ||
+            if (!IsReady || Carrier is not ProductControlCarrier.Network network ||
+                !network.RemoteAddress.MapToIPv6().Equals(remoteAddress.MapToIPv6()) || metadata.SenderDeviceId is null ||
                 RemoteControlHandshakeBinding.CanonicalDeviceId(metadata.SenderDeviceId) != _peer.PeerDeviceId)
                 throw new InvalidDataException("The incoming transfer has no matching live authenticated peer session.");
             var key = FileTransfer.ClassicFileTransferWire.DeriveTransferKey(_keys, metadata.TransferId);
@@ -335,8 +356,11 @@ internal sealed class LanProductControlSession : IAsyncDisposable
         var plaintext = LanProductControlMessages.Encode(kind, message);
         try
         {
-            var encrypted = WebRtcControlChannelCodec.EncryptAppleLegacyAppPayload(plaintext, _appKeys);
-            await _transport.SendAsync(ProductControlTrafficPadding.Wrap(encrypted), cancellationToken).ConfigureAwait(false);
+            await _transport.SendAdmittedAsync(() =>
+            {
+                RequireAuthorityCurrent();
+                return ProductControlTrafficPadding.Wrap(WebRtcControlChannelCodec.EncryptAppleLegacyAppPayload(plaintext, _appKeys));
+            }, cancellationToken).ConfigureAwait(false);
         }
         finally { CryptographicOperations.ZeroMemory(plaintext); }
     }
@@ -346,6 +370,7 @@ internal sealed class LanProductControlSession : IAsyncDisposable
         while (true)
         {
             var frame = await _transport.ReadAsync(_lifetime.Token).ConfigureAwait(false);
+            RequireAuthorityCurrent();
             var encrypted = ProductControlTrafficPadding.Unwrap(frame.ToArray());
             var plaintext = WebRtcControlChannelCodec.DecryptAppleLegacyAppPayload(encrypted, _appKeys);
             try
@@ -401,6 +426,12 @@ internal sealed class LanProductControlSession : IAsyncDisposable
             }
             finally { CryptographicOperations.ZeroMemory(plaintext); }
         }
+    }
+
+    private void RequireAuthorityCurrent()
+    {
+        Lifetime.ThrowIfCancellationRequested();
+        if (!_isAuthorityCurrent()) throw new InvalidOperationException("The control-session account authority has ended.");
     }
 
     private async Task HeartbeatAsync()

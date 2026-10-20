@@ -1,0 +1,102 @@
+using System.Net;
+using System.Runtime.Versioning;
+using Skybridge.WinClient.Services;
+using Skybridge.WinClient.Services.Audio;
+using Skybridge.WinClient.Services.Connection;
+using Skybridge.WinClient.Services.FileTransfer;
+using Skybridge.WinClient.Services.RemoteControl;
+
+[SupportedOSPlatform("windows10.0.19041")]
+internal static class UsbControlWorkspaceTests
+{
+    internal static IEnumerable<(string, Func<Task>)> Cases =>
+    [
+        ("Windows USB MAIN runs native forward-secret PQC Finished and encrypted identity admission", () => NativeMain(false)),
+        ("Windows USB MAIN automatically selects the matching native Q policy and exact identity", () => NativeMain(true)),
+        ("Windows USB MAIN cannot publish after account revocation while handshake is pending", RevokedHandshake)
+    ];
+    private sealed class Approval : ILanPibApprovalPresenter
+    {
+        public Task<bool> ShowAsync(LanPibApprovalRequest request, CancellationToken token)
+        { token.ThrowIfCancellationRequested(); request.RequireCurrent(); return Task.FromResult(true); }
+    }
+    private static AccountDeviceAuthentication Authentication() => AccountDeviceAuthentication.FromVerifiedSession(
+        AccountAudioAuthorizationTests.Token().AccessToken ?? throw new InvalidDataException("Missing controlled account token."),
+        SessionAuthority.ForSupabaseProject("https://audio-account-test.supabase.co"), "audio-user");
+    private static UsbMuxConnector Connector(NativeUsbDiscoveryFixture peer) => new(token => UsbMuxConnector.ConnectSocket(peer.Endpoint, token));
+    private static async Task NativeMain(bool policyBound)
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        var directory = Directory.CreateTempSubdirectory("skybridge-usb-main-");
+        try
+        {
+            await using var peer = new NativeUsbDiscoveryFixture(pairingApproval: new Approval(), policyBoundMain: policyBound);
+            var connector = Connector(peer); using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+            var selected = await new UsbPeerDiscoveryClient(connector).InspectAsync(NativeUsbDiscoveryFixture.Serial, limit.Token);
+            var authentication = Authentication(); var account = new AccountAudioAuthorization(AudioAccountScope.From(authentication));
+            await using (var workspace = new WindowsDeviceWorkspace(directory.FullName, "USB requester"))
+            {
+                await workspace.PairUsbPeerAsync(selected, authentication, account, new Approval(), limit.Token, connector);
+                string path = Path.Combine(directory.FullName,"remote-control-identity.bin"); var before = await File.ReadAllBytesAsync(path, limit.Token);
+                var session = await workspace.ConnectUsbControlAsync(selected, authentication, account, new("USB account","fixture"), limit.Token, connector);
+                var suite = await peer.MainEstablished.Task.WaitAsync(limit.Token);
+                Require(suite == (policyBound ? WebRtcProductHandshakeCodec.SuiteQPeriaptPolicyBound :
+                    WebRtcProductHandshakeCodec.SuiteMlKem768Mldsa65ForwardSecure) && session.IsReady &&
+                    session.Carrier is ProductControlCarrier.Usb && session.PeerHandshakeIdentity.Fingerprint == selected.Response.Identity.Fingerprint,
+                    "Native USB MAIN lost its route, actual signer, Finished checks or forward-secret PQC suite.");
+                session.RequireUsbRoute(selected, account.Scope);
+                Require(ReferenceEquals(session, workspace.RequireIncomingControlSession(session.PeerDeviceId)), "The workspace did not retain the exact session owner.");
+                var reused = await workspace.ConnectUsbControlAsync(selected, authentication, account, new("USB account","fixture"), limit.Token, connector);
+                Require(ReferenceEquals(session,reused) && peer.MainAttempts == 1 && peer.KeyRefreshReplies == 1,
+                    "A matching live USB session was recreated or refreshed unnecessarily.");
+                var binding = session.RequireAudioIdentityBinding();
+                Require(binding.PeerProtocolIdentity.Fingerprint == selected.Response.Identity.Fingerprint &&
+                    binding.Role == ProductHandshakeRole.Initiator && binding.AttemptId.Length == 32,
+                    "USB audio identity did not derive from actual native MAIN evidence.");
+                await Reject<InvalidOperationException>(() => Task.Run(() => _ = session.RemoteAddress));
+                var metadata = new ClassicFileMetadata("transfer","f",0,new string('a',64),65536,2,SenderDeviceId:session.PeerDeviceId);
+                await Reject<InvalidDataException>(() => Task.Run(() => session.AuthorizeIncomingTransfer(metadata,IPAddress.Loopback)));
+                Require(session.LocalFileTransferPort is null && !workspace.OriginalAudioFiles.CanReceiveFor(session),
+                    "MAIN alone manufactured file-return readiness.");
+                var after = await File.ReadAllBytesAsync(path,limit.Token);
+                Require(before.AsSpan().SequenceEqual(after), "USB handshake persisted temporary KEM or replaced trust.");
+                account.Revoke(); Require(!session.IsReady, "Revoked account retained USB readiness.");
+                await workspace.DisconnectControlSessionsAsync();
+                await peer.MainEnded.Task.WaitAsync(limit.Token);
+            }
+            using var restored = await RemoteControlIdentityStore.LoadExistingAsync(directory.FullName,"USB requester");
+            Require(restored.TrustedMaterials.Single().IsProtocolIdentityOnly, "USB MAIN changed durable identity-only trust.");
+        }
+        finally { Directory.Delete(directory.FullName,recursive:true); }
+    }
+    private static async Task RevokedHandshake()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        var directory = Directory.CreateTempSubdirectory("skybridge-usb-main-revoked-");
+        try
+        {
+            await using var peer = new NativeUsbDiscoveryFixture(pairingApproval: new Approval());
+            using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(40)); var connector = Connector(peer);
+            var selected = await new UsbPeerDiscoveryClient(connector).InspectAsync(NativeUsbDiscoveryFixture.Serial,limit.Token);
+            var authentication = Authentication(); var account = new AccountAudioAuthorization(AudioAccountScope.From(authentication));
+            await using var workspace = new WindowsDeviceWorkspace(directory.FullName,"USB requester");
+            await workspace.PairUsbPeerAsync(selected,authentication,account,new Approval(),limit.Token,connector);
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            peer.BeforeMainReply = async token => { entered.TrySetResult(); await release.Task.WaitAsync(token); };
+            var connecting = workspace.ConnectUsbControlAsync(selected,authentication,account,new("USB account","fixture"),limit.Token,connector);
+            await entered.Task.WaitAsync(limit.Token);
+            try { peer.ExpectClientHandshakeAbort = true; account.Revoke(); Require(!connecting.IsCompleted,"The pending handshake was detached."); }
+            finally { release.TrySetResult(); }
+            await Reject<InvalidOperationException>(() => connecting);
+            await peer.MainEnded.Task.WaitAsync(limit.Token);
+            await Reject<InvalidDataException>(() => Task.Run(() => workspace.RequireIncomingControlSession("id:"+selected.Response.Identity.DeviceID)));
+            Require(!peer.MainEstablished.Task.IsCompleted && peer.MainFailure is not null,
+                "The revoked client admitted MAIN or lost the actual peer transport-abort evidence.");
+        }
+        finally { Directory.Delete(directory.FullName,recursive:true); }
+    }
+    private static void Require(bool value,string reason) { if(!value)throw new InvalidOperationException(reason); }
+    private static async Task Reject<T>(Func<Task> call) where T:Exception
+    { try { await call(); } catch(T) { return; } throw new InvalidOperationException($"Expected {typeof(T).Name}."); }
+}

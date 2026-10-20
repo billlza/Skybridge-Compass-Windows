@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Xml.Linq;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.Services.Connection;
+using Skybridge.WinClient.Services.RemoteControl;
 
 // Test-only local service. It never imports user identities or grants an account/session.
 internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
@@ -27,14 +28,23 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
     private int _responses, _portRefusals, _earlyCloses;
     private readonly LanPibResponder? _pairing;
     private readonly MLKem? _kem;
+    private readonly QPeriaptRuntimeSession? _qSession;
+    private readonly QPeriaptKeyPair? _qKey;
+    private readonly DirectoryInfo? _qDirectory;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _paired = new(StringComparer.Ordinal);
     internal int KeyRefreshReplies { get; private set; }
+    internal int MainAttempts { get; private set; }
+    internal Func<CancellationToken, Task>? BeforeMainReply { get; set; }
+    internal bool ExpectClientHandshakeAbort { get; set; }
+    internal Exception? MainFailure { get; private set; }
+    internal TaskCompletionSource<ushort> MainEstablished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal TaskCompletionSource MainEnded { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     internal int PairingCommits { get; private set; }
     internal int Responses => Volatile.Read(ref _responses);
     internal EndPoint Endpoint => _listener.LocalEndpoint;
 
     internal NativeUsbDiscoveryFixture(int port = 0, Func<bool>? closedPort = null, string? observationsPath = null,
-        ILanPibApprovalPresenter? pairingApproval = null)
+        ILanPibApprovalPresenter? pairingApproval = null, bool policyBoundMain = false)
     {
         if (!OperatingSystem.IsWindows() || !MLDsa.IsSupported)
             throw new PlatformNotSupportedException("The native USB fixture requires Windows ML-DSA.");
@@ -47,6 +57,13 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
             if (pairingApproval is not null)
             {
                 _kem = MLKem.GenerateKey(MLKemAlgorithm.MLKem768);
+                if (policyBoundMain)
+                {
+                    _qDirectory = Directory.CreateTempSubdirectory("skybridge-usb-peer-q-");
+                    _qSession = QPeriaptRuntimeSession.Prepare(new QPeriaptTrustedStateStore(_qDirectory.FullName,
+                        new DpapiSessionProtector(), AtomicSessionFileCommitter.Instance), identityAlreadyEnrolled: false);
+                    _qKey = QPeriaptNativeClient.GenerateKeyPair(_qSession.Decision);
+                }
                 _pairing = new(new("id:" + _identity.DeviceID, DeviceName, publicKey),
                     bytes => _key.SignData(bytes).ToImmutableArray(),
                     (peer, bytes, signature) =>
@@ -69,6 +86,8 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
         {
             var cleanup = new List<Exception>();
             try { _kem?.Dispose(); } catch (Exception error) { cleanup.Add(error); }
+            try { _qKey?.Dispose(); } catch (Exception error) { cleanup.Add(error); }
+            try { _qDirectory?.Delete(recursive: true); } catch (Exception error) { cleanup.Add(error); }
             try { _key.Dispose(); } catch (Exception error) { cleanup.Add(error); }
             if (cleanup.Count > 0) throw new AggregateException("USB fixture construction and cleanup failed.", new[] { failure }.Concat(cleanup));
             throw;
@@ -124,6 +143,13 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
             }
             owner = new(client, LanBootstrapWire.MaximumBytes, LanBootstrapWire.MaximumBytes);
             var payload = await owner.ReadAsync(deadline.Token);
+            if (_kem is not null && !payload.IsEmpty && payload.Span[0] != (byte)'{')
+            {
+                var mainOwner = owner; owner = null;
+                deadline.CancelAfter(TimeSpan.FromSeconds(20));
+                await ServeMainAsync(mainOwner, payload, ((IPEndPoint)client.Client.RemoteEndPoint!).Address, deadline.Token);
+                return;
+            }
             string message = LanBootstrapWire.ReadDiscriminator(payload.Span);
             if (_pairing is { } pairing && message is "protocolIdentityBindingRequest" or "protocolIdentityBindingConfirm")
             {
@@ -143,14 +169,20 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
                     throw new InvalidDataException("The native fixture has no matching approved requester.");
                 long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 double sent = now / 1000.0 - 978307200.0;
-                ImmutableArray<LanKemRefreshPublicKey> keys = [new(257, kem.ExportEncapsulationKey().ToImmutableArray())];
-                // This fixture owns native ML-KEM only, so its signed capabilities
-                // exclude Q. It never substitutes invented Q key material.
+                ImmutableArray<int> permitted = _qSession is null ? [257] : [18,257];
+                var common = SignedLanKemRefreshCanonical.Intersection(refresh.RequestedSuiteWireIds, permitted,
+                    refresh.QPeriaptAuthProfile, _qSession?.AuthProfile);
+                var keyList = new List<LanKemRefreshPublicKey>();
+                if (common.Contains(18)) keyList.Add(new(18,QPeriaptKeyEncoding.ExportPublic(_qKey ?? throw new InvalidOperationException("Missing native Q key.")).ToImmutableArray()));
+                if (common.Contains(257)) keyList.Add(new(257,kem.ExportEncapsulationKey().ToImmutableArray()));
+                var keys = keyList.ToImmutableArray();
+                // Advertise only the native keys this isolated service owns.
                 var response = new LanSignedKemRefresh(_identity.DeviceID, "ML-DSA-65", _identity.PublicKey,
                     _identity.Fingerprint, keys, SignedLanKemRefreshResponder.KeyId(_identity.Fingerprint, keys), now,
                     sent, sent + 300, refresh.Nonce, [], 3, [], SignedLanKemRefreshCanonical.RequestHash(refresh),
-                    BonjourEndpointDigest: refresh.BonjourEndpointDigest, Platform: "ios", OsVersion: "iOS 27.0",
-                    PermittedSuiteWireIds: [257]);
+                    BonjourEndpointDigest: refresh.BonjourEndpointDigest, Platform: _qSession is null ? "ios" : "windows",
+                    OsVersion: _qSession is null ? "iOS 27.0" : QPeriaptPeerPlatform.LocalVersion(),
+                    PermittedSuiteWireIds: permitted, QPeriaptAuthProfile: _qSession?.AuthProfile);
                 response = response with { Signature = _key.SignData(SignedLanKemRefreshCanonical.ResponsePreimage(response)).ToImmutableArray() };
                 await owner.SendAsync(SignedLanKemRefreshWire.EncodeResponse(response), deadline.Token);
                 KeyRefreshReplies++;
@@ -175,6 +207,67 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
         }
     }
 
+    private async Task ServeMainAsync(ProductControlStreamTransport transport, ReadOnlyMemory<byte> first,
+        IPAddress remoteAddress, CancellationToken token)
+    {
+        MainAttempts++;
+        LanProductControlSession? session = null;
+        try
+        {
+            var candidate = RemoteControlHandshakeBinding.ValidateAndResolveMessageA(first, "id:" + _identity.DeviceID,
+                _paired.Select(p => new RemoteControlTrustedPeer(p.Key, p.Value)).ToArray());
+            if (BeforeMainReply is { } pause) await pause(token);
+            var kem = _kem ?? throw new InvalidOperationException("Fixture MAIN requires its actual native KEM key.");
+            byte[] signing = _key.ExportMLDsaPrivateKey(), decapsulation = kem.ExportDecapsulationKey();
+            byte[] qPrivate = _qKey is null ? [] : QPeriaptKeyEncoding.ExportPrivate(_qKey);
+            WebRtcProductPqcHandshakeCryptoProvider crypto;
+            try
+            {
+                crypto = _qSession is { } policy
+                    ? new(new(signing, ReadOnlyMemory<byte>.Empty, decapsulation, policy, ReadOnlyMemory<byte>.Empty, qPrivate))
+                    : new(new(signing, ReadOnlyMemory<byte>.Empty, decapsulation));
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(signing); CryptographicOperations.ZeroMemory(decapsulation);
+                CryptographicOperations.ZeroMemory(qPrivate);
+            }
+            ushort suite;
+            using (crypto)
+            using (var handshake = await new ProductHandshakeCore(crypto).AcceptResponderAsync(transport, candidate.Peer, candidate.MessageAFrame, token))
+            {
+                suite = handshake.SuiteWireId;
+                var material = RemoteControlPairingMaterial.Create("id:" + _identity.DeviceID, DeviceName,
+                    _identity.PublicKey.AsSpan(), kem.ExportEncapsulationKey());
+                var identity = new RemoteControlSecurityIdentity("USB fixture", "fixture", material.DeviceId, material.DeviceName);
+                // The emulated service has a real TCP endpoint on the test runner;
+                // only the Windows product's client carrier is a typed USB route.
+                session = new(transport, handshake.Keys, candidate.Peer,
+                    LanProductControlMessages.LocalIdentity(identity, material, null, DateTimeOffset.UtcNow),
+                    null, remoteAddress, _lifetime.Token, handshake.LocalProtocolIdentity,
+                    handshake.PeerProtocolIdentity, handshake.ExportInitiatorExtensions());
+            }
+            await session.CompleteAdmissionAsync(token);
+            MainEstablished.TrySetResult(suite);
+            await session.Completion;
+        }
+        catch (IOException error) when (ExpectClientHandshakeAbort)
+        {
+            // Only the explicit client-revocation test permits a transport abort.
+            // Preserve the actual failure; no session or success is fabricated.
+            MainFailure = error;
+        }
+        finally
+        {
+            try
+            {
+                if (session is not null) await session.DisposeAsync();
+                else await transport.DisposeAsync();
+            }
+            finally { MainEnded.TrySetResult(); }
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         _lifetime.Cancel(); _listener.Stop();
@@ -193,6 +286,8 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
         }
         try { _key.Dispose(); } catch (Exception error) { failures.Add(error); }
         try { _kem?.Dispose(); } catch (Exception error) { failures.Add(error); }
+        try { _qKey?.Dispose(); } catch (Exception error) { failures.Add(error); }
+        try { _qDirectory?.Delete(recursive: true); } catch (Exception error) { failures.Add(error); }
         _signing.Dispose(); _markers.Dispose(); _lifetime.Dispose();
         if (failures.Count > 0) throw new AggregateException("Native USB fixture failed.", failures);
     }

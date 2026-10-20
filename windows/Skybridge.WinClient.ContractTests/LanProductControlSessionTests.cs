@@ -5,6 +5,7 @@ using System.Text.Json;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.Services.FileTransfer;
 using Skybridge.WinClient.Services.Audio;
+using Skybridge.WinClient.Services.Connection;
 
 internal static class LanProductControlSessionTests
 {
@@ -33,7 +34,9 @@ internal static class LanProductControlSessionTests
         ("withdrawal barrier rejects a positive admission reply", () => RejectWithdrawalReply("admission")),
         ("withdrawal barrier rejects duplicate declines", () => RejectWithdrawalReply("duplicate")),
         ("withdrawal barrier rejects a mismatched Pong", () => RejectWithdrawalReply("wrong-pong")),
-        ("LAN encrypted admission rejects a different peer protocol identity", WrongIdentity)
+        ("LAN encrypted admission rejects a different peer protocol identity", WrongIdentity),
+        ("USB MAIN preserves exact cable account and audio binding without network file authority", UsbCarrierBinding),
+        ("USB MAIN account revocation ends readiness audio authority and subsequent control effects", UsbAccountRevocation)
     ];
     private const string PeerId = "id:1a2b3c4d-22aa-33bb-44cc-5555deadbeef";
     private const string LocalId = "id:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -103,6 +106,54 @@ internal static class LanProductControlSessionTests
         Require(await fixture.Session.Completion.WaitAsync(fixture.Token) is not null && !fixture.Session.IsReady,
             "A disconnected control session retained file authority or hid its failure.");
         Throws<InvalidOperationException>(() => fixture.Session.AuthorizeFileTransfer(fixture.Candidate, "transfer"));
+    }
+
+    private static AudioAccountScope UsbScope() => new(SessionAuthority.ForSupabaseProject("https://audio-account-test.supabase.co"), "audio-user", "audio-user");
+    private static UsbPeerInspection UsbInspection(string udid = "00008132-1111111111111111")
+    {
+        // Controlled advertisement port for these already-constructed session
+        // keys. Native mux/ML-DSA/Finished validation is a separate Windows case.
+        var now = DateTimeOffset.UtcNow; var request = UsbPeerDiscoveryWire.Request(now);
+        var response = new UsbPeerDiscoveryResponse(request, new(PeerId[3..], "ML-DSA-65",
+            System.Collections.Immutable.ImmutableArray.CreateRange(PublicKey), Fingerprint), "USB fixture", "ios", [1]);
+        response = response with { Signature = System.Collections.Immutable.ImmutableArray.CreateRange(SHA256.HashData(UsbPeerDiscoveryWire.SigningData(response))) };
+        return UsbPeerInspection.Verify(udid, response, request, now, (_, bytes, signature) =>
+        { Require(signature.AsSpan().SequenceEqual(SHA256.HashData(bytes)), "Controlled discovery signature changed."); });
+    }
+    private static async Task UsbCarrierBinding()
+    {
+        var selected = UsbInspection(); var scope = UsbScope();
+        await using var fixture = await Fixture.Connect(extensions: Soa(ProductHandshakeRole.Initiator), localFilePort: null,
+            generalFiles: false, carrier: new ProductControlCarrier.Usb(UsbControlRoute.From(selected), scope));
+        await fixture.Admit(); fixture.Session.RequireUsbRoute(selected, scope);
+        Require(fixture.Session.Carrier is ProductControlCarrier.Usb && fixture.Session.LocalFileTransferPort is null,
+            "USB was represented as a network file listener.");
+        Throws<InvalidOperationException>(() => _ = fixture.Session.RemoteAddress);
+        Throws<InvalidDataException>(() => fixture.Session.RequireUsbRoute(UsbInspection("00008132-2222222222222222"), scope));
+        Throws<InvalidDataException>(() => fixture.Session.RequireUsbRoute(selected, scope with { Subject = "other" }));
+        Throws<InvalidDataException>(() => fixture.Session.AuthorizeFileTransfer(fixture.Candidate, "file"));
+        var metadata = new ClassicFileMetadata("file", "f", 0, new string('a',64), 65536, 2, SenderDeviceId: PeerId);
+        Throws<InvalidDataException>(() => fixture.Session.AuthorizeIncomingTransfer(metadata, IPAddress.Loopback));
+        Require(!new AudioOriginalFileReceiveRegistry().CanReceiveFor(fixture.Session), "USB MAIN alone advertised file reception.");
+        using var inbox = await fixture.OpenAudioInbox();
+        Require(inbox.Binding.PeerProtocolIdentity.Fingerprint == Fingerprint && inbox.Binding.SessionId == fixture.Session.SessionId,
+            "USB audio did not inherit its actual MAIN identity and keys.");
+        await fixture.SendAudio(new(inbox.StreamId, new AudioStreamingBody.PcmData(0, [1,2,3,4])));
+        Require((await inbox.ReadAsync(fixture.Token)).Body is AudioStreamingBody.PcmData { ByteOffset: 0 }, "USB framing did not preserve ordered encrypted audio.");
+        await fixture.Barrier();
+    }
+    private static async Task UsbAccountRevocation()
+    {
+        var selected = UsbInspection(); var scope = UsbScope(); var epoch = new AccountAudioAuthorization(scope);
+        await using var fixture = await Fixture.Connect(extensions: Soa(ProductHandshakeRole.Initiator), localFilePort: null,
+            generalFiles: false, carrier: new ProductControlCarrier.Usb(UsbControlRoute.From(selected), scope), isAuthorityCurrent: () => epoch.IsCurrent);
+        await fixture.Admit(); using var inbox = await fixture.OpenAudioInbox();
+        epoch.Revoke();
+        Require(!fixture.Session.IsReady, "Revoked USB account retained session readiness.");
+        Throws<InvalidOperationException>(() => fixture.Session.RequireAudioIdentityBinding());
+        await fixture.Send(LanControlMessageKind.Ping, new LanProductPing(77));
+        Require(await fixture.Session.Completion.WaitAsync(fixture.Token) is not null, "Revoked control traffic did not retire the exact session.");
+        Throws<LanAudioStreamException>(() => inbox.RequireCurrent());
     }
 
     private static Task LocalIdentityBinding()
@@ -443,7 +494,7 @@ internal static class LanProductControlSessionTests
         internal CancellationToken Token => _deadline.Token;
         internal DiscoveryBrowserPeerCandidate Candidate { get; }
         private Fixture(TcpClient local, TcpClient remote, ProductHandshakeRole role, byte[] extensions, ushort? localFilePort,
-            bool generalFiles, Exception? releaseFailure)
+            bool generalFiles, Exception? releaseFailure, ProductControlCarrier? carrier, Func<bool>? isAuthorityCurrent)
         {
             Keys = new(role, "fixture", new byte[32],
                 Enumerable.Repeat((byte)1, 32).ToArray(), Enumerable.Repeat((byte)2, 32).ToArray());
@@ -466,7 +517,8 @@ internal static class LanProductControlSessionTests
             Session = new(Local, Keys, Peer,
                 Identity() with { DeviceId = LocalId, ProtocolIdentityPublicKeys = [new("ML-DSA-65", LocalPublicKey)],
                     FileTransferPort = localFilePort, Capabilities = generalFiles ? ["file_transfer"] : [] },
-                control, IPAddress.Loopback, Token, localSigner, signingIdentity, extensions);
+                carrier ?? new ProductControlCarrier.Network(IPAddress.Loopback, control), Token, localSigner, signingIdentity,
+                extensions, isAuthorityCurrent ?? (static () => true));
             Require(Session.LocalHandshakeIdentity.Fingerprint == localSigner.Fingerprint &&
                 Session.PeerHandshakeIdentity.Fingerprint == Fingerprint, "MAIN discarded its exact signing identities.");
             using var reversed = new ProductSessionKeys(role == ProductHandshakeRole.Initiator ? ProductHandshakeRole.Responder : ProductHandshakeRole.Initiator,
@@ -476,14 +528,15 @@ internal static class LanProductControlSessionTests
         internal static Task<Fixture> ConnectForAudio(ushort? localFilePort = 8080, bool generalFiles = true) =>
             Connect(extensions: Soa(ProductHandshakeRole.Initiator), localFilePort: localFilePort, generalFiles: generalFiles);
         internal static async Task<Fixture> Connect(ProductHandshakeRole role = ProductHandshakeRole.Initiator, byte[]? extensions = null,
-            ushort? localFilePort = 8080, bool generalFiles = true, Exception? releaseFailure = null)
+            ushort? localFilePort = 8080, bool generalFiles = true, Exception? releaseFailure = null,
+            ProductControlCarrier? carrier = null, Func<bool>? isAuthorityCurrent = null)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             var local = new TcpClient();
             await local.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
             var remote = await listener.AcceptTcpClientAsync();
-            return new(local, remote, role, extensions ?? Array.Empty<byte>(), localFilePort, generalFiles, releaseFailure);
+            return new(local, remote, role, extensions ?? Array.Empty<byte>(), localFilePort, generalFiles, releaseFailure, carrier, isAuthorityCurrent);
         }
         internal void Cancel() => _deadline.Cancel();
         internal async Task Admit(string? peerSpelling = null)

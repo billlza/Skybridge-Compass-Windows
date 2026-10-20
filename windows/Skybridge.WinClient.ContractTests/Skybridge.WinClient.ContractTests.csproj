@@ -20,6 +20,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="ProductBootstrapExchangeTests.cs" />
     <Compile Include="UsbEnrollmentWorkspaceTests.cs" />
+    <Compile Include="UsbControlWorkspaceTests.cs" />
     <Compile Include="LocationPermissionRequestTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\SettingsWorkspaceClient.cs" Link="Services\SettingsWorkspaceClient.cs" />
     <Compile Include="SessionFileCommitTests.cs" />
@@ -192,6 +193,9 @@
     <Compile Include="..\Skybridge.WinClient\ViewModels\WorkspaceCollectionProjector.cs" Link="ViewModels\WorkspaceCollectionProjector.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WindowsDeviceWorkspace.cs" Link="Services\WindowsDeviceWorkspace.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WindowsDeviceWorkspace.UsbEnrollment.cs" Link="Services\WindowsDeviceWorkspace.UsbEnrollment.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\WindowsDeviceWorkspace.UsbControl.cs" Link="Services\WindowsDeviceWorkspace.UsbControl.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Connection\ProductControlRoute.cs" Link="Services\Connection\ProductControlRoute.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\LanProductControlSession.Usb.cs" Link="Services\LanProductControlSession.Usb.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\RemoteControl\RemoteControlHostWorkspaceModels.cs" Link="Services\RemoteControl\RemoteControlHostWorkspaceModels.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WindowsRuntimeLog.cs" Link="Services\WindowsRuntimeLog.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\AccountDeviceRosterClient.cs" Link="Services\AccountDeviceRosterClient.cs" />

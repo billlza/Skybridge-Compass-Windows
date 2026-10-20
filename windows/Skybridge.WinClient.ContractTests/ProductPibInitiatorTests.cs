@@ -33,6 +33,7 @@ internal static class ProductPibInitiatorTests
                     throw new PlatformNotSupportedException("USB enrollment requires the product's minimum Windows build 19041.");
                 result.Add(("Windows PIB initiator verifies native signatures and reloads the committed DPAPI identity pin", NativePersistence));
                 result.AddRange(UsbEnrollmentWorkspaceTests.Cases);
+                result.AddRange(UsbControlWorkspaceTests.Cases);
             }
             return result;
         }

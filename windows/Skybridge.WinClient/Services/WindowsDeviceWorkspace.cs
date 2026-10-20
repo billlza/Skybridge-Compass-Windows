@@ -410,12 +410,7 @@ internal sealed partial class WindowsDeviceWorkspace : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             var deviceId = RemoteControlHandshakeBinding.CanonicalDeviceId(candidate.Peer.DeviceId);
-            foreach (var stale in _controlSessions.Where(entry => !entry.Value.IsReady).ToArray())
-            {
-                if (_audioReceiveHost is { } audio) await audio.DetachAsync(stale.Value).ConfigureAwait(false);
-                await stale.Value.DisposeAsync().ConfigureAwait(false);
-                lock (_stateGate) _controlSessions.Remove(stale.Key);
-            }
+            await RemoveStoppedControlSessionsAsync().ConfigureAwait(false);
             if (_controlSessions.TryGetValue(deviceId, out var existing))
             {
                 // Reuse only if the currently selected identity and both routes still
@@ -433,6 +428,17 @@ internal sealed partial class WindowsDeviceWorkspace : IAsyncDisposable
             return session;
         }
         finally { _controlOperations.Release(); }
+    }
+
+    // Called only while the control-operation gate is held.
+    private async Task RemoveStoppedControlSessionsAsync()
+    {
+        foreach (var stale in _controlSessions.Where(entry => !entry.Value.IsReady).ToArray())
+        {
+            if (_audioReceiveHost is { } audio) await audio.DetachAsync(stale.Value).ConfigureAwait(false);
+            await stale.Value.DisposeAsync().ConfigureAwait(false);
+            lock (_stateGate) _controlSessions.Remove(stale.Key);
+        }
     }
 
     internal LanProductControlSession RequireIncomingControlSession(string deviceId)
