@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
+using System.Diagnostics;
+using System.Reflection;
 using Skybridge.WinClient.Services.Audio;
 using Skybridge.WinClient.Services.FileTransfer;
 
@@ -24,7 +26,8 @@ internal static class AudioFilePcmPlaybackTests
         ("file PCM rejects exhaustion first observed inside native Submit admission", SubmitAdmissionUnderrun),
         ("file PCM rejects authorization revoked while waiting for disk", RevokedDuringRead),
         ("file PCM fails a five-second source or device progress stall", ProgressDeadline),
-        ("file PCM bounds prefetch to two blocks plus the current native block", BoundedPrefetch)
+        ("file PCM bounds prefetch to two blocks plus the current native block", BoundedPrefetch),
+        ("file PCM prefetch remains available while shared workers are occupied", SharedWorkerPressure)
     ];
     private static AudioStreamingPcmFormat IntegerFormat(ushort bits = 16) => new(48000, 2,
         bits switch { 8 => AudioStreamingEncoding.Unsigned8, 16 => AudioStreamingEncoding.Signed16,
@@ -376,6 +379,82 @@ internal static class AudioFilePcmPlaybackTests
         await Until(() => Volatile.Read(ref rig.Native.Waits) >= before + 5);
         Equal(3, Volatile.Read(ref pcmReads));
         cancellation.Cancel(); await Throws<OperationCanceledException>(() => run);
+    }
+
+    private static async Task SharedWorkerPressure()
+    {
+        var limit = TimeSpan.FromSeconds(20);
+        string executable = Environment.ProcessPath ?? throw new InvalidOperationException("Missing test executable.");
+        var start = new ProcessStartInfo(executable)
+        { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+        if (Path.GetFileNameWithoutExtension(executable).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+            start.ArgumentList.Add(Assembly.GetExecutingAssembly().Location);
+        start.ArgumentList.Add("--audio-prefetch-worker-child");
+        using var child = Process.Start(start) ?? throw new InvalidOperationException("The prefetch test child did not start.");
+        var stdout = child.StandardOutput.ReadToEndAsync(); var stderr = child.StandardError.ReadToEndAsync();
+        try
+        {
+            await child.WaitForExitAsync().WaitAsync(limit);
+            ProcessTerminationBarrier.Require(child, limit);
+            var output = await stdout.WaitAsync(limit); var error = await stderr.WaitAsync(limit);
+            Require(child.ExitCode == 0 && string.IsNullOrEmpty(error) && output.Contains("PREFETCH_WORKER_PRESSURE passed", StringComparison.Ordinal),
+                $"The isolated prefetch worker check failed: exit={child.ExitCode}; {error}");
+        }
+        finally
+        {
+            if (!child.HasExited) child.Kill(entireProcessTree: true);
+            ProcessTerminationBarrier.Require(child, limit);
+        }
+    }
+
+    // Process-local scheduling pressure. The parent application/test runner never
+    // changes its worker limits. The source is immediate, verified in-memory PCM;
+    // this isolates prefetch scheduling from storage latency and native decoding.
+    internal static void SharedWorkerPressureChild()
+    {
+        Require(ThreadPool.SetMinThreads(1, 1) && ThreadPool.SetMaxThreads(1, 1),
+            "The isolated child could not establish its worker limit.");
+        var format = new AudioStreamingPcmFormat(48000, 6, AudioStreamingEncoding.Signed24, 24, 63);
+        int frameBytes = checked((int)format.BytesPerFrame);
+        int block = AudioFilePcmPlayback.MaximumBlockBytes / frameBytes * frameBytes;
+        var pcm = Enumerable.Range(0, block * 6 + frameBytes * 17).Select(i => (byte)(i * 73 + 3)).ToArray();
+        var rig = Rig.Create(format, pcm).GetAwaiter().GetResult();
+        using var occupied = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var exited = new ManualResetEventSlim();
+        bool stopObserved = false;
+        var watchdog = new Thread(() =>
+        {
+            stopObserved = rig.Native.Stopped.Task.Wait(TimeSpan.FromSeconds(8));
+            release.Set();
+        }) { IsBackground = true, Name = "File PCM test worker release" };
+        rig.OnStarted = () =>
+        {
+            Require(ThreadPool.QueueUserWorkItem(_ =>
+            {
+                occupied.Set();
+                try { release.Wait(); }
+                finally { exited.Set(); }
+            }), "The shared-worker load could not be queued.");
+            Require(occupied.Wait(TimeSpan.FromSeconds(5)), "The shared worker was not actually occupied.");
+            ThreadPool.GetAvailableThreads(out int available, out _);
+            Equal(0, available);
+        };
+        watchdog.Start();
+        try
+        {
+            var receipt = rig.Run().GetAwaiter().GetResult();
+            Equal(checked((ulong)(pcm.Length / frameBytes)), receipt.SourceFrames);
+            Bytes(pcm, rig.Native.Submissions.SelectMany(bytes => bytes).ToArray());
+            Console.WriteLine("PREFETCH_WORKER_PRESSURE passed");
+        }
+        finally
+        {
+            release.Set();
+            Require(watchdog.Join(TimeSpan.FromSeconds(10)), "The native-stop observer remained active.");
+            Require(occupied.IsSet && exited.Wait(TimeSpan.FromSeconds(5)) && stopObserved,
+                "The shared-worker load or native output did not end cleanly.");
+        }
     }
 
     private sealed class Rig

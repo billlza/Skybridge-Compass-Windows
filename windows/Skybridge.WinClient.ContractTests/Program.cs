@@ -6,6 +6,12 @@ using System.Text.Json;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.ViewModels;
 
+if (args.SequenceEqual(["--audio-prefetch-worker-child"]))
+{
+    AudioFilePcmPlaybackTests.SharedWorkerPressureChild();
+    return;
+}
+
 if (args.SequenceEqual(["--location-permission"]))
 {
     foreach (var test in LocationPermissionRequestTests.Cases) { await test.Run(); Console.WriteLine("PASS " + test.Name); }

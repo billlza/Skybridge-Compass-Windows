@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Runtime.ExceptionServices;
-using System.Threading.Channels;
+using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Skybridge.WinClient.Services.Audio;
 
@@ -84,11 +85,8 @@ internal static class AudioFilePcmPlayback
         int blockBytes = MaximumBlockBytes - MaximumBlockBytes % frameBytes;
         if (blockBytes == 0) throw new InvalidDataException("A source frame exceeds the file prefetch limit.");
 
-        var queue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(PrefetchBlocks)
-        {
-            SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.Wait,
-            AllowSynchronousContinuations = false
-        });
+        var queue = new ConcurrentQueue<byte[]>();
+        using var slots = new SemaphoreSlim(PrefetchBlocks, PrefetchBlocks);
         using var stop = new CancellationTokenSource();
         Exception? cancellationFailure = null;
         using var cancellation = token.Register(() =>
@@ -96,10 +94,18 @@ internal static class AudioFilePcmPlayback
             try { stop.Cancel(); }
             catch (Exception error) { Volatile.Write(ref cancellationFailure, error); }
         });
-        // No synchronous portion of a callback runs on the native thread. Reserving
-        // capacity BEFORE each read limits queued + in-flight blocks to two. The
-        // native loop holds at most one further block, also <=64KiB, with no copy.
-        var producer = Task.Run(ProduceAsync);
+        // Reserve capacity BEFORE reading: queued + in-flight blocks stay <=2,
+        // plus the native loop's current <=64KiB block. The producer and its
+        // capacity wakeups must not compete with unrelated thread-pool work.
+        // Source callbacks remain owned on this worker until they actually end.
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var producer = completion.Task;
+        var worker = new Thread(() =>
+        {
+            try { Produce(); completion.SetResult(); }
+            catch (Exception error) { completion.SetException(error); }
+        }) { IsBackground = true, Name = "Audio file prefetch" };
+        worker.Start();
         ExclusivePcmPlaybackReceipt? receipt = null;
         Exception? primary = null;
         var cleanup = new List<Exception>();
@@ -129,13 +135,14 @@ internal static class AudioFilePcmPlayback
                 error is OperationCanceledException cancelled && cancelled.CancellationToken == stop.Token && cancelled.InnerException is null;
             if (!cancelledByFailure && !Includes(primary, error) && !cleanup.Any(existing => Includes(existing, error))) cleanup.Add(error);
         }
+        worker.Join(); // The completion signal precedes actual thread exit.
         // Dispose waits for a concurrently running cancellation callback. Its
         // failures cannot be lost merely because the caller initiated cancellation.
         cancellation.Dispose();
         if (Volatile.Read(ref cancellationFailure) is { } signalFailure &&
             !Includes(primary, signalFailure) && !cleanup.Any(existing => Includes(existing, signalFailure)))
             cleanup.Add(signalFailure);
-        while (queue.Reader.TryRead(out _)) { }
+        while (TryRead(out _)) { }
         if (cleanup.Count != 0)
         {
             if (primary is not null) cleanup.Insert(0, primary);
@@ -144,33 +151,39 @@ internal static class AudioFilePcmPlayback
         if (primary is not null) ExceptionDispatchInfo.Capture(primary).Throw();
         return receipt ?? throw new InvalidOperationException("File playback ended without a native completion receipt.");
 
-        async Task ProduceAsync()
+        void Produce()
         {
-            try
+            CheckProducer();
+            using var source = openSource(stop.Token).GetAwaiter().GetResult();
+            CheckProducer();
+            long offset = 0, remaining = totalBytes;
+            while (remaining != 0)
             {
-                CheckProducer();
-                using var source = await openSource(stop.Token).ConfigureAwait(false);
-                CheckProducer();
-                long offset = 0, remaining = totalBytes;
-                while (remaining != 0)
+                slots.Wait(stop.Token);
+                bool published = false;
+                try
                 {
-                    if (!await queue.Writer.WaitToWriteAsync(stop.Token).ConfigureAwait(false))
-                        throw new IOException("The file prefetch queue ended before its source.");
                     CheckProducer();
                     int count = (int)Math.Min(remaining, blockBytes);
-                    var bytes = await source.ReadAsync(offset, count, stop.Token).ConfigureAwait(false);
+                    var bytes = source.ReadAsync(offset, count, stop.Token).GetAwaiter().GetResult();
                     CheckProducer();
                     if (bytes is null || bytes.Length != count)
                         throw new InvalidDataException("File PCM read did not return the exact verified range.");
-                    if (!queue.Writer.TryWrite(bytes))
-                        throw new IOException("The single file producer lost its reserved queue capacity.");
+                    queue.Enqueue(bytes); published = true;
                     offset += count; remaining -= count;
                 }
-                CheckProducer();
-                await source.FinishAsync(stop.Token).ConfigureAwait(false);
-                CheckProducer();
+                finally { if (!published) slots.Release(); }
             }
-            finally { queue.Writer.TryComplete(); }
+            CheckProducer();
+            source.FinishAsync(stop.Token).GetAwaiter().GetResult();
+            CheckProducer();
+        }
+
+        bool TryRead([NotNullWhen(true)] out byte[]? bytes)
+        {
+            if (!queue.TryDequeue(out bytes)) return false;
+            slots.Release();
+            return true;
         }
 
         void CheckProducer() { stop.Token.ThrowIfCancellationRequested(); requireAuthorization(); stop.Token.ThrowIfCancellationRequested(); }
@@ -199,7 +212,7 @@ internal static class AudioFilePcmPlayback
                 if (playing && progress.QueuedFrames == 0 && accepted < totalBytes)
                     throw new AudioFilePcmPlaybackException(AudioStreamingStopReason.OutputLost,
                         "The output queue exhausted before the remaining file samples arrived.");
-                if (current is null && queue.Reader.TryRead(out var next))
+                if (current is null && TryRead(out var next))
                 {
                     RequireFinite(next, format); current = next; position = 0;
                 }
@@ -208,7 +221,7 @@ internal static class AudioFilePcmPlayback
                     producer.GetAwaiter().GetResult();
                     // Completion can race the preceding empty TryRead: the producer
                     // may have published its final block between those observations.
-                    if (queue.Reader.TryRead(out var final))
+                    if (TryRead(out var final))
                     {
                         RequireFinite(final, format); current = final; position = 0;
                         continue;
