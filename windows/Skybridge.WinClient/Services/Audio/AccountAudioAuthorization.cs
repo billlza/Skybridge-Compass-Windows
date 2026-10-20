@@ -10,6 +10,15 @@ internal sealed record AudioAccountScope(SessionAuthority Authority, string Subj
 {
     internal static AudioAccountScope From(AccountDeviceAuthentication authentication) =>
         new(authentication.Authority, authentication.Subject, authentication.TenantId);
+    internal static AudioAccountScope FromStoredCredentials(PersistedSession session, SessionAuthority expected)
+    {
+        if (session.Authority != expected || !SessionJwtValidator.TryValidate(session.AccessToken, expected, session.Subject,
+                requireUnexpired: false, out var claims, out _) || claims is null)
+            throw new InvalidDataException("Saved audio scope does not match the configured account authority.");
+        var scope = new AudioAccountScope(expected, claims.Subject, AccountDeviceAuthentication.ReadBoundTenant(session.AccessToken!, claims.Subject));
+        scope.Validate();
+        return scope;
+    }
     internal void Validate()
     {
         if (Authority is null || !Authority.IsWellFormed() || string.IsNullOrWhiteSpace(Subject) ||
@@ -21,12 +30,32 @@ internal sealed record AudioAccountScope(SessionAuthority Authority, string Subj
 
 /// <summary>One local authenticated-account publication. Token refresh may preserve it; sign-out,
 /// replacement and hard authentication rejection revoke it before any asynchronous cleanup.</summary>
-internal sealed class AccountAudioAuthorization(AudioAccountScope scope, IAudioAccountObservationStore? observations = null)
+internal sealed class AccountAudioAuthorization(AudioAccountScope scope, IAudioAccountObservationStore? observations = null,
+    AudioAccountRecoverySnapshot? recovery = null, bool offline = false)
 {
     private int _revoked;
+    private int _offline = offline ? 1 : 0;
     internal AudioAccountScope Scope { get; } = scope ?? throw new ArgumentNullException(nameof(scope));
     internal IAudioAccountObservationStore? Observations { get; } = observations;
-    internal bool IsCurrent => Volatile.Read(ref _revoked) == 0;
+    internal AudioAccountRecoverySnapshot? Recovery { get; } = recovery;
+    internal bool IsOffline => Volatile.Read(ref _offline) != 0;
+    internal bool IsCurrent
+    {
+        get
+        {
+            if (Volatile.Read(ref _revoked) != 0) return false;
+            if (IsOffline && (Recovery is null || !Recovery.HasCurrentCandidate)) Revoke();
+            return Volatile.Read(ref _revoked) == 0;
+        }
+    }
+    // Only the account owner calls this after successful live verification and
+    // durable settlement. Individual leases retain their original deadlines.
+    internal bool TryPromoteOnline()
+    {
+        if (!IsCurrent) return false;
+        Volatile.Write(ref _offline, 0);
+        return Volatile.Read(ref _revoked) == 0;
+    }
     internal void Revoke() => Interlocked.Exchange(ref _revoked, 1);
     internal void RequireCurrent()
     {

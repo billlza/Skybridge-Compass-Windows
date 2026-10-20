@@ -362,7 +362,7 @@ public sealed partial class AccountSessionCoordinator
         AccountDeviceAuthentication authentication;
         try
         {
-            authentication = await GetDeviceAuthenticationAsync(cancellationToken).ConfigureAwait(true)
+            authentication = await GetDeviceAuthenticationCoreAsync(expected, cancellationToken).ConfigureAwait(true)
                 ?? throw new InvalidOperationException("The audio account signed out during authentication.");
         }
         catch (AccountDeviceAuthenticationException error) when
@@ -438,7 +438,7 @@ public sealed partial class AccountSessionCoordinator
         }
         var scope = Services.Audio.AudioAccountScope.From(authentication);
         var previous = Volatile.Read(ref _audioAuthorization);
-        if (preserveExisting && previous is { IsCurrent: true } && previous.Scope == scope) return;
+        if (preserveExisting && previous is { IsCurrent: true } && previous.Scope == scope && previous.TryPromoteOnline()) return;
         previous?.Revoke();
         Volatile.Write(ref _audioAuthorizationError, null);
         Volatile.Write(ref _audioAuthorization, new(scope, this));
@@ -448,19 +448,29 @@ public sealed partial class AccountSessionCoordinator
     // Captured under the same mutation gate as sign-in, sign-out and refresh. The
     // device request receives one immutable authority/token pair, never two providers
     // observing opposite sides of an account switch.
-    internal async Task<AccountDeviceAuthentication?> GetDeviceAuthenticationAsync(CancellationToken cancellationToken)
+    internal Task<AccountDeviceAuthentication?> GetDeviceAuthenticationAsync(CancellationToken cancellationToken) =>
+        GetDeviceAuthenticationCoreAsync(null, cancellationToken);
+
+    private async Task<AccountDeviceAuthentication?> GetDeviceAuthenticationCoreAsync(
+        Services.Audio.AccountAudioAuthorization? audioExpected, CancellationToken cancellationToken)
     {
         await _mutationGate.WaitAsync(cancellationToken).ConfigureAwait(true);
         try
         {
-            if (!IsSignedIn) return null;
-            if (!SessionJwtValidator.TryValidate(_accessToken, _authClient.SessionAuthority, _userId,
-                requireUnexpired: false, out var claims, out _) || claims is null)
+            if (audioExpected is not null) RequireAudioAuthorization(audioExpected);
+            bool refresh = !IsSignedIn;
+            if (refresh && audioExpected is not { IsOffline: true }) return null;
+            if (!refresh)
             {
-                RevokeAudioAuthorization();
-                throw new InvalidDataException("Authenticated account token no longer matches its authority.");
+                if (!SessionJwtValidator.TryValidate(_accessToken, _authClient.SessionAuthority, _userId,
+                    requireUnexpired: false, out var claims, out _) || claims is null)
+                {
+                    RevokeAudioAuthorization();
+                    throw new InvalidDataException("Authenticated account token no longer matches its authority.");
+                }
+                refresh = NeedsRefresh(claims.ExpiresAtUnix);
             }
-            if (NeedsRefresh(claims.ExpiresAtUnix))
+            if (refresh)
             {
                 var refreshed = await HydrateFromStoreCoreAsync(requestRefresh: true).ConfigureAwait(true);
                 if (!refreshed.Success) throw new AccountDeviceAuthenticationException(refreshed.FailureKind, refreshed.AuthenticationFailure);
@@ -863,6 +873,7 @@ public readonly record struct AccountSessionResult(
 {
     internal AuthClientFailure? AuthenticationFailure { get; init; }
     internal AccountVerificationFailure? VerificationFailure { get; init; }
+    internal Services.Audio.AudioAccountRecoveryOutcome? OfflineAudio { get; init; }
     public static AccountSessionResult Succeeded() => new(true, false, null, string.Empty);
 
     public static AccountSessionResult SignedOutResult() => new(true, true, null, string.Empty);

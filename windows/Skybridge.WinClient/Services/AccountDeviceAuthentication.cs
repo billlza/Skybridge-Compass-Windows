@@ -29,6 +29,13 @@ internal sealed class AccountDeviceAuthentication
     {
         if (!SessionJwtValidator.TryValidate(token, authority, subject, true, out _, out _))
             throw new InvalidDataException("Account request requires an unexpired authority-bound token.");
+        return new(token, subject, ReadBoundTenant(token, subject), authority);
+    }
+
+    // The caller must first bind this token's bounded claims to its expected
+    // authority/subject. Reading a tenant never produces request authentication.
+    internal static string ReadBoundTenant(string token, string subject)
+    {
         string payload = token.Split('.')[1].Replace('-', '+').Replace('_', '/');
         using var doc = JsonDocument.Parse(Convert.FromBase64String(payload.PadRight((payload.Length + 3) / 4 * 4, '=')));
         var tenants = new HashSet<string>(StringComparer.Ordinal);
@@ -46,7 +53,7 @@ internal sealed class AccountDeviceAuthentication
             }
         }
         if (tenants.Count > 1) throw new InvalidDataException("Protected tenant claims conflict.");
-        return new(token, subject, tenants.SingleOrDefault() ?? subject, authority);
+        return tenants.SingleOrDefault() ?? subject;
     }
 }
 

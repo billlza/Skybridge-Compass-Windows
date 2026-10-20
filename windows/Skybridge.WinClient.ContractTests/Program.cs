@@ -6,6 +6,12 @@ using System.Text.Json;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.ViewModels;
 
+if (args is ["--audio-offline-reader", var offlineDirectory])
+{
+    await AudioObservationJournalTests.ReadOfflineChild(offlineDirectory);
+    return;
+}
+
 if (args is ["--audio-checkpoint-child", var checkpointDirectory])
 {
     await AudioCheckpointStorageTests.WriteChild(checkpointDirectory);

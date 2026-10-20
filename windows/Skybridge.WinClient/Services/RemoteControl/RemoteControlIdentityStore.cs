@@ -85,23 +85,28 @@ public sealed partial class RemoteControlIdentityStore : IDisposable
 
     internal static Task<RemoteControlIdentityStore> LoadOrCreateAsync(string stateDirectory, string displayName,
         ISessionProtector protector, ISessionFileCommitter committer, CancellationToken cancellationToken = default) =>
-        Task.Run(() => LoadOrCreate(stateDirectory, displayName, protector, committer, cancellationToken), cancellationToken);
+        Task.Run(() => LoadOrCreate(stateDirectory, displayName, protector, committer, cancellationToken, allowCreation: true), cancellationToken);
+
+    internal static Task<RemoteControlIdentityStore> LoadExistingAsync(string stateDirectory, string displayName,
+        CancellationToken cancellationToken = default, ISessionProtector? protector = null) =>
+        Task.Run(() => LoadOrCreate(stateDirectory, displayName, protector ?? new DpapiSessionProtector(),
+            AtomicSessionFileCommitter.Instance, cancellationToken, allowCreation: false), cancellationToken);
 
     private static RemoteControlIdentityStore LoadOrCreate(string stateDirectory, string displayName,
-        ISessionProtector protector, ISessionFileCommitter committer, CancellationToken cancellationToken)
+        ISessionProtector protector, ISessionFileCommitter committer, CancellationToken cancellationToken, bool allowCreation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(stateDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
         ArgumentNullException.ThrowIfNull(protector);
         ArgumentNullException.ThrowIfNull(committer);
-        RequireNativePqc();
+        if (allowCreation) RequireNativePqc();
         cancellationToken.ThrowIfCancellationRequested();
         var directory = Path.GetFullPath(stateDirectory);
-        Directory.CreateDirectory(directory);
+        if (allowCreation) Directory.CreateDirectory(directory);
         RejectLink(directory);
         var lockPath = Path.Combine(directory, ".remote-control-identity.lock");
         RejectLinkIfPresent(lockPath);
-        var lease = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        var lease = new FileStream(lockPath, allowCreation ? FileMode.OpenOrCreate : FileMode.Open, FileAccess.ReadWrite, FileShare.None);
         IdentityDocument? document = null;
         byte[] protectedPreimage = [];
         var transferred = false;
@@ -111,13 +116,16 @@ public sealed partial class RemoteControlIdentityStore : IDisposable
             RejectLinkIfPresent(path);
             var created = false;
             try { document = ReadDocument(path, protector, out protectedPreimage); }
-            catch (FileNotFoundException)
+            catch (FileNotFoundException) when (allowCreation)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 document = CreateDocument(displayName);
                 created = true;
             }
             ValidateDocumentSchema(document);
+            if (!allowCreation && document.SchemaVersion != 2)
+                throw new InvalidDataException("Offline audio requires the existing enrolled device identity.");
+            if (!allowCreation) RequireNativePqc();
             cancellationToken.ThrowIfCancellationRequested();
             var store = new RemoteControlIdentityStore(directory, lease, protector, committer, document);
             try

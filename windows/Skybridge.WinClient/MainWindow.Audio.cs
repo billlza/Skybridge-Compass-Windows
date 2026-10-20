@@ -66,12 +66,13 @@ public sealed partial class MainWindow
     {
         if (_audioReceiveHost is not { } host) return;
         var state = host.ReadSnapshot();
+        var receiverAccount = ViewModel.AccountSession.ReadAudioReceiverAccount();
         var incoming = _remoteControlWorkspace.ReadIncomingMain();
         AudioOutputPicker.IsEnabled = !_audioChanging && !state.Enabled && !state.Stopping && state.NativeReleaseConfirmed &&
             !_remoteControlWorkspace.HasIncomingMain;
         AudioNetworkPicker.IsEnabled = AudioOutputPicker.IsEnabled;
         AudioOutputRefresh.IsEnabled = AudioOutputPicker.IsEnabled && _audioCatalogUnreleased is null;
-        AudioReceiveStart.IsEnabled = AudioOutputPicker.IsEnabled && _audioCatalogUnreleased is null && ViewModel.IsSignedIn &&
+        AudioReceiveStart.IsEnabled = AudioOutputPicker.IsEnabled && _audioCatalogUnreleased is null && receiverAccount is not null &&
             AudioOutputPicker.SelectedItem is ComboBoxItem { Tag: AudioOutputEndpoint } &&
             AudioNetworkPicker.SelectedItem is ComboBoxItem { Tag: RemoteControlNetworkInterface };
         AudioReceiveStop.IsEnabled = !_audioChanging && (state.Enabled || state.Stopping || state.Phase is not null || _remoteControlWorkspace.HasIncomingMain);
@@ -102,7 +103,10 @@ public sealed partial class MainWindow
         }) + (state.PeerName is null ? "" : $" · {state.PeerName}");
         else if (state.Enabled) text = RemoteControlText(state.ListeningDevices > 0 ? "AudioReceiveWaiting" :
             ordinaryPairingEnd ? "LanPairingEnded" : "AudioReceiveNoConnectedDevice");
-        else text = RemoteControlText("AudioReceiveDisabled");
+        else text = RemoteControlText(receiverAccount is null ? "AudioReceiveVerifyAccount" : "AudioReceiveDisabled");
+        if (!failed && receiverAccount?.OfflineExpiresAt is { } offlineExpiry)
+            text += "\n" + string.Format(System.Globalization.CultureInfo.CurrentCulture, RemoteControlText("AudioReceiveOfflineUntil"),
+                DateTimeOffset.FromUnixTimeMilliseconds(offlineExpiry).ToLocalTime());
         if (!failed && !state.Stopping && state.Phase is not AudioCaptureReceivePhase.Stopping and not AudioCaptureReceivePhase.Completed and not AudioCaptureReceivePhase.Failed &&
             state.Renewal is { } renewal)
         {
@@ -209,14 +213,16 @@ public sealed partial class MainWindow
     }
     private async Task StartAudioInputsAsync()
     {
-        if (_audioChanging || _hostShutdownInProgress || !ViewModel.IsSignedIn || _audioReceiveHost is null ||
+        if (_audioChanging || _hostShutdownInProgress || _audioReceiveHost is null ||
             AudioOutputPicker.SelectedItem is not ComboBoxItem { Tag: AudioOutputEndpoint output } ||
             AudioNetworkPicker.SelectedItem is not ComboBoxItem { Tag: RemoteControlNetworkInterface network }) return;
         _audioChanging = true; _audioUiError = null; UpdateAudioStatus();
         try
         {
-            var account = ReadCurrentDeviceAccount() ?? throw new InvalidOperationException("Sign in before receiving audio.");
-            var epoch = ViewModel.AccountSession.ReadAudioAuthorization() ?? throw new InvalidOperationException("Current account authority is unavailable.");
+            var receiver = ViewModel.AccountSession.ReadAudioReceiverAccount()
+                ?? throw new InvalidOperationException("Verify this account before receiving audio.");
+            var account = new RemoteControlViewerAccount(receiver.DisplayName, receiver.NebulaId);
+            var epoch = receiver.Authorization;
             epoch.RequireCurrent(); _audioListenerEpoch = epoch;
             await _audioReceiveHost.EnableAsync(output.EndpointId, CancellationToken.None);
             try { await _remoteControlWorkspace.StartIncomingMainAsync(network, account, epoch, new NativePairingApproval(this), CancellationToken.None); }

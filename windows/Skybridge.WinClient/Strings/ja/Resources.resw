@@ -1979,4 +1979,7 @@
   <data name="AudioRenewalFailed" xml:space="preserve"><value>認証を更新できませんでした。再生を停止しています。</value></data>
   <data name="AudioRenewalValid" xml:space="preserve"><value>アカウントの認証は有効です。</value></data>
   <data name="AudioRenewalExpiry" xml:space="preserve"><value>有効期限: {0:g}。</value></data>
+  <data name="AudioReceiveVerifyAccount" xml:space="preserve"><value>音声を受信するには、インターネットに接続してアカウントを確認してください。</value></data>
+  <data name="AudioReceiveOfflineUntil" xml:space="preserve"><value>承認済みデバイスのオフライン音声は最長 {0:t} まで利用できます。各デバイスの有効期限が適用されます。</value></data>
+  <data name="AccountRestoreOfflineAudio" xml:space="preserve"><value>アカウントを一時的にオンライン確認できません。承認済みデバイスの音声は、残りの有効期間内で受信できます。</value></data>
 </root>

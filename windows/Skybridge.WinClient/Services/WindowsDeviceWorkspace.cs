@@ -104,7 +104,9 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
             try
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                _identity ??= await RemoteControlIdentityStore.LoadOrCreateAsync(_stateDirectory, _displayName, token).ConfigureAwait(false);
+                _identity ??= authorization.IsOffline
+                    ? await RemoteControlIdentityStore.LoadExistingAsync(_stateDirectory, _displayName, token).ConfigureAwait(false)
+                    : await RemoteControlIdentityStore.LoadOrCreateAsync(_stateDirectory, _displayName, token).ConfigureAwait(false);
                 identity = _identity;
             }
             finally { _operations.Release(); }
@@ -112,6 +114,10 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
             if (!networks.Contains(selected)) throw new InvalidOperationException("The selected local network changed. Refresh it before receiving.");
             authorization.RequireCurrent();
             var material = identity.PublicMaterial;
+            if (authorization.IsOffline)
+                (authorization.Recovery ?? throw new InvalidOperationException("Offline audio recovery is unavailable."))
+                    .RequireLocalIdentity(Audio.AudioDeviceIdentity.FromRegistryBinding(new CurrentPathProtocolIdentityBinding(
+                        material.DeviceId, CurrentPathProtocolSigningAlgorithm.MLDsa65, material.ProtocolPublicKey.ToArray())));
             var local = new RemoteControlSecurityIdentity(account.AccountDisplayName, account.NebulaId, material.DeviceId, material.DeviceName);
             local.Validate();
             var osVersion = QPeriaptPeerPlatform.LocalVersion();

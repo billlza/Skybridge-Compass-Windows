@@ -1257,7 +1257,8 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IDisposable
         var result = await _accountSessionCoordinator.HydrateFromStoreAsync();
         if (!result.Success)
         {
-            var key = result.FailureKind switch
+            var limitedAudio = result.OfflineAudio?.Status == Services.Audio.AudioAccountRecoveryStatus.Available;
+            var key = limitedAudio ? "AccountRestoreOfflineAudio" : result.FailureKind switch
             {
                 AccountSessionFailureKind.Network => "AccountRestoreNetworkFailure",
                 AccountSessionFailureKind.SessionPersistenceFailed => "AccountRestoreStorageFailure",
@@ -1267,7 +1268,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IDisposable
             if (string.IsNullOrWhiteSpace(message)) throw new InvalidOperationException($"The account text resource '{key}' is missing.");
             StatusMessage = message;
             WindowsRuntimeLog.Write(WindowsLogLevel.Warning, "account.restore",
-                $"Session restoration failed; kind={result.FailureKind}; code={result.ErrorCode}.");
+                $"Session restoration failed; kind={result.FailureKind}; code={result.ErrorCode}; audioRecovery={result.OfflineAudio?.Status}; cause={result.OfflineAudio?.Cause?.GetType().Name}.");
         }
         return result;
     }

@@ -12,6 +12,7 @@ public sealed partial class AccountSessionCoordinator
     {
         var persisted = captured.Session ?? throw new InvalidOperationException("Missing captured credentials.");
         AudioAccountScope? previousScope = null;
+        bool hasUnsettledAudio = false;
         if (captured.AudioState is { } audio)
         {
             try
@@ -20,6 +21,7 @@ public sealed partial class AccountSessionCoordinator
                 if (journal.LoginId != captured.LoginId || journal.Scope.Authority != persisted.Authority || journal.Scope.Subject != persisted.Subject)
                     throw new InvalidDataException("Stored audio authority belongs to another account.");
                 previousScope = journal.Scope;
+                hasUnsettledAudio = journal.Pending.Length != 0;
             }
             catch (InvalidDataException)
             {
@@ -41,7 +43,8 @@ public sealed partial class AccountSessionCoordinator
             }
             storage = capable;
             observation = Guid.NewGuid();
-            bool retireUnsettled = captured.PendingVerificationId is not null;
+            bool retireUnsettled = captured.PendingVerificationId is not null ||
+                !requestRefresh && ReadAudioAuthorization() is not { IsCurrent: true } && hasUnsettledAudio;
             var prepared = await Task.Run(() => storage.BeginVerification(RequireStoreVersion(), login,
                 observation.Value, retireUnsettled)).ConfigureAwait(true);
             if (!prepared.Succeeded) return FailedVerificationStorage("preparation", prepared);
@@ -89,6 +92,7 @@ public sealed partial class AccountSessionCoordinator
         {
             bool preserve = !scopeChanged && (result.Success ||
                 result.FailureKind == AccountSessionFailureKind.Network && AudioMembershipRequestFailure.IsTemporary(result.AuthenticationFailure));
+            if (!preserve && ReadAudioAuthorization() is { IsOffline: true }) RevokeAudioAuthorization();
             var settled = await Task.Run(() => storage.CompleteVerification(RequireStoreVersion(), expectedLogin,
                 id, retireAudio: !preserve)).ConfigureAwait(true);
             if (!settled.Succeeded) return FailedVerificationStorage("completion", settled, result);
@@ -96,8 +100,19 @@ public sealed partial class AccountSessionCoordinator
         }
         if (result.Success && !result.SignedOut)
         {
-            PublishAudioAuthorization(preserveExisting: requestRefresh);
+            PublishAudioAuthorization(preserveExisting: requestRefresh || ReadAudioAuthorization() is { IsOffline: true });
             RaiseIdentityChanged();
+        }
+        else if (!requestRefresh && !scopeChanged && result.FailureKind == AccountSessionFailureKind.Network &&
+            AudioMembershipRequestFailure.IsTemporary(result.AuthenticationFailure) && captured.LoginId is not null)
+        {
+            try { result = result with { OfflineAudio = await RestoreOfflineAudioAsync().ConfigureAwait(true) }; }
+            catch (Exception error) when (error is InvalidDataException or AudioJournalStorageException)
+            {
+                RevokeAudioAuthorization();
+                return AccountSessionResult.Failed(AccountSessionFailureKind.SessionPersistenceFailed, "OfflineAudioRecoveryInvalid", result.AuthenticationFailure)
+                    with { OfflineAudio = new(AudioAccountRecoveryStatus.InvalidStoredState, error) };
+            }
         }
         return result;
     }

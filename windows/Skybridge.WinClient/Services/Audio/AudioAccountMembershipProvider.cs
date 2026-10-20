@@ -102,6 +102,9 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
     private readonly AudioAccountMembershipClient _client;
     private readonly IAudioLogonContinuity _continuity;
     private readonly List<Entry> _entries = [];
+    // Only the bounded startup snapshot is restorable. Keep its runtime evidence
+    // objects, including terminal failures, so cache pruning cannot revive them.
+    private readonly Dictionary<Guid, Entry> _recovered = [];
     private Request? _pending;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationToken _lifetimeToken;
@@ -162,16 +165,19 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
         }
         try
         {
-            var authentication = await _authenticate(epoch, cancellationToken).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested(); RequireEpoch(epoch);
-            epoch.RequireAuthentication(authentication); inbox.RequireCurrent();
-            AudioAccountMembershipEvidence evidence;
-            try { evidence = await QueryMembershipAsync(request, authentication, inbox, cancellationToken).ConfigureAwait(false); }
-            catch (Exception error) when (continuing is not null && IsTemporaryRequest(error))
+            var evidence = !refresh ? await RestoreSavedMembershipAsync(request, cancellationToken).ConfigureAwait(false) : null;
+            if (evidence is null)
             {
+                var authentication = await _authenticate(epoch, cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested(); RequireEpoch(epoch);
-                continuing.RequireContinuation(epoch, inbox);
-                throw new AudioMembershipRequestUnavailableException(error);
+                epoch.RequireAuthentication(authentication); inbox.RequireCurrent();
+                try { evidence = await QueryMembershipAsync(request, authentication, inbox, cancellationToken).ConfigureAwait(false); }
+                catch (Exception error) when (continuing is not null && IsTemporaryRequest(error))
+                {
+                    cancellationToken.ThrowIfCancellationRequested(); RequireEpoch(epoch);
+                    continuing.RequireContinuation(epoch, inbox);
+                    throw new AudioMembershipRequestUnavailableException(error);
+                }
             }
             lock (_gate)
             {
@@ -207,6 +213,43 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
                 !_entries.Any(entry => ReferenceEquals(entry.Epoch, epoch) && ReferenceEquals(entry.Evidence, predecessor)))
                 throw new InvalidOperationException("The original audio authorization can no longer be continued.");
         }
+    }
+
+    private async Task<AudioAccountMembershipEvidence?> RestoreSavedMembershipAsync(Request request, CancellationToken token)
+    {
+        var epoch = request.Epoch;
+        if (epoch.Recovery is null) return null; // Ordinary online publication has no startup recovery set.
+        if (epoch.Observations is not IAudioAccountRecoveryStore recovery)
+            throw new InvalidOperationException("Saved audio authorization requires its canonical account owner.");
+        var stored = await recovery.RestoreMembershipAsync(epoch, request.Local, request.Peer, token).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested(); RequireEpoch(epoch);
+        if (stored.Evidence is not { } evidence)
+        {
+            if (stored.Status is not (AudioAccountRecoveryStatus.NoSavedGrant or AudioAccountRecoveryStatus.Unsettled or
+                AudioAccountRecoveryStatus.ExpiredOrClockChanged or AudioAccountRecoveryStatus.ContinuityUnavailable))
+                throw new InvalidDataException("Saved audio lookup has no explicit outcome.");
+            if (epoch.IsOffline) throw new AudioMembershipException(AudioMembershipFailure.Revoked, stored.Cause);
+            return null; // A verified online account must perform a new GET; failed recovery never issues a grant.
+        }
+        lock (_gate)
+        {
+            RequireEpoch(epoch); Prune();
+            if (_recovered.TryGetValue(evidence.Id, out var existing))
+            {
+                if (!ReferenceEquals(existing.Epoch, epoch)) throw new InvalidDataException("Saved evidence belongs to another publication.");
+                evidence = existing.Evidence;
+            }
+            else
+            {
+                if (_recovered.Count >= Capacity) throw new InvalidOperationException("The saved audio recovery set is full.");
+                _recovered.Add(evidence.Id, new(epoch, evidence));
+            }
+        }
+        try { evidence.RequireValid(epoch.Scope, request.Local, request.Peer, _clock()); }
+        catch (AudioMembershipException error) when (!epoch.IsOffline && error.Reason is
+            AudioMembershipFailure.Revoked or AudioMembershipFailure.Expired or AudioMembershipFailure.ClockChanged)
+        { return null; }
+        return evidence;
     }
 
     private async Task<AudioAccountMembershipEvidence> QueryMembershipAsync(Request request,
@@ -373,6 +416,8 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
                 _closed = true;
                 foreach (var entry in _entries) entry.Evidence.Revoke();
                 _entries.Clear();
+                foreach (var entry in _recovered.Values) entry.Evidence.Revoke();
+                _recovered.Clear();
                 if (_pending is { } request) request.Contradicted = true;
                 draining = _pending?.Completion.Task ?? Task.CompletedTask;
             }
@@ -390,6 +435,9 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
     private void Prune()
     {
         var now = _clock();
+        var epoch = _currentEpoch();
+        foreach (var key in _recovered.Where(item => !ReferenceEquals(item.Value.Epoch, epoch) || !item.Value.Epoch.IsCurrent).Select(item => item.Key).ToArray())
+        { _recovered[key].Evidence.Revoke(); _recovered.Remove(key); }
         _entries.RemoveAll(entry =>
         {
             if (!entry.Epoch.IsCurrent) { entry.Evidence.Revoke(); return true; }

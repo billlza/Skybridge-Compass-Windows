@@ -49,7 +49,8 @@ internal static partial class AudioObservationJournalTests
         ("audio credential journal stale verification cannot erase a replacement account", CredentialStaleOwner),
         ("audio credential journal a new live check retires uncertain prior audio without resetting login", CredentialInterrupted),
         ("audio credential journal storage binds exact operation and preserves it across audio mutations", CredentialStorageOwnership),
-        ("audio credential journal schema migration and malformed markers stay explicit", CredentialStorageSchema)
+        ("audio credential journal schema migration and malformed markers stay explicit", CredentialStorageSchema),
+        .. OfflineRecoveryCases
     ];
 
     private sealed class PlainProtector : ISessionProtector
@@ -78,8 +79,9 @@ internal static partial class AudioObservationJournalTests
         private readonly IAudioLogonContinuity _inner = OperatingSystem.IsWindows()
             ? WindowsAudioLogonContinuity.Instance : new AudioMembershipCheckpointTests.Continuity();
         internal Action? BeforeCreate;
+        internal Action? BeforeRequire;
         public AudioLogonSeal Create() { BeforeCreate?.Invoke(); return _inner.Create(); }
-        public void RequireCurrent(AudioLogonSeal seal) => _inner.RequireCurrent(seal);
+        public void RequireCurrent(AudioLogonSeal seal) { BeforeRequire?.Invoke(); _inner.RequireCurrent(seal); }
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -110,7 +112,7 @@ internal static partial class AudioObservationJournalTests
         private static ISessionProtector Protector() => OperatingSystem.IsWindows() ? new DpapiSessionProtector() : new PlainProtector();
         private Fixture(int minutes, TimeSpan? queryTimeout)
         {
-            Storage = new(DirectoryPath, Protector(), Committer); Owner = new(Client, Storage);
+            Storage = new(DirectoryPath, Protector(), Committer); Owner = NewOwner();
             Token = AccountAudioAuthorizationTests.Token(minutes: minutes);
             Query = AudioDeviceIdentity.QueryBinding(Binding.LocalDeviceId, Binding.LocalProtocolIdentity);
             Rows = [Row(Local(Binding), true), Row(Peer(Binding)), Row(Other)];
@@ -123,6 +125,7 @@ internal static partial class AudioObservationJournalTests
                 Clock.Read, queryTimeout, Continuity);
             Observer = new(Provider, Clock.Read); Roster = new(Http, Observer);
         }
+        internal AccountSessionCoordinator NewOwner() => new(Client, Storage, Clock.Read, Continuity);
         internal static async Task<Fixture> Create(bool checkpoints = true, int minutes = 60, bool keepNearExpiry = false,
             TimeSpan? queryTimeout = null)
         {
@@ -147,7 +150,7 @@ internal static partial class AudioObservationJournalTests
                 Require(((ISessionAudioStateStore)f.Storage).WriteAudioState(JsonSerializer.SerializeToElement(state), head.Version!, head.LoginId.Value).Succeeded,
                     "Synthetic finite checkpoints did not persist.");
                 if (keepNearExpiry) f.Client.RefreshedToken = f.Token;
-                f.Owner = new(f.Client, f.Storage);
+                f.Owner = f.NewOwner();
                 Require((await f.Owner.HydrateFromStoreAsync()).Success, "Synthetic online owner hydration failed.");
             }
             return f;
@@ -345,7 +348,7 @@ internal static partial class AudioObservationJournalTests
         var head = f.Storage.Load();
         Require(((ISessionAudioStateStore)f.Storage).WriteAudioState(JsonSerializer.SerializeToElement(valid with { SchemaVersion = 99 }), head.Version!, head.LoginId!.Value).Succeeded,
             "Unknown journal fixture did not persist.");
-        f.Owner = new(f.Client, f.Storage);
+        f.Owner = f.NewOwner();
         var original = f.Storage.Load();
         var invalidHydration = await f.Owner.HydrateFromStoreAsync();
         Require(!invalidHydration.Success && invalidHydration.ErrorCode == "InvalidAudioJournal" &&

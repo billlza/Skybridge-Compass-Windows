@@ -1979,4 +1979,7 @@
   <data name="AudioRenewalFailed" xml:space="preserve"><value>账号设备授权续期失败，正在停止播放。</value></data>
   <data name="AudioRenewalValid" xml:space="preserve"><value>账号设备授权有效。</value></data>
   <data name="AudioRenewalExpiry" xml:space="preserve"><value>有效至 {0:g}。</value></data>
+  <data name="AudioReceiveVerifyAccount" xml:space="preserve"><value>请联网验证账号后接收音频。</value></data>
+  <data name="AudioReceiveOfflineUntil" xml:space="preserve"><value>已有授权的设备可离线播放，最晚至 {0:t}；各设备仍以自己的授权期限为准。</value></data>
+  <data name="AccountRestoreOfflineAudio" xml:space="preserve"><value>账号暂时无法联网验证。已有授权的设备仍可在剩余有效期内接收音频。</value></data>
 </root>
