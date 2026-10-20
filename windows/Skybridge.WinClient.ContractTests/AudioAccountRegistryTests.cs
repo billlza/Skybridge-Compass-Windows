@@ -164,8 +164,9 @@ internal static class AudioAccountRegistryTests
     private sealed class RemovalCancellationObserver(IAccountDeviceRegistryObserver inner, Action cancel) : IAccountDeviceRegistryObserver
     {
         public async ValueTask<IAccountDeviceRegistryObservation?> BeginAsync(AccountDeviceAuthentication auth,
-            CurrentPathProtocolIdentityBinding binding, AccountDeviceRegistryRequest request, CancellationToken cancellationToken) =>
-            await inner.BeginAsync(auth, binding, request, cancellationToken) is { } captured ? new Observation(captured, cancel) : null;
+            CurrentPathProtocolIdentityBinding binding, AccountDeviceRegistryRequest request, CancellationToken cancellationToken,
+            AccountDeviceEntry? removalTarget = null) =>
+            await inner.BeginAsync(auth, binding, request, cancellationToken, removalTarget) is { } captured ? new Observation(captured, cancel) : null;
         private sealed class Observation(IAccountDeviceRegistryObservation inner, Action cancel) : IAccountDeviceRegistryObservation
         {
             public void Listed(AccountDeviceRosterSnapshot snapshot) => inner.Listed(snapshot);
@@ -234,10 +235,11 @@ internal static class AudioAccountRegistryTests
         internal Action? Listed;
         internal Action? Rejected;
         public async ValueTask<IAccountDeviceRegistryObservation?> BeginAsync(AccountDeviceAuthentication auth,
-            CurrentPathProtocolIdentityBinding binding, AccountDeviceRegistryRequest request, CancellationToken cancellationToken)
+            CurrentPathProtocolIdentityBinding binding, AccountDeviceRegistryRequest request, CancellationToken cancellationToken,
+            AccountDeviceEntry? removalTarget = null)
         {
             if (Preparing is not null) await Preparing(request, cancellationToken);
-            var captured = await inner.BeginAsync(auth, binding, request, CancellationToken.None);
+            var captured = await inner.BeginAsync(auth, binding, request, CancellationToken.None, removalTarget);
             var operation = new Observation(this, captured, request, auth);
             Operations.Add(operation);
             return operation;

@@ -33,7 +33,7 @@ internal static class AccountAudioAuthorizationTests
     private static readonly SessionAuthority Authority = SessionAuthority.ForSupabaseProject("https://audio-account-test.supabase.co");
 
     // The Auth API and session store are controlled ports; these are lifecycle tests, not live login proof.
-    private static AuthToken Token(string subject = "audio-user", int minutes = 60, object? app = null)
+    internal static AuthToken Token(string subject = "audio-user", int minutes = 60, object? app = null)
     {
         static string B(object value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value)))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -304,7 +304,7 @@ internal static class AccountAudioAuthorizationTests
         var otherSubject = AccountDeviceAuthentication.FromVerifiedSession(Token(subject: "other-user").AccessToken!, Authority, "other-user");
         await Throws<InvalidDataException>(() => { epoch.RequireAuthentication(otherSubject); return Task.CompletedTask; });
     }
-    private sealed class Client : ISupabaseAuthClient
+    internal sealed class Client : ISupabaseAuthClient
     {
         public SessionAuthority SessionAuthority => Authority;
         internal AuthToken RefreshedToken = Token();

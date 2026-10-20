@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json.Serialization;
 
 namespace Skybridge.WinClient.Services.Audio;
@@ -45,17 +44,14 @@ internal sealed record AudioMembershipCheckpoint(int SchemaVersion, Guid LoginId
     internal void Validate()
     {
         if (SchemaVersion != CurrentSchema || LoginId == Guid.Empty || EvidenceId == Guid.Empty ||
-            Scope?.Authority is null || !Scope.Authority.IsWellFormed() ||
-            string.IsNullOrWhiteSpace(Scope.Subject) || Scope.Subject.Length > 2048 || Scope.Subject.Any(char.IsControl) ||
-            string.IsNullOrWhiteSpace(Scope.TenantId) || Scope.TenantId.Trim() != Scope.TenantId ||
-            Encoding.UTF8.GetByteCount(Scope.TenantId) > 256 || Scope.TenantId.Any(char.IsControl) ||
+            Scope is null ||
             Local is null || Peer is null || Local.DeviceId == Peer.DeviceId || Continuity is null ||
             Issued.WallMilliseconds <= 0 || Issued.ContinuousMilliseconds < 0 ||
             Expires.WallMilliseconds <= Issued.WallMilliseconds || Expires.ContinuousMilliseconds <= Issued.ContinuousMilliseconds ||
             (decimal)Expires.WallMilliseconds - Issued.WallMilliseconds > AudioAccountMembershipEvidence.MaximumLifetimeMilliseconds ||
             (decimal)Expires.ContinuousMilliseconds - Issued.ContinuousMilliseconds != (decimal)Expires.WallMilliseconds - Issued.WallMilliseconds)
             throw new InvalidDataException("Invalid finite audio checkpoint.");
-        Local.Validate(); Peer.Validate(); Continuity.Validate();
+        Scope.Validate(); Local.Validate(); Peer.Validate(); Continuity.Validate();
     }
 
     internal AudioAccountMembershipEvidence Restore(Guid expectedLogin, AudioAccountScope expectedScope,

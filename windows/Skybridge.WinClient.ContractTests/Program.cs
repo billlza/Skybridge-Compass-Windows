@@ -515,10 +515,10 @@ var remoteHostTests = Skybridge.WinClient.ContractTests.WindowsRemoteControlAudi
         }
     })));
 var allTests = tests.Concat(SessionFileCommitTests.Cases).Concat(SessionStoreVersionTests.Cases).Concat(AppOperatorTests.Cases).Concat(AccountDeviceTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(AudioMembershipRenewalTests.Cases)
-    .Concat(AccountAudioAuthorizationTests.Cases).Concat(AudioMembershipCheckpointTests.Cases).Concat(AudioCheckpointStorageTests.Cases).Concat(ShellInteractionTests.Cases).Concat(remoteHostTests);
+    .Concat(AccountAudioAuthorizationTests.Cases).Concat(AudioMembershipCheckpointTests.Cases).Concat(AudioCheckpointStorageTests.Cases).Concat(AudioObservationJournalTests.Cases).Concat(ShellInteractionTests.Cases).Concat(remoteHostTests);
 var selectedTests = args.SequenceEqual(["--audio-account"])
     ? tests.Where(test => test.Name.StartsWith("account ", StringComparison.Ordinal) || test.Name.StartsWith("supabase ", StringComparison.Ordinal))
-        .Concat(AccountDeviceTests.Cases).Concat(AccountAudioAuthorizationTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioMembershipCheckpointTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(LanProductControlSessionTests.Cases)
+        .Concat(AccountDeviceTests.Cases).Concat(AccountAudioAuthorizationTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioMembershipCheckpointTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(AudioObservationJournalTests.Cases).Concat(LanProductControlSessionTests.Cases)
     : args.SequenceEqual(["--session-storage"])
         ? tests.Where(test => test.Name.StartsWith("session store ", StringComparison.Ordinal)).Concat(SessionFileCommitTests.Cases).Concat(SessionStoreVersionTests.Cases).Concat(AudioCheckpointStorageTests.Cases)
         : allTests;

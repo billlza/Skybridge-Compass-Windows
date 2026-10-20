@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace Skybridge.WinClient.Services.Audio;
@@ -9,14 +10,22 @@ internal sealed record AudioAccountScope(SessionAuthority Authority, string Subj
 {
     internal static AudioAccountScope From(AccountDeviceAuthentication authentication) =>
         new(authentication.Authority, authentication.Subject, authentication.TenantId);
+    internal void Validate()
+    {
+        if (Authority is null || !Authority.IsWellFormed() || string.IsNullOrWhiteSpace(Subject) ||
+            Subject.Length > 2048 || Subject.Any(char.IsControl) || string.IsNullOrWhiteSpace(TenantId) ||
+            TenantId.Trim() != TenantId || Encoding.UTF8.GetByteCount(TenantId) > 256 || TenantId.Any(char.IsControl))
+            throw new InvalidDataException("Invalid audio account scope.");
+    }
 }
 
 /// <summary>One local authenticated-account publication. Token refresh may preserve it; sign-out,
 /// replacement and hard authentication rejection revoke it before any asynchronous cleanup.</summary>
-internal sealed class AccountAudioAuthorization(AudioAccountScope scope)
+internal sealed class AccountAudioAuthorization(AudioAccountScope scope, IAudioAccountObservationStore? observations = null)
 {
     private int _revoked;
     internal AudioAccountScope Scope { get; } = scope ?? throw new ArgumentNullException(nameof(scope));
+    internal IAudioAccountObservationStore? Observations { get; } = observations;
     internal bool IsCurrent => Volatile.Read(ref _revoked) == 0;
     internal void Revoke() => Interlocked.Exchange(ref _revoked, 1);
     internal void RequireCurrent()

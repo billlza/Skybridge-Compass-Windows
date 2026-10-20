@@ -24,7 +24,8 @@ internal interface IAccountDeviceRosterClient
 internal interface IAccountDeviceRegistryObserver
 {
     ValueTask<IAccountDeviceRegistryObservation?> BeginAsync(AccountDeviceAuthentication authentication,
-        CurrentPathProtocolIdentityBinding binding, AccountDeviceRegistryRequest request, CancellationToken cancellationToken);
+        CurrentPathProtocolIdentityBinding binding, AccountDeviceRegistryRequest request, CancellationToken cancellationToken,
+        AccountDeviceEntry? removalTarget = null);
 }
 internal enum AccountDeviceRegistryRequest { Presence, List, Registration, Removal }
 internal sealed class AccountDeviceRegistryObservationException(string stage, Exception cause)
@@ -125,18 +126,18 @@ internal sealed class AccountDeviceRosterClient(HttpClient httpClient, IAccountD
             bearerTokenProvider: _ => Task.FromResult(auth.AccessToken), tenantIdProvider: _ => Task.FromResult(auth.TenantId), clientVersion: "1.0.2"));
         await ObserveAsync(auth, binding, AccountDeviceRegistryRequest.Removal,
             () => client.RemoveAccountDeviceAsync(binding, target, cancellationToken),
-            observation => observation.Removed(target), cancellationToken).ConfigureAwait(false);
+            observation => observation.Removed(target), cancellationToken, target).ConfigureAwait(false);
     }
 
     private Task ObserveAsync(AccountDeviceAuthentication auth, CurrentPathProtocolIdentityBinding binding,
         AccountDeviceRegistryRequest request, Func<Task> send, Action<IAccountDeviceRegistryObservation>? accepted,
-        CancellationToken cancellationToken) => ObserveAsync(auth, binding, request,
+        CancellationToken cancellationToken, AccountDeviceEntry? removalTarget = null) => ObserveAsync(auth, binding, request,
             async () => { await send().ConfigureAwait(false); return true; },
-            (observation, _) => accepted?.Invoke(observation), cancellationToken);
+            (observation, _) => accepted?.Invoke(observation), cancellationToken, removalTarget);
 
     private async Task<T> ObserveAsync<T>(AccountDeviceAuthentication auth, CurrentPathProtocolIdentityBinding binding,
         AccountDeviceRegistryRequest request, Func<Task<T>> send, Action<IAccountDeviceRegistryObservation, T> accepted,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, AccountDeviceEntry? removalTarget = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         // Preparation precedes the HTTP call. If it fails, no request has been
@@ -144,7 +145,7 @@ internal sealed class AccountDeviceRosterClient(HttpClient httpClient, IAccountD
         IAccountDeviceRegistryObservation? observation;
         try
         {
-            observation = observer is null ? null : await observer.BeginAsync(auth, binding, request, cancellationToken).ConfigureAwait(false);
+            observation = observer is null ? null : await observer.BeginAsync(auth, binding, request, cancellationToken, removalTarget).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception error) { throw new AccountDeviceRegistryObservationException("preparation", error); }

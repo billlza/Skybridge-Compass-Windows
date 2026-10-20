@@ -8,36 +8,56 @@ internal sealed class AudioAccountRegistryObserver(AudioAccountMembershipProvide
     Func<AudioAuthorizationTime>? clock = null) : IAccountDeviceRegistryObserver
 {
     private readonly Func<AudioAuthorizationTime> _clock = clock ?? AudioAuthorizationTime.ReadWindows;
-    public ValueTask<IAccountDeviceRegistryObservation?> BeginAsync(AccountDeviceAuthentication authentication,
-        CurrentPathProtocolIdentityBinding binding, AccountDeviceRegistryRequest request, CancellationToken cancellationToken)
+    public async ValueTask<IAccountDeviceRegistryObservation?> BeginAsync(AccountDeviceAuthentication authentication,
+        CurrentPathProtocolIdentityBinding binding, AccountDeviceRegistryRequest request, CancellationToken cancellationToken,
+        AccountDeviceEntry? removalTarget = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        IAccountDeviceRegistryObservation? observation = authentication.AudioAuthorization is { } epoch
-            ? new Observation(provider, authentication, epoch, AudioDeviceIdentity.FromRegistryBinding(binding), _clock(), _clock, request)
-            : null;
-        return ValueTask.FromResult(observation);
+        if (authentication.AudioAuthorization is not { } epoch) return null;
+        var caller = AudioDeviceIdentity.FromRegistryBinding(binding);
+        var target = removalTarget is null ? null : new AudioCheckpointIdentity(removalTarget.DeviceId, removalTarget.Algorithm, removalTarget.Fingerprint);
+        var store = epoch.Observations;
+        var ticket = store is null ? null : await store.BeginAsync(epoch, caller, request, target, cancellationToken).ConfigureAwait(false);
+        return new Observation(provider, authentication, epoch, caller, _clock(), _clock, request, store, ticket);
     }
 
     private sealed class Observation(AudioAccountMembershipProvider provider, AccountDeviceAuthentication authentication,
         AccountAudioAuthorization epoch, AudioDeviceIdentity caller, AudioAuthorizationTime started,
-        Func<AudioAuthorizationTime> clock, AccountDeviceRegistryRequest request) : IAccountDeviceRegistryObservation
+        Func<AudioAuthorizationTime> clock, AccountDeviceRegistryRequest request,
+        IAudioAccountObservationStore? store, AudioJournalTicket? ticket) : IAccountDeviceRegistryObservation
     {
+        private AudioRegistryObservation? _registry;
+        private AudioCheckpointIdentity? _removed;
+        private bool _callerRejected;
         public void Listed(AccountDeviceRosterSnapshot snapshot)
         {
             bool applied;
-            try { applied = provider.ObserveRegistryResponse(epoch, authentication, caller, snapshot, started, clock()); }
+            try
+            {
+                var received = clock();
+                applied = provider.ObserveRegistryResponse(epoch, authentication, caller, snapshot, started, received);
+                if (applied) _registry = AudioRegistryObservation.FromResponse(authentication, caller, snapshot, started, received);
+            }
             catch (AudioMembershipException error) when (error.Reason == AudioMembershipFailure.InvalidResponse)
             { throw new InvalidDataException("The account registry response cannot provide a fresh audio authorization observation.", error); }
             Report(applied, "list");
         }
-        public void Removed(AccountDeviceEntry target) => Report(provider.Removed(epoch, target), "removal");
-        public void Rejected(CurrentPathSignalServerException error) => Report(provider.ObserveCallerRejection(epoch, caller, error), "denial");
-        public ValueTask CompleteAsync(Exception? failure)
+        public void Removed(AccountDeviceEntry target)
         {
-            // This observer still owns process-local evidence only. Completion
-            // reports the real outcome; it does not save, renew or restore a grant.
-            Debug.WriteLine($"Audio account registry {request} settled: {failure?.GetType().Name ?? "success"}.");
-            return ValueTask.CompletedTask;
+            Report(provider.Removed(epoch, target), "removal");
+            _removed = new(target.DeviceId, target.Algorithm, target.Fingerprint);
+        }
+        public void Rejected(CurrentPathSignalServerException error)
+        {
+            Report(provider.ObserveCallerRejection(epoch, caller, error), "denial");
+            _callerRejected |= AudioAccountMembershipProvider.IsDeviceDenial(error);
+        }
+        public async ValueTask CompleteAsync(Exception? failure)
+        {
+            AudioJournalCompletion? completion = null;
+            if (store is not null && ticket is not null)
+                completion = await store.CompleteAsync(ticket, new(_registry, _removed, _callerRejected), failure).ConfigureAwait(false);
+            Debug.WriteLine($"Audio account registry {request} settled: {failure?.GetType().Name ?? "success"}; journal={completion?.ToString() ?? "process-local"}.");
         }
         private static void Report(bool applied, string operation) =>
             Debug.WriteLine($"Audio account registry {operation}: {(applied ? "applied" : "no current matching authorization effect")}.");

@@ -26,7 +26,7 @@ namespace Skybridge.WinClient.ViewModels;
 //  forwarding setters run on the UI thread — no DispatcherQueue, matching the house idiom.
 // =====================================================================================
 
-public sealed class AccountSessionCoordinator
+public sealed partial class AccountSessionCoordinator
 {
     private readonly ISupabaseAuthClient _authClient;
     private readonly ISessionStore _sessionStore;
@@ -435,7 +435,7 @@ public sealed class AccountSessionCoordinator
         if (preserveExisting && previous is { IsCurrent: true } && previous.Scope == scope) return;
         previous?.Revoke();
         Volatile.Write(ref _audioAuthorizationError, null);
-        Volatile.Write(ref _audioAuthorization, new(scope));
+        Volatile.Write(ref _audioAuthorization, new(scope, this));
         _audioMayRefresh = true;
     }
 

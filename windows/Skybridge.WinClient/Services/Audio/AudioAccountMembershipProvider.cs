@@ -326,7 +326,7 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
                 AudioMembershipFailure.ClockChanged or AudioMembershipFailure.Revoked) { return true; }
         });
     }
-    private static bool IsDeviceDenial(CurrentPathSignalServerException error) => AccountDeviceWire.ErrorCode(error) is
+    internal static bool IsDeviceDenial(CurrentPathSignalServerException error) => AccountDeviceWire.ErrorCode(error) is
         "device_not_registered" or "device_not_active" or "device_frozen" or "device_revoked";
     private static bool IsTemporaryRequest(Exception error) => error switch
     {
