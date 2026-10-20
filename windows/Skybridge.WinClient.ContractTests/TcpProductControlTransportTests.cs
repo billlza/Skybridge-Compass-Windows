@@ -10,7 +10,8 @@ internal static class TcpProductControlTransportTests
         ("TCP cancellation while queued never invokes frame admission", QueuedCancellation),
         ("TCP policy cancellation is not misreported as a transport deadline", PolicyCancellation),
         ("TCP callback cancellation retains its cause when the writer deadline also expires", PolicyCancellationAtDeadline),
-        ("TCP admitted frames still enforce nonempty and maximum lengths", PreparedFrameBounds)
+        ("TCP admitted frames still enforce nonempty and maximum lengths", PreparedFrameBounds),
+        .. ProductControlStreamOwnershipTests.Cases
     ];
 
     private static async Task QueuedAdmission()
@@ -100,7 +101,7 @@ internal static class TcpProductControlTransportTests
         private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal Task Entered => _entered.Task;
         internal Task Completion { get; }
-        internal HeldWriter(TcpProductControlTransport transport, CancellationToken token, byte[] frame)
+        internal HeldWriter(ProductControlStreamTransport transport, CancellationToken token, byte[] frame)
         {
             Completion = Task.Run(() => transport.SendAdmittedAsync(() =>
             {
@@ -123,8 +124,8 @@ internal static class TcpProductControlTransportTests
     {
         private readonly CancellationTokenSource _deadline = new(TimeSpan.FromSeconds(10));
         internal CancellationToken Token => _deadline.Token;
-        internal TcpProductControlTransport Transport { get; }
-        internal TcpProductControlTransport Remote { get; }
+        internal ProductControlStreamTransport Transport { get; }
+        internal ProductControlStreamTransport Remote { get; }
         private Fixture(TcpClient local, TcpClient remote, TimeSpan? timeout)
         { Transport = new(local, 64, 64, timeout); Remote = new(remote, 64, 64); }
         internal static async Task<Fixture> Connect(TimeSpan? timeout = null)

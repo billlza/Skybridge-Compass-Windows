@@ -3,9 +3,9 @@ using System.Net;
 using System.Net.Sockets;
 using System.Xml.Linq;
 
-namespace Skybridge.AppleUsbCarrier;
+namespace Skybridge.WinClient.Services.Connection;
 
-/// <summary>Isolated carrier: one bounded daemon request per connection. Successful Connect hands
+/// <summary>USB carrier: one bounded daemon request per connection. Successful Connect hands
 /// the same stream to its caller, without consuming any application bytes.</summary>
 internal sealed class UsbMuxConnector
 {
@@ -24,13 +24,6 @@ internal sealed class UsbMuxConnector
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("The Windows Apple service requires Windows.");
         return new(token => ConnectSocket(new IPEndPoint(IPAddress.Loopback, 27015), token));
-    }
-
-    // Explicit qualification adapter only; no platform or network fallback.
-    internal static UsbMuxConnector MacQualification()
-    {
-        if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("Mac qualification requires macOS.");
-        return new(token => ConnectSocket(new UnixDomainSocketEndPoint("/var/run/usbmuxd"), token));
     }
 
     internal static async Task<Stream> ConnectSocket(EndPoint endpoint, CancellationToken token)

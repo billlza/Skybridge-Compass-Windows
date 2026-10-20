@@ -8,7 +8,7 @@ namespace Skybridge.WinClient.Services;
 /// <summary>One authenticated compatible-LAN control session shared by native feature operations.</summary>
 internal sealed class LanProductControlSession : IAsyncDisposable
 {
-    private readonly TcpProductControlTransport _transport;
+    private readonly ProductControlStreamTransport _transport;
     private readonly ProductSessionKeys _keys;
     private readonly WebRtcAppSecureSessionKeys _appKeys;
     private readonly ProductHandshakePeerContext _peer;
@@ -28,6 +28,7 @@ internal sealed class LanProductControlSession : IAsyncDisposable
     private readonly Task<Exception?> _completion;
     private readonly SemaphoreSlim _disposal = new(1, 1);
     private int _disposed;
+    private Exception? _disposalFailure;
     private int _admissionStarted;
     private bool _ready;
     private bool _receivedAdmissionPong;
@@ -42,7 +43,7 @@ internal sealed class LanProductControlSession : IAsyncDisposable
     internal const string FlacFileReceiveCapability = "audio_flac_file_receive_v1";
     internal ushort? LocalFileTransferPort => _localIdentity.FileTransferPort;
 
-    internal LanProductControlSession(TcpProductControlTransport transport, ProductSessionKeys keys,
+    internal LanProductControlSession(ProductControlStreamTransport transport, ProductSessionKeys keys,
         ProductHandshakePeerContext peer, LanProductIdentity localIdentity, DiscoveryPeerEndpoint? controlEndpoint,
         IPAddress remoteAddress, CancellationToken cancellationToken,
         ProductHandshakeProtocolIdentity localHandshakeIdentity, ProductHandshakeProtocolIdentity peerHandshakeIdentity,
@@ -94,7 +95,7 @@ internal sealed class LanProductControlSession : IAsyncDisposable
             string.IsNullOrWhiteSpace(endpoint.HostName) || endpoint.Port == 0)
             throw new InvalidDataException("LAN control requires the selected resolved product-control endpoint.");
         var client = new TcpClient();
-        TcpProductControlTransport? transport = null;
+        ProductControlStreamTransport? transport = null;
         LanProductControlSession? session = null;
         try
         {
@@ -420,7 +421,8 @@ internal sealed class LanProductControlSession : IAsyncDisposable
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception error) { failures.Add(error); }
         Volatile.Write(ref _ready, false);
-        _lifetime.Cancel();
+        try { _lifetime.Cancel(); }
+        catch (Exception error) { failures.Add(error); }
         _transport.Close();
         foreach (var worker in new[] { _receiver, _heartbeat })
         {
@@ -442,19 +444,32 @@ internal sealed class LanProductControlSession : IAsyncDisposable
         await _disposal.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (Volatile.Read(ref _disposed) != 0) return;
-            _lifetime.Cancel();
-            _transport.Close();
-            await _completion.ConfigureAwait(false);
-            await _transport.DisposeAsync().ConfigureAwait(false);
-            _audio.Dispose();
-            lock (_stateGate)
+            if (Volatile.Read(ref _disposed) == 0)
             {
-                _appKeys.Dispose();
-                _keys.Dispose();
-                _lifetime.Dispose();
-                Volatile.Write(ref _disposed, 1);
+                var failures = new List<Exception>();
+                try { _lifetime.Cancel(); } catch (Exception error) { failures.Add(error); }
+                _transport.Close();
+                try { await _completion.ConfigureAwait(false); } catch (Exception error) { failures.Add(error); }
+                try { await _transport.DisposeAsync().ConfigureAwait(false); } catch (Exception error) { failures.Add(error); }
+                try { _audio.Dispose(); } catch (Exception error) { failures.Add(error); }
+                // A failed carrier release must not keep authenticated key material alive.
+                // These in-memory owners are retired even when disposal reports a failure.
+                lock (_stateGate)
+                {
+                    _appKeys.Dispose();
+                    _keys.Dispose();
+                    _lifetime.Dispose();
+                    _disposalFailure = failures.Count switch
+                    {
+                        0 => null,
+                        1 => failures[0],
+                        _ => new AggregateException("Control session resource release failed.", failures)
+                    };
+                    Volatile.Write(ref _disposed, 1);
+                }
             }
+            if (_disposalFailure is { } failure)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
         }
         finally { _disposal.Release(); }
     }

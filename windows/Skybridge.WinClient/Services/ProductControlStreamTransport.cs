@@ -3,11 +3,13 @@ using System.Net.Sockets;
 
 namespace Skybridge.WinClient.Services;
 
-/// <summary>One ordered framed channel whose reader spans handshake and control phases.</summary>
-internal sealed class TcpProductControlTransport : IProductHandshakeTransport, IAsyncDisposable
+/// <summary>One ordered framed channel whose reader spans handshake and control phases.
+/// Owns either the connected TCP client or a duplex stream handed off by a carrier.
+/// The stream must support cancellation and interrupt pending I/O on disposal.</summary>
+internal sealed class ProductControlStreamTransport : IProductHandshakeTransport, IAsyncDisposable
 {
-    private readonly TcpClient _client;
-    private readonly NetworkStream _stream;
+    private readonly IDisposable _owner;
+    private readonly Stream _stream;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _stateGate = new();
@@ -16,25 +18,33 @@ internal sealed class TcpProductControlTransport : IProductHandshakeTransport, I
     private readonly int _maximumInboundFrameBytes;
     private readonly int _maximumOutboundFrameBytes;
     private bool _closed;
+    private bool _closeCompleted;
     private bool _disposed;
+    private Exception? _closeFailure;
     private int _operations;
     private Exception? _terminalFailure;
     private TaskCompletionSource<Exception?>? _activeWriteOutcome;
 
-    public TcpProductControlTransport(TcpClient client, int maximumInboundFrameBytes,
-        int maximumOutboundFrameBytes, TimeSpan? sendTimeout = null)
+    private static (int Inbound, int Outbound, TimeSpan Timeout) ValidateLimits(int maximumInboundFrameBytes,
+        int maximumOutboundFrameBytes, TimeSpan? sendTimeout)
     {
-        ArgumentNullException.ThrowIfNull(client);
         if (maximumInboundFrameBytes <= 0)
             throw new ArgumentOutOfRangeException(nameof(maximumInboundFrameBytes));
         if (maximumOutboundFrameBytes <= 0)
             throw new ArgumentOutOfRangeException(nameof(maximumOutboundFrameBytes));
-        _maximumInboundFrameBytes = maximumInboundFrameBytes;
-        _maximumOutboundFrameBytes = maximumOutboundFrameBytes;
-        _sendTimeout = sendTimeout ?? TimeSpan.FromSeconds(5);
-        if (_sendTimeout <= TimeSpan.Zero || _sendTimeout > TimeSpan.FromMinutes(1))
+        var timeout = sendTimeout ?? TimeSpan.FromSeconds(5);
+        if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromMinutes(1))
             throw new ArgumentOutOfRangeException(nameof(sendTimeout));
-        _client = client;
+        return (maximumInboundFrameBytes, maximumOutboundFrameBytes, timeout);
+    }
+
+    public ProductControlStreamTransport(TcpClient client, int maximumInboundFrameBytes,
+        int maximumOutboundFrameBytes, TimeSpan? sendTimeout = null)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        (_maximumInboundFrameBytes, _maximumOutboundFrameBytes, _sendTimeout) =
+            ValidateLimits(maximumInboundFrameBytes, maximumOutboundFrameBytes, sendTimeout);
+        _owner = client;
         try
         {
             client.NoDelay = true;
@@ -53,6 +63,20 @@ internal sealed class TcpProductControlTransport : IProductHandshakeTransport, I
             _lifetime.Dispose();
             throw;
         }
+    }
+
+    // Validation failures leave ownership with the caller. After construction,
+    // this is the sole owner: never wrap the same socket in another TCP client.
+    public ProductControlStreamTransport(Stream stream, int maximumInboundFrameBytes,
+        int maximumOutboundFrameBytes, TimeSpan? sendTimeout = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        (_maximumInboundFrameBytes, _maximumOutboundFrameBytes, _sendTimeout) =
+            ValidateLimits(maximumInboundFrameBytes, maximumOutboundFrameBytes, sendTimeout);
+        if (!stream.CanRead || !stream.CanWrite)
+            throw new ArgumentException("Product control requires a readable and writable stream.", nameof(stream));
+        _stream = stream;
+        _owner = stream;
     }
 
     public Task<ReadOnlyMemory<byte>> ReadAsync(CancellationToken cancellationToken) =>
@@ -205,10 +229,12 @@ internal sealed class TcpProductControlTransport : IProductHandshakeTransport, I
         lock (_stateGate)
         {
             _operations--;
-            if (_closed && _operations == 0) _drained.TrySetResult();
+            if (_closeCompleted && _operations == 0) _drained.TrySetResult();
         }
     }
 
+    // Close is also called from receive/heartbeat failure paths. Defer cleanup
+    // errors to DisposeAsync so one failed release cannot skip the other workers.
     public void Close() => Close(null);
 
     private void Close(Exception? failure)
@@ -218,8 +244,24 @@ internal sealed class TcpProductControlTransport : IProductHandshakeTransport, I
             if (_closed) return;
             Volatile.Write(ref _terminalFailure, failure);
             _closed = true;
-            _lifetime.Cancel();
-            _client.Dispose();
+        }
+        Exception? cancellationFailure = null, ownerFailure = null;
+        // Cancellation callbacks and stream disposal are external code. Run them
+        // outside the state lock, attempt both, then publish the drain boundary.
+        try { _lifetime.Cancel(); }
+        catch (Exception error) { cancellationFailure = error; }
+        try { _owner.Dispose(); }
+        catch (Exception error) { ownerFailure = error; }
+        lock (_stateGate)
+        {
+            _closeFailure = (cancellationFailure, ownerFailure) switch
+            {
+                (not null, not null) => new AggregateException(
+                    "Control transport cancellation and carrier release failed.", cancellationFailure, ownerFailure),
+                (not null, null) => cancellationFailure,
+                _ => ownerFailure
+            };
+            _closeCompleted = true;
             if (_operations == 0) _drained.TrySetResult();
         }
     }
@@ -228,12 +270,18 @@ internal sealed class TcpProductControlTransport : IProductHandshakeTransport, I
     {
         Close();
         await _drained.Task.ConfigureAwait(false);
+        Exception? failure;
         lock (_stateGate)
         {
-            if (_disposed) return;
-            _disposed = true;
-            _sendGate.Dispose();
-            _lifetime.Dispose();
+            if (!_disposed)
+            {
+                _disposed = true;
+                _sendGate.Dispose();
+                _lifetime.Dispose();
+            }
+            failure = _closeFailure;
         }
+        // Repeated disposal cannot turn an unconfirmed release into success.
+        if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }
 }

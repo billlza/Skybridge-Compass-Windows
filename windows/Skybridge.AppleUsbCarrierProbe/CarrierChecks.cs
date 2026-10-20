@@ -4,6 +4,8 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
+using Skybridge.WinClient.Services;
+using Skybridge.WinClient.Services.Connection;
 
 namespace Skybridge.AppleUsbCarrier;
 
@@ -69,7 +71,9 @@ internal static class CarrierChecks
             ("Fresh enumeration binds Connect and network port order", Handoff),
             ("Canceled receive releases its daemon connection", () => Stalled(cancel: true)),
             ("Deadline releases a partial daemon reply", () => Stalled(cancel: false)),
-            ("Failed request preserves its cleanup failure", CleanupFailure)
+            ("Failed request preserves its cleanup failure", CleanupFailure),
+            ("Mux handoff preserves product framing across handshake and control readers", FramedHandoff),
+            ("Mux disconnect during a product frame remains a truncated-frame failure", TruncatedFrame)
         };
         foreach (int offset in new[] { 0, 4, 8, 12 })
         {
@@ -86,6 +90,7 @@ internal static class CarrierChecks
             uint value = code;
             cases.Add(($"Connect result {value} fails without fallback", () => RejectConnection(value)));
         }
+        cases.AddRange(ProductControlStreamOwnershipTests.Cases);
         int passed = 0;
         foreach (var item in cases)
         {
@@ -157,6 +162,63 @@ internal static class CarrierChecks
             timeout: TimeSpan.FromMilliseconds(200));
         if (cancel) await Expect<OperationCanceledException>(() => connector.DevicesAsync(caller.Token));
         else await Expect<TimeoutException>(() => connector.DevicesAsync(caller.Token));
+        await server;
+    }
+
+    private static async Task FramedHandoff()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var server = Task.Run(async () => {
+            using (var enumeration = await listener.AcceptTcpClientAsync(limit.Token))
+            {
+                _ = await UsbMuxProtocol.ReadAsync(enumeration.GetStream(), 1, limit.Token);
+                await enumeration.GetStream().WriteAsync(UsbMuxProtocol.Packet(List(Row()), 1), limit.Token);
+            }
+            using var connected = await listener.AcceptTcpClientAsync(limit.Token);
+            var stream = connected.GetStream();
+            _ = await UsbMuxProtocol.ReadAsync(stream, 2, limit.Token);
+            // One native write deliberately crosses mux, handshake-reader and MAIN-reader boundaries.
+            byte[] reply = [.. UsbMuxProtocol.Packet(Result(0), 2), 0, 0, 0, 2, 21, 22, 0, 0, 0, 1, 23];
+            await stream.WriteAsync(reply, limit.Token);
+            var response = new byte[5]; await stream.ReadExactlyAsync(response, limit.Token);
+            Require(response.SequenceEqual(new byte[] { 0, 0, 0, 1, 31 }), "Product writer changed its frame");
+            Require(await stream.ReadAsync(new byte[1], limit.Token) == 0, "Product owner did not release mux stream");
+        }, limit.Token);
+        var connector = new UsbMuxConnector(token => UsbMuxConnector.ConnectSocket(listener.LocalEndpoint, token));
+        var carrier = await connector.OpenAsync(Serial, UsbMuxConnector.ControlPort, limit.Token);
+        await using (var transport = new ProductControlStreamTransport(carrier, 64, 64))
+        {
+            IProductHandshakeTransport handshakeReader = transport;
+            Require((await handshakeReader.ReadAsync(limit.Token)).Span.SequenceEqual(new byte[] { 21, 22 }),
+                "Handshake reader lost coalesced bytes");
+            Require((await transport.ReadBoundedAsync(64, limit.Token)).Span.SequenceEqual(new byte[] { 23 }),
+                "MAIN reader lost the next frame");
+            await transport.SendAdmittedAsync(() => new byte[] { 31 }, limit.Token);
+        }
+        await server;
+    }
+
+    private static async Task TruncatedFrame()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var server = Task.Run(async () => {
+            using (var enumeration = await listener.AcceptTcpClientAsync(limit.Token))
+            {
+                _ = await UsbMuxProtocol.ReadAsync(enumeration.GetStream(), 1, limit.Token);
+                await enumeration.GetStream().WriteAsync(UsbMuxProtocol.Packet(List(Row()), 1), limit.Token);
+            }
+            using var connected = await listener.AcceptTcpClientAsync(limit.Token);
+            var stream = connected.GetStream();
+            _ = await UsbMuxProtocol.ReadAsync(stream, 2, limit.Token);
+            byte[] reply = [.. UsbMuxProtocol.Packet(Result(0), 2), 0, 0, 0, 5, 21, 22];
+            await stream.WriteAsync(reply, limit.Token);
+        }, limit.Token);
+        var connector = new UsbMuxConnector(token => UsbMuxConnector.ConnectSocket(listener.LocalEndpoint, token));
+        var carrier = await connector.OpenAsync(Serial, UsbMuxConnector.ControlPort, limit.Token);
+        await using var transport = new ProductControlStreamTransport(carrier, 64, 64);
+        await Expect<EndOfStreamException>(() => transport.ReadAsync(limit.Token));
         await server;
     }
 

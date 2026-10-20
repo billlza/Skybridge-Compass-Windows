@@ -239,7 +239,7 @@ internal static class SignedLanKemRefreshResponderTests
     {
         internal Fixture F { get; } = new();
         internal CancellationTokenSource Deadline { get; } = new(TimeSpan.FromSeconds(5));
-        internal TcpProductControlTransport Remote { get; }
+        internal ProductControlStreamTransport Remote { get; }
         internal TcpClient Client { get; }
         internal Task<LanIncomingControlResult> Accept { get; }
         internal int CryptoCreated;
@@ -314,7 +314,7 @@ internal static class SignedLanKemRefreshResponderTests
         await using var listener = new LanProductControlListener(async (client, token) => { _ = await AcceptPeer(client, f, token, () => throw new InvalidOperationException("Unexpected crypto")); }, () => f.Current);
         listener.Start(IPAddress.Loopback, default);
         using var client = new TcpClient(); await client.ConnectAsync((IPEndPoint)listener.RequireLiveListener().LocalEndpoint);
-        await using var remote = new TcpProductControlTransport(client, Wire.MaximumBytes, Wire.MaximumBytes);
+        await using var remote = new ProductControlStreamTransport(client, Wire.MaximumBytes, Wire.MaximumBytes);
         await remote.SendAsync(Wire.EncodeRequest(f.Request), default);
         Task stop;
         try

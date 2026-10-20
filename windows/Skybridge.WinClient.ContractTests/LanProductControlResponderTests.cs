@@ -43,8 +43,8 @@ internal static class LanProductControlResponderTests
         using var remoteClient = new TcpClient();
         await remoteClient.ConnectAsync((IPEndPoint)listener.LocalEndpoint, deadline.Token);
         using var localClient = await listener.AcceptTcpClientAsync(deadline.Token);
-        await using var remote = new TcpProductControlTransport(remoteClient, 1024 * 1024, 1024 * 1024);
-        await using var local = new TcpProductControlTransport(localClient, 1024 * 1024, 1024 * 1024);
+        await using var remote = new ProductControlStreamTransport(remoteClient, 1024 * 1024, 1024 * 1024);
+        await using var local = new ProductControlStreamTransport(localClient, 1024 * 1024, 1024 * 1024);
         using var keys = new ProductSessionKeys(ProductHandshakeRole.Responder, "approval-wait", new byte[32],
             Enumerable.Repeat((byte)1, 32).ToArray(), Enumerable.Repeat((byte)2, 32).ToArray());
         using var reversed = new ProductSessionKeys(ProductHandshakeRole.Initiator, keys.SessionId, keys.TranscriptHash, keys.ReceiveKey, keys.SendKey);
@@ -123,7 +123,7 @@ internal static class LanProductControlResponderTests
     {
         internal CancellationTokenSource Deadline { get; } = new(TimeSpan.FromSeconds(10));
         internal TcpClient Client { get; }
-        internal TcpProductControlTransport Remote { get; }
+        internal ProductControlStreamTransport Remote { get; }
         internal Task<LanProductControlSession> Accept { get; }
         internal Crypto Provider { get; } = new();
         internal int CryptoCreations;

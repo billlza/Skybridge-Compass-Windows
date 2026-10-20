@@ -762,7 +762,7 @@ internal static class RemoteControlHostSessionTests
         MediaAudioEndpoint = new("127.0.0.1", port)
     };
 
-    private static async Task<(TcpClient Sender, TcpProductControlTransport Receiver)> ConnectedTcp()
+    private static async Task<(TcpClient Sender, ProductControlStreamTransport Receiver)> ConnectedTcp()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -770,7 +770,7 @@ internal static class RemoteControlHostSessionTests
         {
             var sender = new TcpClient();
             await sender.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
-            return (sender, new TcpProductControlTransport(await listener.AcceptTcpClientAsync(), RemoteControlWire.MaximumInboundFrameBytes, RemoteControlWire.MaximumOutboundFrameBytes));
+            return (sender, new ProductControlStreamTransport(await listener.AcceptTcpClientAsync(), RemoteControlWire.MaximumInboundFrameBytes, RemoteControlWire.MaximumOutboundFrameBytes));
         }
         finally { listener.Stop(); }
     }
@@ -797,7 +797,7 @@ internal static class RemoteControlHostSessionTests
             using var peer = new TcpClient();
             await peer.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
             using var accepted = await listener.AcceptTcpClientAsync();
-            await using var transport = new TcpProductControlTransport(accepted, RemoteControlWire.MaximumInboundFrameBytes, RemoteControlWire.MaximumOutboundFrameBytes);
+            await using var transport = new ProductControlStreamTransport(accepted, RemoteControlWire.MaximumInboundFrameBytes, RemoteControlWire.MaximumOutboundFrameBytes);
             Require(accepted.Client.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive) is int enabled && enabled != 0 &&
                 accepted.Client.GetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime) is 10 &&
                 accepted.Client.GetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval) is 3 &&
@@ -839,7 +839,7 @@ internal static class RemoteControlHostSessionTests
             // buffer into Winsock even with a small SO_SNDBUF. Disable that copy
             // so this test measures actual peer backpressure on both hosts.
             accepted.SendBufferSize = OperatingSystem.IsWindows() ? 0 : 4096;
-            await using var transport = new TcpProductControlTransport(accepted, RemoteControlWire.MaximumInboundFrameBytes, RemoteControlWire.MaximumOutboundFrameBytes, TimeSpan.FromSeconds(1));
+            await using var transport = new ProductControlStreamTransport(accepted, RemoteControlWire.MaximumInboundFrameBytes, RemoteControlWire.MaximumOutboundFrameBytes, TimeSpan.FromSeconds(1));
             var read = transport.ReadAsync(default);
             TimeoutException? sendFailure = null;
             try
@@ -882,7 +882,7 @@ internal static class RemoteControlHostSessionTests
             await peer.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
             using var accepted = await listener.AcceptTcpClientAsync();
             accepted.SendBufferSize = OperatingSystem.IsWindows() ? 0 : 4096;
-            await using var transport = new TcpProductControlTransport(accepted,
+            await using var transport = new ProductControlStreamTransport(accepted,
                 RemoteControlWire.MaximumInboundFrameBytes, RemoteControlWire.MaximumOutboundFrameBytes, TimeSpan.FromSeconds(10));
             var sending = transport.SendAsync(new byte[RemoteControlWire.MaximumOutboundFrameBytes], default);
             var reading = transport.ReadAsync(default);

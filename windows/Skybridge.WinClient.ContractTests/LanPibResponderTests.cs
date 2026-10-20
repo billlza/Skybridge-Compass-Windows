@@ -344,7 +344,7 @@ internal static class LanPibResponderTests
             RemoteControlPairingMaterial.Create(LocalId, "PC", f.LocalKey.AsSpan(), new byte[1184]),
             () => f.Trusted, () => throw new InvalidOperationException("PIB incorrectly created MAIN crypto"),
             null, deadline.Token, f.Refresh(), f.Responder);
-        await using var transport = new TcpProductControlTransport(client, 1024 * 1024, 1024 * 1024);
+        await using var transport = new ProductControlStreamTransport(client, 1024 * 1024, 1024 * 1024);
         await transport.SendAsync(frame, deadline.Token); var response = (await transport.ReadAsync(deadline.Token)).ToArray();
         if (rejected) await Reject(async () => await server, "userRejected");
         else Require(await server is LanIncomingControlResult.PairingExchangeCompleted, "PIB returned a MAIN session.");

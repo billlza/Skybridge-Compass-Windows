@@ -89,6 +89,7 @@
     <Compile Include="AudioStreamingLanEnvelopeTests.cs" />
     <Compile Include="LanAudioReceiverTests.cs" />
     <Compile Include="TcpProductControlTransportTests.cs" />
+    <Compile Include="ProductControlStreamOwnershipTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioStreamingWire.cs" Link="Services\Audio\AudioStreamingWire.cs" />
     <None Update="Fixtures\audio-streaming-v1-vectors.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures\audio-opus-v1-vectors.json" CopyToOutputDirectory="PreserveNewest" />
@@ -230,6 +231,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Skybridge.WinClient\Services\ProductHandshakeContracts.cs" Link="Services\ProductHandshakeContracts.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\IProductHandshakeTransport.cs" Link="Services\IProductHandshakeTransport.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\ProductControlTrafficPadding.cs" Link="Services\ProductControlTrafficPadding.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\LanProductControlMessages.cs" Link="Services\LanProductControlMessages.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\LanProductControlSession.cs" Link="Services\LanProductControlSession.cs" />
@@ -242,7 +244,7 @@
     <Compile Include="..\Skybridge.WinClient\Services\RealtimeMediaPacketCodec.cs" Link="Services\RealtimeMediaPacketCodec.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductPqcHandshakeCryptoProvider.cs" Link="Services\WebRtcProductPqcHandshakeCryptoProvider.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\RemoteControl\RemoteControlWireContracts.cs" Link="Services\RemoteControl\RemoteControlWireContracts.cs" />
-    <Compile Include="..\Skybridge.WinClient\Services\TcpProductControlTransport.cs" Link="Services\TcpProductControlTransport.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\ProductControlStreamTransport.cs" Link="Services\ProductControlStreamTransport.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\RemoteControl\RemoteControlHostSession.cs" Link="Services\RemoteControl\RemoteControlHostSession.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\RemoteControl\RemoteControlViewerSession.cs" Link="Services\RemoteControl\RemoteControlViewerSession.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\RemoteControl\RemoteControlVideoFrameBuffer.cs" Link="Services\RemoteControl\RemoteControlVideoFrameBuffer.cs" />

@@ -76,7 +76,7 @@ internal static class LanProductControlListenerTests
         await using var listener = new LanProductControlListener(async (client, token) =>
         {
             if (Interlocked.Increment(ref attempts) == 1) throw new InvalidDataException("fixture invalid signature");
-            await using var transport = new TcpProductControlTransport(client, 64, 64);
+            await using var transport = new ProductControlStreamTransport(client, 64, 64);
             var bytes = await transport.ReadAsync(token); await transport.SendAsync(bytes, token); second.SetResult();
         }, () => true);
         listener.Start(IPAddress.Loopback, CancellationToken.None);
@@ -85,7 +85,7 @@ internal static class LanProductControlListenerTests
         Require(listener.ReadSnapshot().Failure is InvalidDataException && !listener.ReadSnapshot().ReleaseUnconfirmed,
             "Ordinary rejection was hidden or treated as unknown cleanup.");
         using var good = await Connect(listener);
-        await using var wire = new TcpProductControlTransport(good, 64, 64);
+        await using var wire = new ProductControlStreamTransport(good, 64, 64);
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         await wire.SendAsync(new byte[] { 1, 2, 3 }, deadline.Token);
         Require((await wire.ReadAsync(deadline.Token)).Span.SequenceEqual(new byte[] { 1, 2, 3 }), "Later peer lost framing or ordering.");

@@ -9,9 +9,18 @@ try {
     if (Test-Path (Join-Path $evidence 'result.json')) {
         throw 'Use a fresh evidence directory; previous qualification results must be preserved.'
     }
-    $sources = @(Get-ChildItem 'windows/Skybridge.AppleUsbCarrierProbe' -File |
-        Where-Object Extension -in '.cs','.csproj' | Sort-Object Name |
-        ForEach-Object { @{ path = $_.Name; sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } })
+    $sourcePaths = @(
+        Get-ChildItem 'windows/Skybridge.AppleUsbCarrierProbe' -File |
+            Where-Object Extension -in '.cs','.csproj' | ForEach-Object FullName
+        [xml]$projectXml = Get-Content -Raw $project
+        $projectXml.Project.ItemGroup.Compile | ForEach-Object {
+            [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $project) $_.Include))
+        }
+    )
+    $sources = @($sourcePaths | Sort-Object -Unique | ForEach-Object {
+        @{ path = [IO.Path]::GetRelativePath($repo, $_).Replace('\', '/');
+           sha256 = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant() }
+    })
     $sources | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $evidence 'sources.json')
     dotnet build $project -c Release -p:TreatWarningsAsErrors=true 2>&1 |
         Tee-Object -FilePath (Join-Path $evidence 'build.log')
@@ -31,12 +40,12 @@ try {
         }) | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $evidence 'package-files.json')
     }
     foreach ($source in $sources) {
-        if ((Get-FileHash (Join-Path 'windows/Skybridge.AppleUsbCarrierProbe' $source.path) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $source.sha256) {
+        if ((Get-FileHash (Join-Path $repo $source.path) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $source.sha256) {
             throw 'A qualification input changed during execution.'
         }
     }
     @{
-        result = 'passed'; scope = 'isolated byte-carrier contracts';
+        result = 'passed'; scope = 'USB carrier and product framed-stream ownership contracts';
         platform = [Environment]::OSVersion.Platform.ToString(); sdk = (& dotnet --version);
         windowsPackageProduced = [bool]$PublishWindows;
         nativeAppleWindowsServiceVerified = $false; physicalUsbVerified = $false;

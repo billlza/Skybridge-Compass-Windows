@@ -149,8 +149,8 @@ internal sealed class WindowsRemoteControlHost : IAsyncDisposable
 
     private async Task HandlePeerAsync(PeerEntry entry, TcpClient client)
     {
-        TcpProductControlTransport transport;
-        try { transport = new TcpProductControlTransport(client, RemoteControlWire.MaximumInboundFrameBytes, RemoteControlWire.MaximumOutboundFrameBytes); }
+        ProductControlStreamTransport transport;
+        try { transport = new ProductControlStreamTransport(client, RemoteControlWire.MaximumInboundFrameBytes, RemoteControlWire.MaximumOutboundFrameBytes); }
         catch (Exception failure)
         {
             if (!entry.Cancellation.IsCancellationRequested)

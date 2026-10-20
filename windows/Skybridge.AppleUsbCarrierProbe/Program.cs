@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Net.Sockets;
 using Skybridge.AppleUsbCarrier;
+using Skybridge.WinClient.Services.Connection;
 
 // Qualification only. This executable does not create an authenticated session.
 if (args is ["--self-test"]) return await CarrierChecks.Run();
@@ -12,7 +14,10 @@ if (args is not ["--probe-list"] && args is not ["--probe-control", _])
 }
 try
 {
-    var connector = OperatingSystem.IsWindows() ? UsbMuxConnector.WindowsService() : UsbMuxConnector.MacQualification();
+    var connector = OperatingSystem.IsWindows() ? UsbMuxConnector.WindowsService() :
+        OperatingSystem.IsMacOS() ? new UsbMuxConnector(token =>
+            UsbMuxConnector.ConnectSocket(new UnixDomainSocketEndPoint("/var/run/usbmuxd"), token)) :
+        throw new PlatformNotSupportedException("This qualification requires Windows or macOS.");
     using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(15));
     var devices = await connector.DevicesAsync(stop.Token);
     bool opened = false;

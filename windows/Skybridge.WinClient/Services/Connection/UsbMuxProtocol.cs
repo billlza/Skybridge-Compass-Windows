@@ -4,7 +4,7 @@ using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 
-namespace Skybridge.AppleUsbCarrier;
+namespace Skybridge.WinClient.Services.Connection;
 
 internal sealed record UsbMuxDevice(uint DeviceId, string Udid, uint ProductId);
 internal enum UsbMuxFailure { Malformed, DeviceUnavailable, AmbiguousDevice, PortUnavailable, ServiceRejected }

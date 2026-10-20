@@ -5,6 +5,10 @@ on:
     paths:
       - windows/Skybridge.AppleUsbCarrierProbe/*.cs
       - windows/Skybridge.AppleUsbCarrierProbe/*.csproj
+      - windows/Skybridge.WinClient/Services/Connection/UsbMux*.cs
+      - windows/Skybridge.WinClient/Services/ProductControlStreamTransport.cs
+      - windows/Skybridge.WinClient/Services/IProductHandshakeTransport.cs
+      - windows/Skybridge.WinClient.ContractTests/ProductControlStreamOwnershipTests.cs
       - Scripts/verify-apple-usb-carrier.ps1
       - .github/workflows/windows-usb-carrier.yml
       - global.json

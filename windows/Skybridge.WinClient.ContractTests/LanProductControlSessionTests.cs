@@ -18,6 +18,7 @@ internal static class LanProductControlSessionTests
         ("LAN changed account ID spelling retires audio without reviving its grant", AccountDeviceIdChange),
         ("LAN audio rejects absent malformed duplicate and mismatched SOA without breaking MAIN", RejectAudioBinding),
         ("LAN audio identity evidence cannot be reacquired after cancellation or disposal", AudioOwnerLifetime),
+        ("Control session erases keys even when its carrier release fails", CarrierReleaseFailure),
         ("encrypted MAIN demultiplexes audio in order and keeps control traffic live", AudioDemultiplex),
         ("encrypted MAIN rejects unavailable audio without admitting or closing it", AudioUnavailable),
         ("encrypted MAIN retires overflowing audio and keeps its control reader", AudioOverflow),
@@ -405,18 +406,44 @@ internal static class LanProductControlSessionTests
     private static async Task ThrowsAsync<T>(Func<Task> action) where T : Exception
     { try { await action(); } catch (T) { return; } throw new Exception($"Expected {typeof(T).Name}."); }
 
+    private static async Task CarrierReleaseFailure()
+    {
+        var failure = new IOException("Injected stream cleanup failure.");
+        await using var fixture = await Fixture.Connect(releaseFailure: failure);
+        await fixture.Admit();
+        // Capture the actual owner's arrays before retirement, rather than checking
+        // only that a public API refuses further calls with still-live keys.
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var keys = typeof(LanProductControlSession).GetField("_keys", flags)?.GetValue(fixture.Session) as ProductSessionKeys
+            ?? throw new InvalidOperationException("Session key owner is unavailable to the erasure test.");
+        var appKeys = typeof(LanProductControlSession).GetField("_appKeys", flags)?.GetValue(fixture.Session) as WebRtcAppSecureSessionKeys
+            ?? throw new InvalidOperationException("App key owner is unavailable to the erasure test.");
+        var secretViews = new[] { keys.SendKey, keys.ReceiveKey, appKeys.SendKey, appKeys.ReceiveKey };
+        Require(secretViews.All(bytes => bytes.Span.ContainsAnyExcept((byte)0)), "Fixture has no nonzero secrets to erase.");
+        foreach (var attempt in Enumerable.Range(0, 2))
+        {
+            try { await fixture.Session.DisposeAsync(); throw new InvalidOperationException("Cleanup failure was hidden."); }
+            catch (IOException error) { Require(ReferenceEquals(error, failure), "Session lost its carrier cleanup cause."); }
+        }
+        Require(secretViews.All(bytes => !bytes.Span.ContainsAnyExcept((byte)0)) &&
+            fixture.Session.Completion.IsCompleted && !fixture.Session.IsReady, "Failed disposal retained keys or live session workers.");
+        Throws<ObjectDisposedException>(() => keys.Clone());
+    }
+
     internal sealed class Fixture : IAsyncDisposable
     {
         private readonly CancellationTokenSource _deadline = new(TimeSpan.FromSeconds(10));
         private readonly WebRtcAppSecureSessionKeys _remoteKeys;
+        private readonly Exception? _releaseFailure;
         private long _barrierSequence = 0xAA55;
         internal ProductSessionKeys Keys { get; }
-        internal TcpProductControlTransport Remote { get; }
-        internal TcpProductControlTransport Local { get; }
+        internal ProductControlStreamTransport Remote { get; }
+        internal ProductControlStreamTransport Local { get; }
         internal LanProductControlSession Session { get; }
         internal CancellationToken Token => _deadline.Token;
         internal DiscoveryBrowserPeerCandidate Candidate { get; }
-        private Fixture(TcpClient local, TcpClient remote, ProductHandshakeRole role, byte[] extensions, ushort? localFilePort, bool generalFiles)
+        private Fixture(TcpClient local, TcpClient remote, ProductHandshakeRole role, byte[] extensions, ushort? localFilePort,
+            bool generalFiles, Exception? releaseFailure)
         {
             Keys = new(role, "fixture", new byte[32],
                 Enumerable.Repeat((byte)1, 32).ToArray(), Enumerable.Repeat((byte)2, 32).ToArray());
@@ -432,7 +459,10 @@ internal static class LanProductControlSessionTests
                 new WebRtcProductProtocolIdentityPublicKey(WebRtcProductSignatureAlgorithm.MlDsa65, PublicKey).Encode(), "fixture");
             var localSigner = ProductHandshakeProtocolIdentity.Capture(
                 new WebRtcProductProtocolIdentityPublicKey(WebRtcProductSignatureAlgorithm.MlDsa65, LocalPublicKey).Encode(), "local fixture");
-            Local = new(local, 1024 * 1024, 1024 * 1024);
+            _releaseFailure = releaseFailure;
+            Local = releaseFailure is null ? new(local, 1024 * 1024, 1024 * 1024) :
+                new(new ProductControlStreamOwnershipTests.ObservedStream(local.GetStream(), local)
+                    { DisposeFailure = releaseFailure }, 1024 * 1024, 1024 * 1024);
             Session = new(Local, Keys, Peer,
                 Identity() with { DeviceId = LocalId, ProtocolIdentityPublicKeys = [new("ML-DSA-65", LocalPublicKey)],
                     FileTransferPort = localFilePort, Capabilities = generalFiles ? ["file_transfer"] : [] },
@@ -445,14 +475,15 @@ internal static class LanProductControlSessionTests
         }
         internal static Task<Fixture> ConnectForAudio(ushort? localFilePort = 8080, bool generalFiles = true) =>
             Connect(extensions: Soa(ProductHandshakeRole.Initiator), localFilePort: localFilePort, generalFiles: generalFiles);
-        internal static async Task<Fixture> Connect(ProductHandshakeRole role = ProductHandshakeRole.Initiator, byte[]? extensions = null, ushort? localFilePort = 8080, bool generalFiles = true)
+        internal static async Task<Fixture> Connect(ProductHandshakeRole role = ProductHandshakeRole.Initiator, byte[]? extensions = null,
+            ushort? localFilePort = 8080, bool generalFiles = true, Exception? releaseFailure = null)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             var local = new TcpClient();
             await local.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
             var remote = await listener.AcceptTcpClientAsync();
-            return new(local, remote, role, extensions ?? Array.Empty<byte>(), localFilePort, generalFiles);
+            return new(local, remote, role, extensions ?? Array.Empty<byte>(), localFilePort, generalFiles, releaseFailure);
         }
         internal void Cancel() => _deadline.Cancel();
         internal async Task Admit(string? peerSpelling = null)
@@ -544,7 +575,9 @@ internal static class LanProductControlSessionTests
         }
         public async ValueTask DisposeAsync()
         {
-            await Session.DisposeAsync(); await Remote.DisposeAsync();
+            try { await Session.DisposeAsync(); }
+            catch (Exception error) when (ReferenceEquals(error, _releaseFailure)) { /* Asserted by CarrierReleaseFailure. */ }
+            await Remote.DisposeAsync();
             _remoteKeys.Dispose(); Keys.Dispose(); _deadline.Dispose();
         }
     }

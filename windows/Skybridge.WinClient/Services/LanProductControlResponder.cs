@@ -67,7 +67,7 @@ internal static class LanProductControlResponder
         where TCrypto : class, IProductHandshakeCryptoProvider, IDisposable
     {
         ArgumentNullException.ThrowIfNull(client);
-        TcpProductControlTransport? transport = null;
+        ProductControlStreamTransport? transport = null;
         LanProductControlSession? session = null;
         try
         {
@@ -159,7 +159,7 @@ internal static class LanProductControlResponder
         }
     }
 
-    private static async Task RespondPairingAsync(TcpProductControlTransport transport, ReadOnlyMemory<byte> frame,
+    private static async Task RespondPairingAsync(ProductControlStreamTransport transport, ReadOnlyMemory<byte> frame,
         string kind, LanPibResponder pairing, CancellationToken token)
     {
         if (kind == "protocolIdentityBindingRequest")
@@ -203,7 +203,7 @@ internal static class LanProductControlResponder
             }
         }
     }
-    private static async Task SendPairingRejectionAsync(TcpProductControlTransport transport, string requester,
+    private static async Task SendPairingRejectionAsync(ProductControlStreamTransport transport, string requester,
         string target, string requestHash, string stage, LanPibRejectedException rejection, CancellationToken token)
     {
         // Compatibility diagnostic only. It is never an authenticated ACK or an
@@ -254,7 +254,7 @@ internal static class LanProductControlResponder
         return result ?? throw new InvalidOperationException("MAIN handshake produced no authenticated result.");
     }
 
-    private sealed class HandshakeTransport(TcpProductControlTransport transport) : IProductHandshakeTransport
+    private sealed class HandshakeTransport(ProductControlStreamTransport transport) : IProductHandshakeTransport
     {
         public Task<ReadOnlyMemory<byte>> ReadAsync(CancellationToken cancellationToken) =>
             transport.ReadBoundedAsync(MaximumHandshakeFrameBytes, cancellationToken);

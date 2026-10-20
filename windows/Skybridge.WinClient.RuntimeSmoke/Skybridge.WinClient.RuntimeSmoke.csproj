@@ -50,6 +50,7 @@
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductControlEngineClient.cs" Link="Services\WebRtcProductControlEngineClient.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductControlPlaneClient.cs" Link="Services\WebRtcProductControlPlaneClient.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\ProductHandshakeContracts.cs" Link="Services\ProductHandshakeContracts.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\IProductHandshakeTransport.cs" Link="Services\IProductHandshakeTransport.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\ProductHandshakeCore.cs" Link="Services\ProductHandshakeCore.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\ProductHandshakeKeyDerivation.cs" Link="Services\ProductHandshakeKeyDerivation.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\ProductForwardSecretContribution.cs" Link="Services\ProductForwardSecretContribution.cs" />

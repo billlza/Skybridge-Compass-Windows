@@ -12,14 +12,6 @@ public enum ProductHandshakeRole
     Responder
 }
 
-/// <summary>One ordered, framed carrier. Ownership remains with the session across the handshake boundary.</summary>
-public interface IProductHandshakeTransport
-{
-    Task SendAsync(ReadOnlyMemory<byte> frame, CancellationToken cancellationToken = default);
-
-    Task<ReadOnlyMemory<byte>> ReadAsync(CancellationToken cancellationToken = default);
-}
-
 /// <summary>Authority resolved by the transport's trusted peer binding, never by a host name or address.</summary>
 public sealed record ProductHandshakePeerContext(string PeerDeviceId, string PeerPublicKeyFingerprint);
 

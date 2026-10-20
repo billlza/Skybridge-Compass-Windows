@@ -8,14 +8,14 @@ internal sealed record RemoteControlViewerOutcome(Exception? Failure, IReadOnlyL
 /// <summary>Owns the viewer's one carrier, authenticated keys and Windows media source.</summary>
 internal sealed class WindowsRemoteControlViewer : IAsyncDisposable
 {
-    private readonly TcpProductControlTransport _transport;
+    private readonly ProductControlStreamTransport _transport;
     private readonly WindowsRemoteVideoPlayer _video = new();
     private readonly RemoteControlViewerSession _session;
     private readonly CancellationTokenSource _lifetime;
     private readonly object _lifetimeGate = new();
     private bool _lifetimeDisposed;
 
-    private WindowsRemoteControlViewer(TcpProductControlTransport transport, ProductSessionKeys keys,
+    private WindowsRemoteControlViewer(ProductControlStreamTransport transport, ProductSessionKeys keys,
         RemoteControlSecurityIdentity localIdentity, CancellationToken cancellationToken)
     {
         _transport = transport;
@@ -41,7 +41,7 @@ internal sealed class WindowsRemoteControlViewer : IAsyncDisposable
         using var connectDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         connectDeadline.CancelAfter(TimeSpan.FromSeconds(10));
         var client = new TcpClient();
-        TcpProductControlTransport? transport = null;
+        ProductControlStreamTransport? transport = null;
         try
         {
             try { await client.ConnectAsync(endpoint.HostName, endpoint.Port, connectDeadline.Token).ConfigureAwait(false); }

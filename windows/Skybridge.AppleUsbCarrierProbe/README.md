@@ -1,12 +1,12 @@
 # Apple USB carrier qualification
 
-This is an isolated transport candidate, not part of the WinUI client's advertised
-capabilities. Windows USB inventory currently enumerates devices; it does not
-create a SkyBridge session. Connecting this candidate to the product still needs
-authenticated handshake/session ownership, unplug handling, file-return routing,
-account admission, output approval and physical Windows validation.
+This executable qualifies the product USB carrier and framed-stream implementation;
+it does not advertise a usable USB audio feature in WinUI. Windows USB inventory
+currently enumerates devices without creating a SkyBridge session. USB peer
+selection, authenticated session establishment, file-return routing, account
+admission, output approval and physical Windows validation remain integration gates.
 
-The candidate speaks bounded plist usbmux messages. It selects only `USB`
+The carrier speaks bounded plist usbmux messages. It selects only `USB`
 records, rejects ambiguous identities, re-enumerates the ephemeral device ID
 before each connection, and transfers the same stream without reading ahead
 into application bytes. A six-second deadline includes enumeration and Connect.
@@ -19,7 +19,19 @@ macOS qualification path uses `/var/run/usbmuxd`; success there does not prove t
 Windows service, driver or installed Apple Devices package. Protocol references:
 [libusbmuxd endpoint and message implementation](https://github.com/libimobiledevice/libusbmuxd/blob/93eb168bf6b07472d17781328c21df0c60300524/src/libusbmuxd.c),
 [header, result codes and Windows port](https://github.com/libimobiledevice/libusbmuxd/blob/93eb168bf6b07472d17781328c21df0c60300524/include/usbmuxd-proto.h).
-This probe independently implements the wire contract and does not link libusbmuxd.
+The product independently implements the wire contract and does not link libusbmuxd.
+Its only production endpoint is the Windows Apple service. The explicit Mac socket
+adapter lives in this probe.
+
+The probe links `Services/Connection/UsbMuxProtocol.cs` and `UsbMuxConnector.cs`
+from the WinUI project, rather than maintaining a second implementation. A successful
+mux Connect hands its owned stream to the same `ProductControlStreamTransport`
+used by TCP MAIN and remote control. That owner retains framing bounds, writer
+admission, partial-write retirement and reader drain. TCP callers retain their
+existing socket liveness options; a USB stream is not wrapped in another TCP owner
+or assigned a fictitious LAN peer address. Cancellation and release failures remain
+observable after every worker drains, and the containing session erases its keys
+even if carrier release fails.
 
 Run the isolated contract lane with the repository-pinned .NET SDK:
 
@@ -65,3 +77,17 @@ The initial raw source comparison failed on line endings and is retained alongsi
 the explicit comparison. This runner exercised the Windows socket/runtime boundary,
 not a physical Apple service or USB driver. No authenticated phone-to-Windows
 session, audio transport, device-unplug behavior or strict output is admitted yet.
+
+The product-stream integration adds coalesced mux/handshake/control framing,
+truncated-frame and stream-owner failure checks. The tests use synthetic application
+bytes over real loopback sockets; they do not execute a cryptographic handshake or
+claim physical cable-unplug coverage. The separate product contract suite checks
+encrypted MAIN, audio ownership and key erasure after failed cleanup. Current
+integration evidence is retained in `artifacts/audio-native-20261020/usb-product-stream-v1/`.
+The Mac-host integration check passes 37 carrier/ownership cases and the selected
+product lane passes 215 named cases plus 68 existing protocol assertions, with
+zero compiler warnings/errors. These counts overlap and are not physical output
+evidence. Replacing only the session disposal method with the preceding logic
+reproduces failed key erasure under an injected carrier release error; restoring
+the corrected method passes the same test. Both the counterexample and successful
+rerun are retained. Windows-native validation of this integration is still pending.
