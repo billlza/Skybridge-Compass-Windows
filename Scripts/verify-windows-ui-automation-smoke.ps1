@@ -304,7 +304,10 @@ try {
         if ($accountPhase -notin @("loading", "")) { break }
         Start-Sleep -Milliseconds 200
     } while ((Get-Date) -lt $serviceDeadline)
-    $accountList = Find-ByAutomationId -Root $window -AutomationId "AccountDevices.List"
+    # The status text can reach its terminal state before WinUI publishes the ListView's
+    # automation peer. Require the actual list with the existing bounded wait; a missing
+    # peer must fail explicitly rather than masquerade as an empty account result.
+    $accountList = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId "AccountDevices.List"
     $rowCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)
     $accountRows = $accountList.FindAll([System.Windows.Automation.TreeScope]::Children, $rowCondition)
     if ($resolvedEvidenceDir) {
