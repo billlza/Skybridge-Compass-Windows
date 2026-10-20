@@ -178,7 +178,7 @@ if (args.SequenceEqual(["--pairing-material"]))
 
 if (args.SequenceEqual(["--signed-lan-kem-refresh"]))
 {
-    foreach (var test in SignedLanKemRefreshTests.Cases.Concat(SignedLanKemRefreshResponderTests.Cases))
+    foreach (var test in SignedLanKemRefreshTests.Cases.Concat(SignedLanKemRefreshResponderTests.Cases).Concat(SignedLanKemRefreshInitiatorTests.Cases))
     { await test.Run(); Console.WriteLine("PASS " + test.Name); }
     Console.WriteLine($"INFO SKR native ML-DSA signatures verified: {SignedLanKemRefreshTests.NativeSignaturesChecked}; native supported: {MLDsa.IsSupported}");
     return;
@@ -524,6 +524,7 @@ var remoteHostTests = Skybridge.WinClient.ContractTests.WindowsRemoteControlAudi
     .Concat(ProtocolOnlyPairingMaterialTests.Cases)
     .Concat(SignedLanKemRefreshTests.Cases)
     .Concat(SignedLanKemRefreshResponderTests.Cases)
+    .Concat(SignedLanKemRefreshInitiatorTests.Cases)
     .Concat(LanProductControlSessionTests.Cases)
     .Concat(ProductHandshakeIdentityTests.Cases)
     .Concat(AudioStreamingLanEnvelopeTests.Cases)

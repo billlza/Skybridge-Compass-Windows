@@ -662,7 +662,7 @@ internal sealed partial class WindowsDeviceWorkspace : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _disposed = true;
-        await StopUsbEnrollmentAsync().ConfigureAwait(false);
+        await StopUsbBootstrapAsync().ConfigureAwait(false);
         await StopIncomingMainAsync().ConfigureAwait(false);
         await DisconnectControlSessionsAsync().ConfigureAwait(false);
         await StopAsync().ConfigureAwait(false);

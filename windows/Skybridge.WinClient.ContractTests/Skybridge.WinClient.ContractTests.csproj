@@ -57,6 +57,8 @@
     <Compile Include="..\Skybridge.WinClient\Services\LanProtocolIdentityBinding.cs" Link="Services\LanProtocolIdentityBinding.cs" />
     <Compile Include="ProtocolOnlyPairingMaterialTests.cs" />
     <Compile Include="SignedLanKemRefreshTests.cs" />
+    <Compile Include="SignedLanKemRefreshInitiatorTests.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\SignedLanKemRefreshInitiator.cs" Link="Services\SignedLanKemRefreshInitiator.cs" />
     <Compile Include="SignedLanKemRefreshResponderTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\SignedLanKemRefreshResponder.cs" Link="Services\SignedLanKemRefreshResponder.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\RemoteControl\RemoteControlIdentityStore.KemRefresh.cs" Link="Services\RemoteControl\RemoteControlIdentityStore.KemRefresh.cs" />

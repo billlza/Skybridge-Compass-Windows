@@ -26,6 +26,9 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
     private readonly TaskCompletionSource _responded = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _responses, _portRefusals, _earlyCloses;
     private readonly LanPibResponder? _pairing;
+    private readonly MLKem? _kem;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _paired = new(StringComparer.Ordinal);
+    internal int KeyRefreshReplies { get; private set; }
     internal int PairingCommits { get; private set; }
     internal int Responses => Volatile.Read(ref _responses);
     internal EndPoint Endpoint => _listener.LocalEndpoint;
@@ -36,25 +39,40 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
         if (!OperatingSystem.IsWindows() || !MLDsa.IsSupported)
             throw new PlatformNotSupportedException("The native USB fixture requires Windows ML-DSA.");
         _key = MLDsa.GenerateKey(MLDsaAlgorithm.MLDsa65);
-        var publicKey = _key.ExportMLDsaPublicKey().ToImmutableArray();
-        _identity = new(Guid.NewGuid().ToString("D"), "ML-DSA-65", publicKey,
-            WebRtcProductProtocolIdentityPublicKey.ComputeAuthoritativeFingerprint(WebRtcProductSignatureAlgorithm.MlDsa65, publicKey.AsSpan()));
-        if (pairingApproval is not null)
-            _pairing = new(new("id:" + _identity.DeviceID, DeviceName, publicKey),
-                bytes => _key.SignData(bytes).ToImmutableArray(),
-                (peer, bytes, signature) =>
-                {
-                    using var verifier = MLDsa.ImportMLDsaPublicKey(MLDsaAlgorithm.MLDsa65, peer.AsSpan());
-                    if (!verifier.VerifyData(bytes, signature.AsSpan())) throw new CryptographicException("Fixture rejected the request signature.");
-                }, _ => { }, (_, guard, _) =>
-                {
-                    guard(); PairingCommits++; return Task.CompletedTask;
-                }, pairingApproval, _lifetime.Token.ThrowIfCancellationRequested);
-        _closedPort = closedPort ?? (() => false);
-        _observationsPath = observationsPath;
-        _listener = new(IPAddress.Loopback, port);
-        try { _listener.Start(); } catch { _key.Dispose(); throw; }
-        _accepting = AcceptAsync();
+        try
+        {
+            var publicKey = _key.ExportMLDsaPublicKey().ToImmutableArray();
+            _identity = new(Guid.NewGuid().ToString("D"), "ML-DSA-65", publicKey,
+                WebRtcProductProtocolIdentityPublicKey.ComputeAuthoritativeFingerprint(WebRtcProductSignatureAlgorithm.MlDsa65, publicKey.AsSpan()));
+            if (pairingApproval is not null)
+            {
+                _kem = MLKem.GenerateKey(MLKemAlgorithm.MLKem768);
+                _pairing = new(new("id:" + _identity.DeviceID, DeviceName, publicKey),
+                    bytes => _key.SignData(bytes).ToImmutableArray(),
+                    (peer, bytes, signature) =>
+                    {
+                        using var verifier = MLDsa.ImportMLDsaPublicKey(MLDsaAlgorithm.MLDsa65, peer.AsSpan());
+                        if (!verifier.VerifyData(bytes, signature.AsSpan())) throw new CryptographicException("Fixture rejected the request signature.");
+                    }, _ => { }, (material, guard, _) =>
+                    {
+                        guard(); _paired[material.DeviceId] = material.ProtocolPublicKeyFingerprint;
+                        PairingCommits++; return Task.CompletedTask;
+                    }, pairingApproval, _lifetime.Token.ThrowIfCancellationRequested);
+            }
+            _closedPort = closedPort ?? (() => false);
+            _observationsPath = observationsPath;
+            _listener = new(IPAddress.Loopback, port);
+            _listener.Start();
+            _accepting = AcceptAsync();
+        }
+        catch (Exception failure)
+        {
+            var cleanup = new List<Exception>();
+            try { _kem?.Dispose(); } catch (Exception error) { cleanup.Add(error); }
+            try { _key.Dispose(); } catch (Exception error) { cleanup.Add(error); }
+            if (cleanup.Count > 0) throw new AggregateException("USB fixture construction and cleanup failed.", new[] { failure }.Concat(cleanup));
+            throw;
+        }
     }
 
     private async Task AcceptAsync()
@@ -115,6 +133,29 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
                 await owner.SendAsync(reply, deadline.Token);
                 return;
             }
+            if (_kem is { } kem && message == "kemRefreshRequest")
+            {
+                var refresh = SignedLanKemRefreshWire.DecodeRequest(payload.Span);
+                SignedLanKemRefreshCanonical.RequireRequestFreshness(refresh, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                if (!_paired.TryGetValue(RemoteControlHandshakeBinding.CanonicalDeviceId(refresh.RequesterDeviceId), out var pin) ||
+                    pin != refresh.RequesterProtocolIdentityFingerprint || refresh.TargetDeviceId != _identity.DeviceID ||
+                    refresh.TargetProtocolIdentityFingerprint != _identity.Fingerprint)
+                    throw new InvalidDataException("The native fixture has no matching approved requester.");
+                long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                double sent = now / 1000.0 - 978307200.0;
+                ImmutableArray<LanKemRefreshPublicKey> keys = [new(257, kem.ExportEncapsulationKey().ToImmutableArray())];
+                // This fixture owns native ML-KEM only, so its signed capabilities
+                // exclude Q. It never substitutes invented Q key material.
+                var response = new LanSignedKemRefresh(_identity.DeviceID, "ML-DSA-65", _identity.PublicKey,
+                    _identity.Fingerprint, keys, SignedLanKemRefreshResponder.KeyId(_identity.Fingerprint, keys), now,
+                    sent, sent + 300, refresh.Nonce, [], 3, [], SignedLanKemRefreshCanonical.RequestHash(refresh),
+                    BonjourEndpointDigest: refresh.BonjourEndpointDigest, Platform: "ios", OsVersion: "iOS 27.0",
+                    PermittedSuiteWireIds: [257]);
+                response = response with { Signature = _key.SignData(SignedLanKemRefreshCanonical.ResponsePreimage(response)).ToImmutableArray() };
+                await owner.SendAsync(SignedLanKemRefreshWire.EncodeResponse(response), deadline.Token);
+                KeyRefreshReplies++;
+                return;
+            }
             var discovery = LanBootstrapWire.Decode<UsbPeerDiscoveryRequest>(payload.Span, "usbPeerDiscoveryRequest");
             var unsigned = new UsbPeerDiscoveryResponse(discovery, _identity, DeviceName, "ios", []);
             ImmutableArray<byte> signature;
@@ -151,6 +192,7 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
             catch (Exception error) { failures.Add(error); }
         }
         try { _key.Dispose(); } catch (Exception error) { failures.Add(error); }
+        try { _kem?.Dispose(); } catch (Exception error) { failures.Add(error); }
         _signing.Dispose(); _markers.Dispose(); _lifetime.Dispose();
         if (failures.Count > 0) throw new AggregateException("Native USB fixture failed.", failures);
     }

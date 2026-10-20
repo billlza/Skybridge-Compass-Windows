@@ -11,7 +11,9 @@ internal static class UsbEnrollmentWorkspaceTests
     [
         ("Windows USB enrollment traverses native mux discovery PIB and DPAPI reload", NativeRoundTrip),
         ("Windows USB enrollment rejects changed cable identity and offline new trust", NativeAdmission),
-        ("Windows USB enrollment shutdown drains approval and revocation prevents commit", NativeCancellation)
+        ("Windows USB enrollment shutdown drains approval and revocation prevents commit", NativeCancellation),
+        ("Windows USB key refresh verifies native signatures without persisting temporary KEM keys", NativeKeyRefresh),
+        ("Windows USB key refresh cannot create trust or accept a changed cable identity", NativeKeyRefreshAdmission)
     ];
     private sealed class Approval(Func<LanPibApprovalRequest, CancellationToken, Task<bool>> show) : ILanPibApprovalPresenter
     { public Task<bool> ShowAsync(LanPibApprovalRequest request, CancellationToken token) => show(request, token); }
@@ -122,6 +124,67 @@ internal static class UsbEnrollmentWorkspaceTests
             }
             finally { Directory.Delete(directory.FullName, recursive: true); }
         }
+    }
+
+    private static async Task NativeKeyRefresh()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        var directory = Directory.CreateTempSubdirectory("skybridge-usb-key-refresh-");
+        try
+        {
+            await using var peer = new NativeUsbDiscoveryFixture(pairingApproval: Accept);
+            var connector = Connector(peer);
+            using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var selected = await new UsbPeerDiscoveryClient(connector).InspectAsync(NativeUsbDiscoveryFixture.Serial, limit.Token);
+            var authentication = Authentication(); var epoch = new AccountAudioAuthorization(AudioAccountScope.From(authentication));
+            await using (var workspace = new WindowsDeviceWorkspace(directory.FullName, "USB test"))
+            {
+                await workspace.PairUsbPeerAsync(selected, authentication, epoch, Accept, limit.Token, connector);
+                var identityPath = Path.Combine(directory.FullName,"remote-control-identity.bin");
+                byte[] before = await File.ReadAllBytesAsync(identityPath, limit.Token);
+                var lease = await workspace.RefreshUsbPeerKeysAsync(selected, authentication, epoch, limit.Token, connector);
+                Require(peer.KeyRefreshReplies == 1 && peer.Responses == 3 &&
+                    lease.EndpointDigest == selected.EndpointDigest && lease.PeerDeviceId == "id:" + selected.Response.Identity.DeviceID,
+                    "Key refresh did not traverse fresh native discovery and exact framed reply binding.");
+                Require(lease.ClaimKeys(lease.PeerDeviceId, lease.Fingerprint, lease.EndpointDigest).Single().SuiteWireId == 257,
+                    "The fixture's absent Q implementation was advertised as available.");
+                byte[] after = await File.ReadAllBytesAsync(identityPath, limit.Token);
+                Require(before.AsSpan().SequenceEqual(after),
+                    "Temporary refreshed KEM material rewrote persistent pairing authority.");
+                using var caller = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                var cancelable = await workspace.RefreshUsbPeerKeysAsync(selected, authentication, epoch, caller.Token, connector);
+                caller.Cancel();
+                await Reject<OperationCanceledException>(() => Task.Run(cancelable.RequireCurrent));
+                epoch.Revoke(); await Reject<InvalidOperationException>(() => Task.Run(lease.RequireCurrent));
+                await Reject<InvalidOperationException>(() => workspace.RefreshUsbPeerKeysAsync(selected, authentication, epoch, limit.Token, connector));
+                Require(peer.Responses == 4, "Revoked account initiated another USB refresh.");
+            }
+            using var restored = await RemoteControlIdentityStore.LoadExistingAsync(directory.FullName,"USB test");
+            Require(restored.TrustedMaterials.Single().IsProtocolIdentityOnly, "Refreshed key outlived its lease in DPAPI storage.");
+        }
+        finally { Directory.Delete(directory.FullName, recursive: true); }
+    }
+
+    private static async Task NativeKeyRefreshAdmission()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        var directory = Directory.CreateTempSubdirectory("skybridge-usb-key-admission-");
+        try
+        {
+            await using var peer = new NativeUsbDiscoveryFixture(pairingApproval: Accept);
+            await using var replacement = new NativeUsbDiscoveryFixture(pairingApproval: Accept);
+            var connector = Connector(peer);
+            using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var selected = await new UsbPeerDiscoveryClient(connector).InspectAsync(NativeUsbDiscoveryFixture.Serial, limit.Token);
+            var authentication = Authentication(); var epoch = new AccountAudioAuthorization(AudioAccountScope.From(authentication));
+            await using var workspace = new WindowsDeviceWorkspace(directory.FullName,"USB test");
+            await Reject<FileNotFoundException>(() => workspace.RefreshUsbPeerKeysAsync(selected, authentication, epoch, limit.Token, connector));
+            Require(!Directory.EnumerateFiles(directory.FullName,"*",SearchOption.AllDirectories).Any(), "Refresh created a replacement local identity.");
+            await workspace.PairUsbPeerAsync(selected, authentication, epoch, Accept, limit.Token, connector);
+            await Reject<InvalidDataException>(() => workspace.RefreshUsbPeerKeysAsync(selected, authentication, epoch, limit.Token, Connector(replacement)));
+            Require(peer.KeyRefreshReplies == 0 && replacement.KeyRefreshReplies == 0, "Changed cable identity reached SKR.");
+        }
+        finally { Directory.Delete(directory.FullName, recursive: true); }
     }
 
     private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }

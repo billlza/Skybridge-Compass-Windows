@@ -78,8 +78,7 @@ internal sealed class ProductPibInitiator
             throw new LanPibRejectedException("selfPairing", "The local identity cannot enroll itself.");
         // Apple retains the local-control wire scope "lan" on USB. Its signed
         // endpoint digest binds the concrete cable route independently.
-        var endpointDigest = Convert.ToHexStringLower(SHA256.HashData(
-            Encoding.UTF8.GetBytes($"SkyBridge-USB|{target.Udid}|9527|{peer.DeviceID}")));
+        var endpointDigest = target.EndpointDigest;
         var request = new LanPibRequest(3, Guid.NewGuid().ToString("D"), _local.DeviceId, peer.DeviceID,
             ["ML-DSA-65"], "ML-DSA-65", _local.PublicKey, _fingerprint, [],
             RandomNumberGenerator.GetBytes(32).ToImmutableArray(), ReferenceSeconds(admitted),

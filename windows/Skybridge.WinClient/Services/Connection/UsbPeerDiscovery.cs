@@ -19,6 +19,8 @@ internal sealed class UsbPeerInspection
     internal string Udid { get; }
     internal UsbPeerDiscoveryResponse Response { get; }
     internal DateTimeOffset ObservedAt { get; }
+    internal string EndpointDigest => Convert.ToHexStringLower(SHA256.HashData(
+        Encoding.UTF8.GetBytes($"SkyBridge-USB|{Udid}|9527|{Response.Identity.DeviceID}")));
 
     internal static UsbPeerInspection Verify(string udid, UsbPeerDiscoveryResponse response,
         UsbPeerDiscoveryRequest expected, DateTimeOffset now,

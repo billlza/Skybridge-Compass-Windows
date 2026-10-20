@@ -6,41 +6,68 @@ namespace Skybridge.WinClient.Services;
 
 internal sealed partial class WindowsDeviceWorkspace
 {
-    private readonly CancellationTokenSource _usbEnrollmentLifetime = new();
-    private readonly SemaphoreSlim _usbEnrollment = new(1, 1), _usbEnrollmentClose = new(1, 1);
-    private readonly object _usbEnrollmentFailures = new();
-    private Exception? _usbEnrollmentUnreleased, _usbEnrollmentCancellationFailure;
-    private bool _usbEnrollmentStopped;
+    private readonly CancellationTokenSource _usbBootstrapLifetime = new();
+    private readonly SemaphoreSlim _usbBootstrap = new(1, 1), _usbBootstrapClose = new(1, 1);
+    private readonly object _usbBootstrapFailures = new();
+    private Exception? _usbBootstrapUnreleased, _usbBootstrapCancellationFailure;
+    private bool _usbBootstrapStopped;
 
-    internal async Task<RemoteControlPairingMaterial> PairUsbPeerAsync(UsbPeerInspection selected,
+    internal Task<RemoteControlPairingMaterial> PairUsbPeerAsync(UsbPeerInspection selected,
         AccountDeviceAuthentication authentication, AccountAudioAuthorization account,
         ILanPibApprovalPresenter approval, CancellationToken token, UsbMuxConnector? connector = null)
     {
+        ArgumentNullException.ThrowIfNull(approval);
+        return RunUsbBootstrapAsync(selected, authentication, account, createIdentity: true, allowOffline: false,
+            (current, identity, carrier, requireCurrent, lifetime) =>
+                identity.CreatePibInitiator(approval, requireCurrent).PairUsbAsync(current,
+                    (request, stage) => ProductBootstrapExchange.ExchangeAsync(
+                        cancellation => carrier.OpenAsync(current.Udid, UsbMuxConnector.ControlPort, cancellation),
+                        request, LanBootstrapWire.MaximumBytes, stage), lifetime), token, connector);
+    }
+
+    internal Task<SignedKemRefreshLease> RefreshUsbPeerKeysAsync(UsbPeerInspection selected,
+        AccountDeviceAuthentication authentication, AccountAudioAuthorization account,
+        CancellationToken token, UsbMuxConnector? connector = null) =>
+        RunUsbBootstrapAsync(selected, authentication, account, createIdentity: false, allowOffline: true,
+            (current, identity, carrier, requireCurrent, lifetime) =>
+                identity.CreateKemRefreshInitiator(current.Response.Identity.DeviceID, current.Response.Identity.Fingerprint,
+                    requireCurrent, QPeriaptPeerPlatform.LocalVersion()).RefreshUsbAsync(current,
+                    (request, stage) => ProductBootstrapExchange.ExchangeAsync(
+                        cancellation => carrier.OpenAsync(current.Udid, UsbMuxConnector.ControlPort, cancellation),
+                        request, LanBootstrapWire.MaximumBytes, stage), lifetime), token, connector);
+
+    private async Task<T> RunUsbBootstrapAsync<T>(UsbPeerInspection selected,
+        AccountDeviceAuthentication authentication, AccountAudioAuthorization account, bool createIdentity, bool allowOffline,
+        Func<UsbPeerInspection, RemoteControlIdentityStore, UsbMuxConnector, Action, CancellationToken, Task<T>> operation,
+        CancellationToken token, UsbMuxConnector? connector)
+    {
         ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(authentication);
-        ArgumentNullException.ThrowIfNull(account); ArgumentNullException.ThrowIfNull(approval);
-        using var scope = CancellationTokenSource.CreateLinkedTokenSource(token, _usbEnrollmentLifetime.Token);
+        ArgumentNullException.ThrowIfNull(account);
+        var workspaceLifetime = _usbBootstrapLifetime.Token;
+        using var scope = CancellationTokenSource.CreateLinkedTokenSource(token, workspaceLifetime);
         void RequireCurrent()
         {
-            scope.Token.ThrowIfCancellationRequested();
+            // A returned public-key lease may outlive this method's linked source.
+            // Retain the original cancellation tokens, not a disposed linkage.
+            token.ThrowIfCancellationRequested(); workspaceLifetime.ThrowIfCancellationRequested();
             ObjectDisposedException.ThrowIf(_disposed, this);
-            // Offline recovery exposes an audio capability, not authority to
-            // create a new general-purpose device trust record.
-            if (account.IsOffline) throw new InvalidOperationException("Verify this account online before pairing a new USB device.");
+            if (account.IsOffline && !allowOffline)
+                throw new InvalidOperationException("Verify this account online before pairing a new USB device.");
             account.RequireAuthentication(authentication);
             if (!SessionJwtValidator.TryValidate(authentication.AccessToken, authentication.Authority,
-                    authentication.Subject, requireUnexpired: true, out _, out _))
-                throw new InvalidOperationException("The account credential expired or changed during USB pairing.");
+                    authentication.Subject, requireUnexpired: !account.IsOffline, out _, out _))
+                throw new InvalidOperationException("The account credential expired or changed during USB bootstrap.");
         }
         RequireCurrent();
-        if (!await _usbEnrollment.WaitAsync(0, scope.Token).ConfigureAwait(false))
-            throw new InvalidOperationException("Another USB pairing transaction is already active.");
+        if (!await _usbBootstrap.WaitAsync(0, scope.Token).ConfigureAwait(false))
+            throw new InvalidOperationException("Another USB bootstrap transaction is already active.");
         try
         {
             RequireCurrent();
-            lock (_usbEnrollmentFailures)
+            lock (_usbBootstrapFailures)
             {
-                if (_usbEnrollmentUnreleased is { } retained)
-                    throw new InvalidOperationException("USB enrollment has an unreleased native owner.", retained);
+                if (_usbBootstrapUnreleased is { } retained)
+                    throw new InvalidOperationException("USB bootstrap has an unreleased native owner.", retained);
             }
             var carrier = connector ?? UsbMuxConnector.WindowsService();
             var current = await new UsbPeerDiscoveryClient(carrier).InspectAsync(selected.Udid, scope.Token).ConfigureAwait(false);
@@ -49,67 +76,65 @@ internal sealed partial class WindowsDeviceWorkspace
             var actual = current.Response.Identity;
             if (actual.DeviceID != expected.DeviceID || actual.Algorithm != expected.Algorithm ||
                 actual.Fingerprint != expected.Fingerprint || !actual.PublicKey.AsSpan().SequenceEqual(expected.PublicKey.AsSpan()))
-                throw new InvalidDataException("The selected USB device identity changed. Refresh before pairing.");
+                throw new InvalidDataException("The selected USB device identity changed. Refresh before connecting.");
             RemoteControlIdentityStore identity;
             await _operations.WaitAsync(scope.Token).ConfigureAwait(false);
             try
             {
                 RequireCurrent();
-                _identity ??= await RemoteControlIdentityStore.LoadOrCreateAsync(_stateDirectory, _displayName, scope.Token).ConfigureAwait(false);
+                _identity ??= createIdentity
+                    ? await RemoteControlIdentityStore.LoadOrCreateAsync(_stateDirectory, _displayName, scope.Token).ConfigureAwait(false)
+                    : await RemoteControlIdentityStore.LoadExistingAsync(_stateDirectory, _displayName, scope.Token).ConfigureAwait(false);
                 identity = _identity;
             }
             finally { _operations.Release(); }
-            var transaction = identity.CreatePibInitiator(approval, RequireCurrent);
-            return await transaction.PairUsbAsync(current, (request, lifetime) =>
-                ProductBootstrapExchange.ExchangeAsync(
-                    cancellation => carrier.OpenAsync(current.Udid, UsbMuxConnector.ControlPort, cancellation),
-                    request, LanBootstrapWire.MaximumBytes, lifetime), scope.Token).ConfigureAwait(false);
+            return await operation(current, identity, carrier, RequireCurrent, scope.Token).ConfigureAwait(false);
         }
         catch (Exception error)
         {
             if (ProductBootstrapReleaseException.ContainsUnreleasedOwner(error))
             {
-                lock (_usbEnrollmentFailures) _usbEnrollmentUnreleased = error;
+                lock (_usbBootstrapFailures) _usbBootstrapUnreleased = error;
             }
             throw;
         }
-        finally { _usbEnrollment.Release(); }
+        finally { _usbBootstrap.Release(); }
     }
 
-    private async Task StopUsbEnrollmentAsync()
+    private async Task StopUsbBootstrapAsync()
     {
-        await _usbEnrollmentClose.WaitAsync().ConfigureAwait(false);
+        await _usbBootstrapClose.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (_usbEnrollmentStopped) return;
-            try { _usbEnrollmentLifetime.Cancel(); }
+            if (_usbBootstrapStopped) return;
+            try { _usbBootstrapLifetime.Cancel(); }
             catch (Exception error)
             {
-                lock (_usbEnrollmentFailures) _usbEnrollmentCancellationFailure ??= error;
+                lock (_usbBootstrapFailures) _usbBootstrapCancellationFailure ??= error;
             }
-            if (!await _usbEnrollment.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false))
+            if (!await _usbBootstrap.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false))
             {
-                var timeout = new TimeoutException("USB enrollment still owns its approval or native operation; the identity remains retained.");
-                lock (_usbEnrollmentFailures)
+                var timeout = new TimeoutException("USB bootstrap still owns its approval or native operation; the identity remains retained.");
+                lock (_usbBootstrapFailures)
                 {
-                    if (_usbEnrollmentCancellationFailure is { } cancellation) throw new AggregateException(cancellation, timeout);
+                    if (_usbBootstrapCancellationFailure is { } cancellation) throw new AggregateException(cancellation, timeout);
                 }
                 throw timeout;
             }
             try
             {
-                lock (_usbEnrollmentFailures)
+                lock (_usbBootstrapFailures)
                 {
-                    if (_usbEnrollmentUnreleased is { } retained)
-                        throw new InvalidOperationException("USB enrollment native cleanup is unconfirmed.",
-                            _usbEnrollmentCancellationFailure is null ? retained : new AggregateException(_usbEnrollmentCancellationFailure, retained));
-                    if (_usbEnrollmentCancellationFailure is { } failure)
+                    if (_usbBootstrapUnreleased is { } retained)
+                        throw new InvalidOperationException("USB bootstrap native cleanup is unconfirmed.",
+                            _usbBootstrapCancellationFailure is null ? retained : new AggregateException(_usbBootstrapCancellationFailure, retained));
+                    if (_usbBootstrapCancellationFailure is { } failure)
                         System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
                 }
-                _usbEnrollmentLifetime.Dispose(); _usbEnrollmentStopped = true;
+                _usbBootstrapLifetime.Dispose(); _usbBootstrapStopped = true;
             }
-            finally { _usbEnrollment.Release(); }
+            finally { _usbBootstrap.Release(); }
         }
-        finally { _usbEnrollmentClose.Release(); }
+        finally { _usbBootstrapClose.Release(); }
     }
 }
