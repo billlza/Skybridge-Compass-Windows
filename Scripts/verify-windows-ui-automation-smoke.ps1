@@ -363,6 +363,9 @@ try {
             $limit = [DateTimeOffset]::UtcNow.AddSeconds(20)
             $matched = $false
             do {
+                # Refresh replaces action-row records while busy changes. Resolve
+                # the current button instead of retaining a recycled UIA element.
+                $refresh = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId "WorkspaceAction.UsbManagementHeader.RefreshDevices"
                 $condition = [System.Windows.Automation.PropertyCondition]::new(
                     [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'Skybridge.Usb.PeerStatus')
                 $statuses = @($window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition))
@@ -372,13 +375,18 @@ try {
                 $matched = $freshReply -and $matching.Count -eq 1 -and $refresh.Current.IsEnabled
                 if (-not $matched) { Start-Sleep -Milliseconds 100 }
             } while (-not $matched -and [DateTimeOffset]::UtcNow -lt $limit)
+            @{
+                mode = $scenario.mode; expected = $scenario.expected
+                currentStatuses = @($statuses | ForEach-Object { @{ text = $_.Current.Name; visible = -not $_.Current.IsOffscreen } })
+                refreshEnabled = $refresh.Current.IsEnabled; before = $before; after = $after
+            } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir "usb-state-$($usbStates.Count).json")
             Assert-True $matched "USB inspection did not reach the expected real UI state: $($scenario.expected)"
             $usbStates.Add(@{ mode = $scenario.mode; visibleStatus = $matching[0].Current.Name; responses = $after.responses; portRefusals = $after.portRefusals })
             [void](Save-WindowScreenshot -Window $window -Path (Join-Path $EvidenceDir $scenario.capture))
         }
         @{
             scope = 'Synthetic USB multiplex service; real product decoder, native signatures and UI'
-            states = @($usbStates); actualAppleService = $false; actualUsbDevice = $false
+            states = $usbStates.ToArray(); actualAppleService = $false; actualUsbDevice = $false
             authenticatedSession = $false; audioPlayed = $false
         } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'usb-discovery-ui.json')
     }

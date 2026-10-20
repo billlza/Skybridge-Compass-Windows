@@ -248,7 +248,7 @@
                              meant - one line, ellipsised if the label is too long - so a long
                              title degrades legibly instead of being sheared. -->
                         <TextBlock
-                            Text="{Binding DisplayTitle}"
+                            Text="{Binding DisplayTitle, Converter={StaticResource LabelKeyToLocalizedConverter}}"
                             FontSize="12"
                             Foreground="{StaticResource SkyBridgeTextSecondaryBrush}"
                             TextWrapping="NoWrap"

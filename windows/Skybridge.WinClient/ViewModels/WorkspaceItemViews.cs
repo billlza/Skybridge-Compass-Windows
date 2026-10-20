@@ -272,22 +272,13 @@ public sealed record UsbDeviceStatView(
     string Value,
     string Detail)
 {
-    // zh caption for the USB stat card (mirrors the Mac USB 管理 stat cards). Title stays the
-    // English key — the MetricGlyphConverter/MetricAccentBrushConverter key off it and the
-    // parity gate asserts the English labels in UsbManagementWorkspaceClient.
-    public string DisplayTitle => ResolveDisplayTitle(Title);
+    // Keep the stable metric key; the view resolves its current language through
+    // the same label resources as the USB device rows.
+    public string DisplayTitle => Title;
 
     public static UsbDeviceStatView FromStat(UsbDeviceStat stat) =>
         new(stat.Title, stat.Value, stat.Detail);
 
-    private static string ResolveDisplayTitle(string title) => title switch
-    {
-        "MFi Certified" => "MFi 认证",
-        "Android Devices" => "Android 设备",
-        "Storage Devices" => "存储设备",
-        "Total Devices" => "设备总数",
-        _ => title
-    };
 }
 
 public sealed record UsbDeviceItemView(

@@ -2050,6 +2050,9 @@
   <data name="Status.UsbPairingNotLoaded" xml:space="preserve"><value>SkyBridge found; pairing status is not loaded</value></data>
   <data name="Status.UsbDuplicateIdentity" xml:space="preserve"><value>Multiple USB devices share one SkyBridge identity</value></data>
   <data name="UsbLabel.AppleDevices" xml:space="preserve"><value>Apple Devices</value></data>
+  <data name="UsbLabel.AndroidDevices" xml:space="preserve"><value>Android Devices</value></data>
+  <data name="UsbLabel.StorageDevices" xml:space="preserve"><value>Storage Devices</value></data>
+  <data name="UsbLabel.TotalDevices" xml:space="preserve"><value>Total Devices</value></data>
   <data name="UsbLabel.AppleDevice" xml:space="preserve"><value>Apple device</value></data>
   <data name="UsbLabel.AppleDetail" xml:space="preserve"><value>Connected Apple USB devices</value></data>
 </root>

@@ -46,6 +46,9 @@ public sealed class LabelKeyToLocalizedConverter : IValueConverter
         new(StringComparer.Ordinal)
         {
             ["Apple Devices"] = "UsbLabel.AppleDevices",
+            ["Android Devices"] = "UsbLabel.AndroidDevices",
+            ["Storage Devices"] = "UsbLabel.StorageDevices",
+            ["Total Devices"] = "UsbLabel.TotalDevices",
             ["Apple device"] = "UsbLabel.AppleDevice",
             ["Connected Apple USB devices"] = "UsbLabel.AppleDetail",
             ["Sending"] = "FileTransferLiveSendingState",
@@ -154,6 +157,9 @@ public sealed class LabelKeyToLocalizedConverter : IValueConverter
         new(StringComparer.Ordinal)
         {
             ["UsbLabel.AppleDevices"] = new() { ["en"] = "Apple Devices", ["zh"] = "Apple 设备", ["ja"] = "Apple デバイス" },
+            ["UsbLabel.AndroidDevices"] = new() { ["en"] = "Android Devices", ["zh"] = "Android 设备", ["ja"] = "Android デバイス" },
+            ["UsbLabel.StorageDevices"] = new() { ["en"] = "Storage Devices", ["zh"] = "存储设备", ["ja"] = "ストレージデバイス" },
+            ["UsbLabel.TotalDevices"] = new() { ["en"] = "Total Devices", ["zh"] = "设备总数", ["ja"] = "デバイス総数" },
             ["UsbLabel.AppleDevice"] = new() { ["en"] = "Apple device", ["zh"] = "Apple 设备", ["ja"] = "Apple デバイス" },
             ["UsbLabel.AppleDetail"] = new() { ["en"] = "Connected Apple USB devices", ["zh"] = "已连接的 Apple USB 设备", ["ja"] = "接続済みの Apple USB デバイス" },
 

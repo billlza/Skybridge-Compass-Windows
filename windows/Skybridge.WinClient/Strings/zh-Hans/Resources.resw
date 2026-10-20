@@ -2005,6 +2005,9 @@
   <data name="Status.UsbPairingNotLoaded" xml:space="preserve"><value>已发现 SkyBridge，配对状态尚未读取</value></data>
   <data name="Status.UsbDuplicateIdentity" xml:space="preserve"><value>多个 USB 设备使用了相同的 SkyBridge 身份</value></data>
   <data name="UsbLabel.AppleDevices" xml:space="preserve"><value>Apple 设备</value></data>
+  <data name="UsbLabel.AndroidDevices" xml:space="preserve"><value>Android 设备</value></data>
+  <data name="UsbLabel.StorageDevices" xml:space="preserve"><value>存储设备</value></data>
+  <data name="UsbLabel.TotalDevices" xml:space="preserve"><value>设备总数</value></data>
   <data name="UsbLabel.AppleDevice" xml:space="preserve"><value>Apple 设备</value></data>
   <data name="UsbLabel.AppleDetail" xml:space="preserve"><value>已连接的 Apple USB 设备</value></data>
 </root>

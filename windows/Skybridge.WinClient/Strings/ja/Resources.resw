@@ -2005,6 +2005,9 @@
   <data name="Status.UsbPairingNotLoaded" xml:space="preserve"><value>SkyBridge を検出しました。ペアリング状態は未読込です</value></data>
   <data name="Status.UsbDuplicateIdentity" xml:space="preserve"><value>複数の USB デバイスが同じ SkyBridge 識別情報を使用しています</value></data>
   <data name="UsbLabel.AppleDevices" xml:space="preserve"><value>Apple デバイス</value></data>
+  <data name="UsbLabel.AndroidDevices" xml:space="preserve"><value>Android デバイス</value></data>
+  <data name="UsbLabel.StorageDevices" xml:space="preserve"><value>ストレージデバイス</value></data>
+  <data name="UsbLabel.TotalDevices" xml:space="preserve"><value>デバイス総数</value></data>
   <data name="UsbLabel.AppleDevice" xml:space="preserve"><value>Apple デバイス</value></data>
   <data name="UsbLabel.AppleDetail" xml:space="preserve"><value>接続済みの Apple USB デバイス</value></data>
 </root>

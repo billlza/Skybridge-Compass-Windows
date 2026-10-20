@@ -210,6 +210,19 @@ try {
             $result.status = 'failed'
         }
     }
+    # Only this disposable CI runner is eligible. The product already records
+    # uncaught command failures here; retain them alongside failed UI evidence.
+    try {
+        $runtimeLog = Join-Path $env:LOCALAPPDATA 'SkyBridge/logs/skybridge-win.log'
+        if (Test-Path -LiteralPath $runtimeLog -PathType Leaf) {
+            Get-Content -LiteralPath $runtimeLog -Tail 160 |
+                Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'native-app.log')
+        }
+    } catch {
+        $result.runtimeLogCollectionError = $_.Exception.Message
+        if ($null -eq $primaryError) { $primaryError = $_.Exception }
+        $result.status = 'failed'
+    }
     $result | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'display-preparation.json')
 }
 $failures = @(@($primaryError, $restoreError, $usbFixtureCleanupError) | Where-Object { $null -ne $_ })
