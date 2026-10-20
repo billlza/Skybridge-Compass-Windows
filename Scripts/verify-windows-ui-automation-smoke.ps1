@@ -358,6 +358,7 @@ try {
             while (-not $refresh.Current.IsEnabled) {
                 if ([DateTimeOffset]::UtcNow -ge $readyLimit) { throw 'USB refresh remained busy.' }
                 Start-Sleep -Milliseconds 100
+                $refresh = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId "WorkspaceAction.UsbManagementHeader.RefreshDevices"
             }
             $refresh.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
             $limit = [DateTimeOffset]::UtcNow.AddSeconds(20)
