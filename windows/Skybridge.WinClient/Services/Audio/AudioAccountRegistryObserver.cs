@@ -8,15 +8,19 @@ internal sealed class AudioAccountRegistryObserver(AudioAccountMembershipProvide
     Func<AudioAuthorizationTime>? clock = null) : IAccountDeviceRegistryObserver
 {
     private readonly Func<AudioAuthorizationTime> _clock = clock ?? AudioAuthorizationTime.ReadWindows;
-    public IAccountDeviceRegistryObservation? Begin(AccountDeviceAuthentication authentication, CurrentPathProtocolIdentityBinding binding)
+    public ValueTask<IAccountDeviceRegistryObservation?> BeginAsync(AccountDeviceAuthentication authentication,
+        CurrentPathProtocolIdentityBinding binding, AccountDeviceRegistryRequest request, CancellationToken cancellationToken)
     {
-        if (authentication.AudioAuthorization is not { } epoch) return null;
-        return new Observation(provider, authentication, epoch, AudioDeviceIdentity.FromRegistryBinding(binding), _clock(), _clock);
+        cancellationToken.ThrowIfCancellationRequested();
+        IAccountDeviceRegistryObservation? observation = authentication.AudioAuthorization is { } epoch
+            ? new Observation(provider, authentication, epoch, AudioDeviceIdentity.FromRegistryBinding(binding), _clock(), _clock, request)
+            : null;
+        return ValueTask.FromResult(observation);
     }
 
     private sealed class Observation(AudioAccountMembershipProvider provider, AccountDeviceAuthentication authentication,
         AccountAudioAuthorization epoch, AudioDeviceIdentity caller, AudioAuthorizationTime started,
-        Func<AudioAuthorizationTime> clock) : IAccountDeviceRegistryObservation
+        Func<AudioAuthorizationTime> clock, AccountDeviceRegistryRequest request) : IAccountDeviceRegistryObservation
     {
         public void Listed(AccountDeviceRosterSnapshot snapshot)
         {
@@ -28,6 +32,13 @@ internal sealed class AudioAccountRegistryObserver(AudioAccountMembershipProvide
         }
         public void Removed(AccountDeviceEntry target) => Report(provider.Removed(epoch, target), "removal");
         public void Rejected(CurrentPathSignalServerException error) => Report(provider.ObserveCallerRejection(epoch, caller, error), "denial");
+        public ValueTask CompleteAsync(Exception? failure)
+        {
+            // This observer still owns process-local evidence only. Completion
+            // reports the real outcome; it does not save, renew or restore a grant.
+            Debug.WriteLine($"Audio account registry {request} settled: {failure?.GetType().Name ?? "success"}.");
+            return ValueTask.CompletedTask;
+        }
         private static void Report(bool applied, string operation) =>
             Debug.WriteLine($"Audio account registry {operation}: {(applied ? "applied" : "no current matching authorization effect")}.");
     }

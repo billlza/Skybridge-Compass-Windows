@@ -23,13 +23,25 @@ internal interface IAccountDeviceRosterClient
 }
 internal interface IAccountDeviceRegistryObserver
 {
-    IAccountDeviceRegistryObservation? Begin(AccountDeviceAuthentication authentication, CurrentPathProtocolIdentityBinding binding);
+    ValueTask<IAccountDeviceRegistryObservation?> BeginAsync(AccountDeviceAuthentication authentication,
+        CurrentPathProtocolIdentityBinding binding, AccountDeviceRegistryRequest request, CancellationToken cancellationToken);
+}
+internal enum AccountDeviceRegistryRequest { Presence, List, Registration, Removal }
+internal sealed class AccountDeviceRegistryObservationException(string stage, Exception cause)
+    : InvalidOperationException($"Registry observation {stage} failed.", cause)
+{
+    internal string Stage { get; } = stage;
 }
 internal interface IAccountDeviceRegistryObservation
 {
     void Listed(AccountDeviceRosterSnapshot snapshot);
     void Removed(AccountDeviceEntry target);
     void Rejected(CurrentPathSignalServerException error);
+    // Runs once after the underlying request AND its result callback have settled.
+    // Deliberately has no UI cancellation token: cancellation cannot erase an
+    // observed denial or abandon its durable completion. null means success;
+    // every other outcome retains the actual request/callback exception.
+    ValueTask CompleteAsync(Exception? failure);
 }
 
 // Use the same bounded signaling HTTP path as all other current-path requests.
@@ -44,14 +56,6 @@ internal sealed class AccountDeviceRosterClient(HttpClient httpClient, IAccountD
     public async Task<AccountDeviceRosterSnapshot> RefreshAsync(AccountDeviceAuthentication auth,
         CurrentPathProtocolIdentityBinding binding, AccountDeviceMetadata metadata, CancellationToken cancellationToken)
     {
-        var operation = observer?.Begin(auth, binding);
-        try { return await RefreshCoreAsync(auth, binding, metadata, operation, cancellationToken).ConfigureAwait(false); }
-        catch (CurrentPathSignalServerException error) { operation?.Rejected(error); throw; }
-    }
-    private async Task<AccountDeviceRosterSnapshot> RefreshCoreAsync(AccountDeviceAuthentication auth,
-        CurrentPathProtocolIdentityBinding binding, AccountDeviceMetadata metadata,
-        IAccountDeviceRegistryObservation? operation, CancellationToken cancellationToken)
-    {
         var client = new CurrentPathSignalServerClient(httpClient, new CurrentPathSignalServerClientOptions(
             bearerTokenProvider: _ => Task.FromResult(auth.AccessToken), tenantIdProvider: _ => Task.FromResult(auth.TenantId),
             clientVersion: "1.0.2"));
@@ -59,15 +63,12 @@ internal sealed class AccountDeviceRosterClient(HttpClient httpClient, IAccountD
         {
             // Each GET has its own observation interval. Publish its validated result before
             // cancellation/UI checks or a registration retry can discard this snapshot.
-            var observation = observer?.Begin(auth, binding);
-            try
-            {
-                var result = await client.ListAccountDevicesAsync(binding, cancellationToken).ConfigureAwait(false);
-                observation?.Listed(result);
-                return result;
-            }
-            catch (CurrentPathSignalServerException error) { observation?.Rejected(error); throw; }
+            return await ObserveAsync(auth, binding, AccountDeviceRegistryRequest.List,
+                () => client.ListAccountDevicesAsync(binding, cancellationToken),
+                (observation, result) => observation.Listed(result), cancellationToken).ConfigureAwait(false);
         }
+        Task PresenceAsync() => ObserveAsync(auth, binding, AccountDeviceRegistryRequest.Presence,
+            () => client.PublishAccountPresenceAsync(binding, metadata, cancellationToken), null, cancellationToken);
         string scope = auth.Scope + "/" + binding.DeviceId + "/" + binding.ProtocolPublicKeyFingerprint;
         if (_registrationScope != scope) { _registrationScope = scope; ResetRegistration(); }
         async Task RegisterAsync()
@@ -75,15 +76,20 @@ internal sealed class AccountDeviceRosterClient(HttpClient httpClient, IAccountD
             if (_registrationFailure is not null && (_registrationAttempts >= 3 || !Retryable(_registrationFailure)))
                 throw _registrationFailure;
             _registrationAttempts++;
-            try { await client.RegisterAccountDeviceAsync(auth, binding, metadata.DeviceName, cancellationToken).ConfigureAwait(false); _registrationFailure = null; }
+            try
+            {
+                await ObserveAsync(auth, binding, AccountDeviceRegistryRequest.Registration,
+                    () => client.RegisterAccountDeviceAsync(auth, binding, metadata.DeviceName, cancellationToken),
+                    null, cancellationToken).ConfigureAwait(false);
+                _registrationFailure = null;
+            }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception error) { _registrationFailure = error; throw; }
         }
         CurrentPathSignalServerException? initialAdmissionFailure = null;
-        try { await client.PublishAccountPresenceAsync(binding, metadata, cancellationToken).ConfigureAwait(false); }
+        try { await PresenceAsync().ConfigureAwait(false); }
         catch (CurrentPathSignalServerException error) when (AccountDeviceWire.ErrorCode(error) is "device_not_registered" or "device_not_active")
         {
-            operation?.Rejected(error);
             initialAdmissionFailure = error;
         }
         AccountDeviceRosterSnapshot snapshot;
@@ -93,7 +99,7 @@ internal sealed class AccountDeviceRosterClient(HttpClient httpClient, IAccountD
         {
             enrollmentAttempted = true;
             await RegisterAsync().ConfigureAwait(false);
-            await client.PublishAccountPresenceAsync(binding, metadata, cancellationToken).ConfigureAwait(false);
+            await PresenceAsync().ConfigureAwait(false);
             snapshot = await ListAsync().ConfigureAwait(false);
         }
         var caller = snapshot.Devices.SingleOrDefault(d => d.IsCaller);
@@ -102,7 +108,7 @@ internal sealed class AccountDeviceRosterClient(HttpClient httpClient, IAccountD
         {
             enrollmentAttempted = true;
             await RegisterAsync().ConfigureAwait(false);
-            await client.PublishAccountPresenceAsync(binding, metadata, cancellationToken).ConfigureAwait(false);
+            await PresenceAsync().ConfigureAwait(false);
             snapshot = await ListAsync().ConfigureAwait(false);
         }
         if (initialAdmissionFailure is not null && !enrollmentAttempted) throw initialAdmissionFailure;
@@ -117,13 +123,69 @@ internal sealed class AccountDeviceRosterClient(HttpClient httpClient, IAccountD
     {
         var client = new CurrentPathSignalServerClient(httpClient, new CurrentPathSignalServerClientOptions(
             bearerTokenProvider: _ => Task.FromResult(auth.AccessToken), tenantIdProvider: _ => Task.FromResult(auth.TenantId), clientVersion: "1.0.2"));
-        var observation = observer?.Begin(auth, binding);
+        await ObserveAsync(auth, binding, AccountDeviceRegistryRequest.Removal,
+            () => client.RemoveAccountDeviceAsync(binding, target, cancellationToken),
+            observation => observation.Removed(target), cancellationToken).ConfigureAwait(false);
+    }
+
+    private Task ObserveAsync(AccountDeviceAuthentication auth, CurrentPathProtocolIdentityBinding binding,
+        AccountDeviceRegistryRequest request, Func<Task> send, Action<IAccountDeviceRegistryObservation>? accepted,
+        CancellationToken cancellationToken) => ObserveAsync(auth, binding, request,
+            async () => { await send().ConfigureAwait(false); return true; },
+            (observation, _) => accepted?.Invoke(observation), cancellationToken);
+
+    private async Task<T> ObserveAsync<T>(AccountDeviceAuthentication auth, CurrentPathProtocolIdentityBinding binding,
+        AccountDeviceRegistryRequest request, Func<Task<T>> send, Action<IAccountDeviceRegistryObservation, T> accepted,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        // Preparation precedes the HTTP call. If it fails, no request has been
+        // sent and there is no returned observation for this owner to complete.
+        IAccountDeviceRegistryObservation? observation;
         try
         {
-            await client.RemoveAccountDeviceAsync(binding, target, cancellationToken).ConfigureAwait(false);
-            observation?.Removed(target);
+            observation = observer is null ? null : await observer.BeginAsync(auth, binding, request, cancellationToken).ConfigureAwait(false);
         }
-        catch (CurrentPathSignalServerException error) { observation?.Rejected(error); throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception error) { throw new AccountDeviceRegistryObservationException("preparation", error); }
+        Exception? failure = null;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            T result;
+            try { result = await send().ConfigureAwait(false); }
+            catch (CurrentPathSignalServerException rejected) when (observation is not null)
+            {
+                try { observation.Rejected(rejected); }
+                catch (Exception notificationFailure)
+                {
+                    throw new AggregateException("Registry request and rejection observation failed.", rejected,
+                        new AccountDeviceRegistryObservationException("rejection", notificationFailure));
+                }
+                throw;
+            }
+            if (observation is not null)
+            {
+                try { accepted(observation, result); }
+                catch (Exception notificationFailure)
+                { throw new AccountDeviceRegistryObservationException("result", notificationFailure); }
+            }
+            return result;
+        }
+        catch (Exception error) { failure = error; throw; }
+        finally
+        {
+            if (observation is not null)
+            {
+                try { await observation.CompleteAsync(failure).ConfigureAwait(false); }
+                catch (Exception completionFailure)
+                {
+                    var context = new AccountDeviceRegistryObservationException("completion", completionFailure);
+                    if (failure is null) throw context;
+                    throw new AggregateException("Registry request and observation completion failed.", failure, context);
+                }
+            }
+        }
     }
 }
 

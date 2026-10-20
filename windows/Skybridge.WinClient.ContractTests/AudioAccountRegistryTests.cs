@@ -20,6 +20,14 @@ internal static class AudioAccountRegistryTests
         ("audio registry confirmed removal survives cancellation and rejects ambiguous receipts", RemovalReceipt),
         ("audio registry presence denial revokes before successful registration recovery", PresenceRecovery),
         ("audio registry unavailable audio epoch preserves ordinary device-page behavior", NoAudioEpoch),
+        ("audio registry prepares and settles each actual enrollment request separately", RequestLifecycle),
+        ("audio registry preparation failure sends no unowned request", PreparationFailure),
+        ("audio registry cancellation after preparation still settles its owned observation", PreparedCancellation),
+        ("audio registry completion is awaited without inheriting UI cancellation", CompletionBoundary),
+        ("audio registry failed and malformed requests retain their actual completion cause", FailedCompletion),
+        ("audio registry cancellation cannot complete an unsettled transport", UnsettledCancellation),
+        ("audio registry preserves request notification and completion failures together", CompletionFailures),
+        ("audio registry observer failures cannot impersonate enrollment responses", ObserverFailureOrigin),
         ("audio registry shutdown revokes and drains membership requests", Shutdown),
         ("audio credential dispatcher keeps account awaits on the supplied UI context", DispatchContext),
         ("audio credential dispatcher bounds canceled queued work until it drains", DispatchCancellation),
@@ -128,7 +136,8 @@ internal static class AudioAccountRegistryTests
         foreach (bool stale in new[] { false, true })
         {
             await using var f = new Fixture();
-            var captured = f.Observer.Begin(f.Auth, f.QueryBinding) ?? throw new Exception("Missing audio observation.");
+            var captured = await f.Observer.BeginAsync(f.Auth, f.QueryBinding, AccountDeviceRegistryRequest.List, default)
+                ?? throw new Exception("Missing audio observation.");
             var snapshot = new AccountDeviceRosterSnapshot(f.Clock.Now.WallMilliseconds - (stale ? 60_000 : 0),
                 f.Binding.LocalDeviceId, false, [Entry(Local(f.Binding), true), Entry(Peer(f.Binding), status: "frozen")]);
             bool switched = false;
@@ -154,13 +163,15 @@ internal static class AudioAccountRegistryTests
     }
     private sealed class RemovalCancellationObserver(IAccountDeviceRegistryObserver inner, Action cancel) : IAccountDeviceRegistryObserver
     {
-        public IAccountDeviceRegistryObservation? Begin(AccountDeviceAuthentication auth, CurrentPathProtocolIdentityBinding binding) =>
-            inner.Begin(auth, binding) is { } captured ? new Observation(captured, cancel) : null;
+        public async ValueTask<IAccountDeviceRegistryObservation?> BeginAsync(AccountDeviceAuthentication auth,
+            CurrentPathProtocolIdentityBinding binding, AccountDeviceRegistryRequest request, CancellationToken cancellationToken) =>
+            await inner.BeginAsync(auth, binding, request, cancellationToken) is { } captured ? new Observation(captured, cancel) : null;
         private sealed class Observation(IAccountDeviceRegistryObservation inner, Action cancel) : IAccountDeviceRegistryObservation
         {
             public void Listed(AccountDeviceRosterSnapshot snapshot) => inner.Listed(snapshot);
             public void Rejected(CurrentPathSignalServerException error) => inner.Rejected(error);
             public void Removed(AccountDeviceEntry target) { cancel(); inner.Removed(target); }
+            public ValueTask CompleteAsync(Exception? failure) => inner.CompleteAsync(failure);
         }
     }
     private static async Task RemovalReceipt()
@@ -204,7 +215,199 @@ internal static class AudioAccountRegistryTests
         var old = f.Auth; f.Epoch.Revoke(); f.Epoch = new(f.Epoch.Scope);
         f.OnList = (_, _) => Task.FromResult(Reply(f.Body().Replace(f.Clock.Now.WallMilliseconds.ToString(), (f.Clock.Now.WallMilliseconds - 60_000).ToString(), StringComparison.Ordinal)));
         _ = await f.Refresh(old);
-        await Throws<InvalidDataException>(() => f.Refresh());
+        var failed = await Throws<AccountDeviceRegistryObservationException>(() => f.Refresh());
+        Require(failed.Stage == "result" && failed.InnerException is InvalidDataException,
+            "Invalid audio observation was confused with an HTTP response.");
+    }
+
+    // Exercises the real roster HTTP/parse/callback order. This recorder is not
+    // persisted audio authority; durable journal integration has separate gates.
+    private sealed class LifecycleObserver(IAccountDeviceRegistryObserver inner) : IAccountDeviceRegistryObserver
+    {
+        internal readonly List<Observation> Operations = [];
+        internal Func<AccountDeviceRegistryRequest, CancellationToken, Task>? Preparing;
+        internal Func<Observation, Task>? Completing;
+        internal Action? Listed;
+        internal Action? Rejected;
+        public async ValueTask<IAccountDeviceRegistryObservation?> BeginAsync(AccountDeviceAuthentication auth,
+            CurrentPathProtocolIdentityBinding binding, AccountDeviceRegistryRequest request, CancellationToken cancellationToken)
+        {
+            if (Preparing is not null) await Preparing(request, cancellationToken);
+            var captured = await inner.BeginAsync(auth, binding, request, CancellationToken.None);
+            var operation = new Observation(this, captured, request, auth);
+            Operations.Add(operation);
+            return operation;
+        }
+        internal sealed class Observation(LifecycleObserver owner, IAccountDeviceRegistryObservation? inner,
+            AccountDeviceRegistryRequest kind, AccountDeviceAuthentication auth) : IAccountDeviceRegistryObservation
+        {
+            internal AccountDeviceRegistryRequest Kind { get; } = kind;
+            internal AccountDeviceAuthentication Authentication { get; } = auth;
+            internal readonly List<string> Events = [];
+            internal Exception? Failure;
+            internal int CompletionCalls;
+            internal bool Completed;
+            public void Listed(AccountDeviceRosterSnapshot snapshot)
+            { inner?.Listed(snapshot); Events.Add("listed"); owner.Listed?.Invoke(); }
+            public void Removed(AccountDeviceEntry target) { inner?.Removed(target); Events.Add("removed"); }
+            public void Rejected(CurrentPathSignalServerException error)
+            { inner?.Rejected(error); Events.Add("rejected"); owner.Rejected?.Invoke(); }
+            public async ValueTask CompleteAsync(Exception? failure)
+            {
+                CompletionCalls++; Failure = failure; Events.Add("completing");
+                if (inner is not null) await inner.CompleteAsync(failure);
+                if (owner.Completing is not null) await owner.Completing(this);
+                Completed = true; Events.Add("completed");
+            }
+        }
+    }
+    private static async Task RequestLifecycle()
+    {
+        await using var f = new Fixture(); var observer = new LifecycleObserver(f.Observer);
+        var client = new AccountDeviceRosterClient(f.Http, observer); var auth = f.Auth;
+        f.OnPresence = (count, _) => Task.FromResult(count == 1
+            ? Reply("{\"error\":\"device_not_registered\"}", HttpStatusCode.Forbidden) : Reply(Presence));
+        f.OnList = (count, _) => Task.FromResult(count == 1
+            ? Reply("{\"error\":\"device_not_registered\"}", HttpStatusCode.Forbidden) : Reply(f.Body()));
+        await client.RefreshAsync(auth, f.QueryBinding, Metadata, default);
+        await client.RemoveAsync(auth, f.QueryBinding, Entry(Peer(f.Binding)), default);
+        Require(observer.Operations.Select(o => o.Kind).SequenceEqual(new[] {
+            AccountDeviceRegistryRequest.Presence, AccountDeviceRegistryRequest.List,
+            AccountDeviceRegistryRequest.Registration, AccountDeviceRegistryRequest.Presence,
+            AccountDeviceRegistryRequest.List, AccountDeviceRegistryRequest.Removal }), "Observation ownership did not match actual HTTP requests.");
+        Require(observer.Operations.All(o => o.Completed && o.CompletionCalls == 1 && ReferenceEquals(o.Authentication, auth)),
+            "A request was left open, settled twice or rebound to another authentication.");
+        Require(observer.Operations.Take(2).All(o => o.Failure is CurrentPathSignalServerException && o.Events[0] == "rejected") &&
+            observer.Operations.Skip(2).All(o => o.Failure is null), "Recovery hid an earlier denial or mislabeled success.");
+        Require(observer.Operations[4].Events[0] == "listed" && observer.Operations[5].Events[0] == "removed", "Completion preceded the validated result.");
+    }
+    private static async Task PreparationFailure()
+    {
+        foreach (var kind in Enum.GetValues<AccountDeviceRegistryRequest>())
+        {
+            await using var f = new Fixture(); var expected = new IOException("synthetic prepare failure");
+            var observer = new LifecycleObserver(f.Observer) { Preparing = (request, _) => request == kind
+                ? Task.FromException(expected) : Task.CompletedTask };
+            var client = new AccountDeviceRosterClient(f.Http, observer);
+            if (kind == AccountDeviceRegistryRequest.Registration) f.Rows[0]["status"] = "pending";
+            var failure = await Throws<AccountDeviceRegistryObservationException>(() => kind == AccountDeviceRegistryRequest.Removal
+                ? client.RemoveAsync(f.Auth, f.QueryBinding, Entry(Peer(f.Binding)), default)
+                : client.RefreshAsync(f.Auth, f.QueryBinding, Metadata, default));
+            Require(failure.Stage == "preparation" && ReferenceEquals(failure.InnerException, expected), "Preparation failure was disguised.");
+            int sent = kind switch { AccountDeviceRegistryRequest.Presence => f.Presences,
+                AccountDeviceRegistryRequest.List => f.Lists, AccountDeviceRegistryRequest.Registration => f.Registrations, _ => f.Removals };
+            Require(sent == 0 && observer.Operations.All(o => o.Completed && o.CompletionCalls == 1),
+                "Failed preparation sent a request or abandoned an earlier observation.");
+        }
+    }
+    private static async Task PreparedCancellation()
+    {
+        await using var f = new Fixture(); using var canceled = new CancellationTokenSource();
+        var entered = Signal(); var release = Signal();
+        var observer = new LifecycleObserver(f.Observer) { Preparing = async (_, _) => { entered.SetResult(); await release.Task; } };
+        var client = new AccountDeviceRosterClient(f.Http, observer);
+        var pending = client.RefreshAsync(f.Auth, f.QueryBinding, Metadata, canceled.Token);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Require(f.Presences == 0 && !pending.IsCompleted, "HTTP began before observation preparation finished.");
+        canceled.Cancel(); release.SetResult();
+        var failure = await Throws<OperationCanceledException>(() => pending);
+        var operation = observer.Operations.Single();
+        Require(f.Presences == 0 && operation.Completed && operation.CompletionCalls == 1 && ReferenceEquals(operation.Failure, failure),
+            "A prepared but canceled operation lost ownership or sent HTTP.");
+    }
+    private static async Task CompletionBoundary()
+    {
+        await using var f = new Fixture(); using var inbox = new Inbox(f.Binding); var lease = await f.Lease(inbox);
+        using var canceled = new CancellationTokenSource(); var entered = Signal(); var release = Signal();
+        var observer = new LifecycleObserver(f.Observer) { Completing = async operation => {
+            if (operation.Kind == AccountDeviceRegistryRequest.Removal) { entered.SetResult(); await release.Task; }
+        } };
+        var client = new AccountDeviceRosterClient(f.Http, observer);
+        var pending = client.RemoveAsync(f.Auth, f.QueryBinding, Entry(Peer(f.Binding)), canceled.Token);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(2)); canceled.Cancel();
+        await Revoked(lease);
+        var operation = observer.Operations.Single();
+        Require(!pending.IsCompleted && operation.CompletionCalls == 1 && !operation.Completed && operation.Failure is null,
+            "Cancellation discarded a confirmed removal or completed its outstanding journal callback.");
+        release.SetResult(); await pending;
+        Require(operation.Completed && operation.Events.SequenceEqual(new[] { "removed", "completing", "completed" }),
+            "Confirmed removal was not settled once after completion.");
+    }
+    private static async Task FailedCompletion()
+    {
+        foreach (string kind in new[] { "transport", "unexpected", "malformed", "canceled" })
+        {
+            await using var f = new Fixture(); var observer = new LifecycleObserver(f.Observer);
+            using var canceled = new CancellationTokenSource();
+            f.OnPresence = (_, _) => kind switch {
+                "transport" => throw new HttpRequestException("synthetic network failure"),
+                "unexpected" => throw new InvalidOperationException("synthetic unexpected failure"),
+                "malformed" => Task.FromResult(Reply("{}")),
+                _ => Cancel()
+            };
+            Task<HttpResponseMessage> Cancel() { canceled.Cancel(); throw new OperationCanceledException(canceled.Token); }
+            var client = new AccountDeviceRosterClient(f.Http, observer);
+            var failure = await Throws<Exception>(() => client.RefreshAsync(f.Auth, f.QueryBinding, Metadata, canceled.Token));
+            var operation = observer.Operations.Single();
+            Require(operation.Completed && operation.CompletionCalls == 1 && ReferenceEquals(operation.Failure, failure) &&
+                operation.Events.SequenceEqual(new[] { "completing", "completed" }) && f.Lists == 0,
+                "Failed request was recorded as success, not settled, or allowed a later GET.");
+        }
+    }
+    private static async Task UnsettledCancellation()
+    {
+        await using var f = new Fixture(); using var canceled = new CancellationTokenSource();
+        var entered = Signal(); var release = Signal();
+        f.OnPresence = async (_, _) => { entered.SetResult(); await release.Task; throw new HttpRequestException("settled after UI cancellation"); };
+        var observer = new LifecycleObserver(f.Observer); var client = new AccountDeviceRosterClient(f.Http, observer);
+        var pending = client.RefreshAsync(f.Auth, f.QueryBinding, Metadata, canceled.Token);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(2)); canceled.Cancel();
+        Require(!pending.IsCompleted && observer.Operations.Single().CompletionCalls == 0, "Canceled UI waiter settled a still-running request.");
+        release.SetResult(); var failure = await Throws<Exception>(() => pending);
+        Require(observer.Operations.Single() is { Completed: true, CompletionCalls: 1 } completed && ReferenceEquals(completed.Failure, failure),
+            "Transport termination did not settle its captured observation.");
+    }
+    private static async Task CompletionFailures()
+    {
+        foreach (bool denied in new[] { false, true })
+        {
+            await using var f = new Fixture(); using var inbox = new Inbox(f.Binding); var lease = await f.Lease(inbox);
+            var notification = new InvalidOperationException("synthetic observer failure");
+            var commit = new IOException("synthetic completion failure");
+            var observer = new LifecycleObserver(f.Observer) { Completing = operation =>
+                operation.Kind == AccountDeviceRegistryRequest.List ? Task.FromException(commit) : Task.CompletedTask };
+            if (denied)
+            {
+                f.OnList = (_, _) => Task.FromResult(Reply("{\"error\":\"device_revoked\"}", HttpStatusCode.Forbidden));
+                observer.Rejected = () => throw notification;
+            }
+            else { f.Rows[1]["status"] = "frozen"; observer.Listed = () => throw notification; }
+            var client = new AccountDeviceRosterClient(f.Http, observer);
+            var failure = await Throws<AggregateException>(() => client.RefreshAsync(f.Auth, f.QueryBinding, Metadata, default));
+            await Revoked(lease);
+            var causes = failure.Flatten().InnerExceptions;
+            Require(causes.Count == (denied ? 3 : 2) && causes.Any(e => e is AccountDeviceRegistryObservationException { Stage: "result" or "rejection" } && ReferenceEquals(e.InnerException, notification)) &&
+                causes.Any(e => e is AccountDeviceRegistryObservationException { Stage: "completion" } && ReferenceEquals(e.InnerException, commit)) &&
+                (!denied || causes.Any(e => e is CurrentPathSignalServerException)), "Completion erased an original request or callback failure.");
+            var operation = observer.Operations.Last();
+            Require(operation.CompletionCalls == 1 && !operation.Completed && operation.Failure is not null && f.Registrations == 0,
+                "A failed completion was retried, reported as complete or triggered enrollment.");
+        }
+    }
+    private static async Task ObserverFailureOrigin()
+    {
+        foreach (string stage in new[] { "preparation", "result", "completion" })
+        {
+            await using var f = new Fixture(); var observer = new LifecycleObserver(f.Observer);
+            var expected = new CurrentPathSignalServerException("{\"error\":\"device_not_registered\"}", HttpStatusCode.Forbidden);
+            if (stage == "preparation") observer.Preparing = (_, _) => Task.FromException(expected);
+            if (stage == "result") observer.Listed = () => throw expected;
+            if (stage == "completion") observer.Completing = _ => Task.FromException(expected);
+            var client = new AccountDeviceRosterClient(f.Http, observer);
+            var failure = await Throws<AccountDeviceRegistryObservationException>(() => client.RefreshAsync(f.Auth, f.QueryBinding, Metadata, default));
+            Require(failure.Stage == stage && ReferenceEquals(failure.InnerException, expected) && f.Registrations == 0 &&
+                observer.Operations.All(o => !o.Events.Contains("rejected")), "A local observer failure was treated as server enrollment denial.");
+        }
     }
     private static async Task Shutdown()
     {
