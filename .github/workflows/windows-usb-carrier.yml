@@ -1,0 +1,42 @@
+name: Windows Apple USB Carrier Qualification
+
+on:
+  push:
+    paths:
+      - windows/Skybridge.AppleUsbCarrierProbe/*.cs
+      - windows/Skybridge.AppleUsbCarrierProbe/*.csproj
+      - Scripts/verify-apple-usb-carrier.ps1
+      - .github/workflows/windows-usb-carrier.yml
+      - global.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-carrier-contract:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+      - name: Pin GitHub remote to SSH
+        shell: pwsh
+        run: |
+          git remote set-url origin git@github.com:billlza/Skybridge-Compass-Windows.git
+          git remote set-url --push origin git@github.com:billlza/Skybridge-Compass-Windows.git
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Verify and package isolated carrier
+        shell: pwsh
+        run: ./Scripts/verify-apple-usb-carrier.ps1 -PublishWindows
+      - name: Preserve qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: windows-apple-usb-carrier-${{ github.sha }}
+          path: artifacts/apple-usb-carrier
+          if-no-files-found: error
+          retention-days: 7
