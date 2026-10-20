@@ -212,6 +212,8 @@ internal sealed class AccountDevicesCoordinator : INotifyPropertyChanged, IAsync
         CurrentPathSignalServerException e when e.StatusCode == HttpStatusCode.TooManyRequests => "AccountDevicesRateLimited",
         CurrentPathSignalServerException => "AccountDevicesServiceError",
         HttpRequestException or OperationCanceledException => "AccountDevicesNetworkError",
+        AccountDeviceRegistryObservationException { Stage: "result", InnerException: InvalidDataException or System.Text.Json.JsonException }
+            => "AccountDevicesInvalidResponse",
         InvalidDataException or System.Text.Json.JsonException => "AccountDevicesInvalidResponse",
         _ => "AccountDevicesLocalError"
     };

@@ -218,6 +218,10 @@ internal static class AudioAccountRegistryTests
         var failed = await Throws<AccountDeviceRegistryObservationException>(() => f.Refresh());
         Require(failed.Stage == "result" && failed.InnerException is InvalidDataException,
             "Invalid audio observation was confused with an HTTP response.");
+        await using var page = new AccountDevicesCoordinator(f.Roster, _ => Task.FromResult<AccountDeviceAuthentication?>(f.Auth),
+            _ => Task.FromResult(f.QueryBinding), _ => Task.FromResult(Metadata), key => key);
+        page.SetAccount(f.Auth.Scope); await page.RefreshOnceAsync(default);
+        Require(page.Status == "AccountDevicesInvalidResponse", "The result boundary lost the device page's invalid-response explanation.");
     }
 
     // Exercises the real roster HTTP/parse/callback order. This recorder is not
