@@ -50,6 +50,7 @@ public sealed class StatusKeyToLocalizedConverter : IValueConverter
         new(StringComparer.Ordinal)
         {
             ["SkyBridge paired; not connected"] = "Status.UsbPaired",
+            ["SkyBridge securely connected"] = "Status.UsbConnected",
             ["SkyBridge found; pairing required"] = "Status.UsbUnpaired",
             ["SkyBridge identity differs from saved pairing"] = "Status.UsbIdentityConflict",
             ["SkyBridge found; saved pairing could not be read"] = "Status.UsbPairingUnavailable",
@@ -102,6 +103,7 @@ public sealed class StatusKeyToLocalizedConverter : IValueConverter
         new(StringComparer.Ordinal)
         {
             ["Status.UsbPaired"] = new() { ["en"] = "SkyBridge paired; not connected", ["zh"] = "SkyBridge 已配对，尚未连接", ["ja"] = "SkyBridge はペアリング済み・未接続" },
+            ["Status.UsbConnected"] = new() { ["en"] = "SkyBridge securely connected", ["zh"] = "SkyBridge 已安全连接", ["ja"] = "SkyBridge に安全に接続済み" },
             ["Status.UsbUnpaired"] = new() { ["en"] = "SkyBridge found; pairing required", ["zh"] = "已发现 SkyBridge，需要配对", ["ja"] = "SkyBridge を検出しました。ペアリングが必要です" },
             ["Status.UsbIdentityConflict"] = new() { ["en"] = "SkyBridge identity differs from saved pairing", ["zh"] = "设备身份与已保存的配对记录不一致", ["ja"] = "デバイスの識別情報が保存済みのペアリングと一致しません" },
             ["Status.UsbPairingUnavailable"] = new() { ["en"] = "SkyBridge found; saved pairing could not be read", ["zh"] = "已识别 SkyBridge，但无法读取配对记录", ["ja"] = "SkyBridge を検出しましたが、保存済みのペアリングを読み取れません" },

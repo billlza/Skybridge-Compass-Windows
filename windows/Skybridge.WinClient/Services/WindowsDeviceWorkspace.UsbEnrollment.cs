@@ -17,6 +17,7 @@ internal sealed partial class WindowsDeviceWorkspace
         ILanPibApprovalPresenter approval, CancellationToken token, UsbMuxConnector? connector = null)
     {
         ArgumentNullException.ThrowIfNull(approval);
+        ArgumentNullException.ThrowIfNull(authentication);
         return RunUsbBootstrapAsync(selected, authentication, account, createIdentity: true, allowOffline: false,
             (current, identity, carrier, requireCurrent, lifetime) =>
                 identity.CreatePibInitiator(approval, requireCurrent).PairUsbAsync(current,
@@ -26,7 +27,7 @@ internal sealed partial class WindowsDeviceWorkspace
     }
 
     internal Task<SignedKemRefreshLease> RefreshUsbPeerKeysAsync(UsbPeerInspection selected,
-        AccountDeviceAuthentication authentication, AccountAudioAuthorization account,
+        AccountDeviceAuthentication? authentication, AccountAudioAuthorization account,
         CancellationToken token, UsbMuxConnector? connector = null) =>
         RunUsbBootstrapAsync(selected, authentication, account, createIdentity: false, allowOffline: true,
             (current, identity, carrier, requireCurrent, lifetime) =>
@@ -37,26 +38,25 @@ internal sealed partial class WindowsDeviceWorkspace
                         request, LanBootstrapWire.MaximumBytes, stage), lifetime), token, connector);
 
     private async Task<T> RunUsbBootstrapAsync<T>(UsbPeerInspection selected,
-        AccountDeviceAuthentication authentication, AccountAudioAuthorization account, bool createIdentity, bool allowOffline,
+        AccountDeviceAuthentication? authentication, AccountAudioAuthorization account, bool createIdentity, bool allowOffline,
         Func<UsbPeerInspection, RemoteControlIdentityStore, UsbMuxConnector, Action, CancellationToken, Task<T>> operation,
         CancellationToken token, UsbMuxConnector? connector)
     {
-        ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(authentication);
+        ArgumentNullException.ThrowIfNull(selected);
         ArgumentNullException.ThrowIfNull(account);
         var workspaceLifetime = _usbBootstrapLifetime.Token;
         using var scope = CancellationTokenSource.CreateLinkedTokenSource(token, workspaceLifetime);
+        AudioDeviceIdentity? localForRecovery = null;
+        var peerForRecovery = UsbAudioIdentity(selected.Response.Identity.DeviceID, selected.Response.Identity.PublicKey.ToArray());
         void RequireCurrent()
         {
             // A returned public-key lease may outlive this method's linked source.
             // Retain the original cancellation tokens, not a disposed linkage.
             token.ThrowIfCancellationRequested(); workspaceLifetime.ThrowIfCancellationRequested();
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (account.IsOffline && !allowOffline)
-                throw new InvalidOperationException("Verify this account online before pairing a new USB device.");
-            account.RequireAuthentication(authentication);
-            if (!SessionJwtValidator.TryValidate(authentication.AccessToken, authentication.Authority,
-                    authentication.Subject, requireUnexpired: !account.IsOffline, out _, out _))
-                throw new InvalidOperationException("The account credential expired or changed during USB bootstrap.");
+            RequireUsbAccount(authentication, account, allowOffline);
+            if (localForRecovery is not null && !IsUsbAudioRouteCurrent(account, localForRecovery, peerForRecovery))
+                throw new AudioMembershipException(AudioMembershipFailure.IdentityChanged);
         }
         RequireCurrent();
         if (!await _usbBootstrap.WaitAsync(0, scope.Token).ConfigureAwait(false))
@@ -86,6 +86,9 @@ internal sealed partial class WindowsDeviceWorkspace
                     ? await RemoteControlIdentityStore.LoadOrCreateAsync(_stateDirectory, _displayName, scope.Token).ConfigureAwait(false)
                     : await RemoteControlIdentityStore.LoadExistingAsync(_stateDirectory, _displayName, scope.Token).ConfigureAwait(false);
                 identity = _identity;
+                var local = identity.PublicMaterial;
+                localForRecovery = UsbAudioIdentity(local.DeviceId, local.ProtocolPublicKey.ToArray());
+                RequireCurrent();
             }
             finally { _operations.Release(); }
             return await operation(current, identity, carrier, RequireCurrent, scope.Token).ConfigureAwait(false);
@@ -99,6 +102,34 @@ internal sealed partial class WindowsDeviceWorkspace
             throw;
         }
         finally { _usbBootstrap.Release(); }
+    }
+
+    private static AudioDeviceIdentity UsbAudioIdentity(string deviceId, byte[] publicKey) =>
+        AudioDeviceIdentity.FromRegistryBinding(new CurrentPathProtocolIdentityBinding(
+            deviceId, CurrentPathProtocolSigningAlgorithm.MLDsa65, publicKey));
+
+    // This limits the control route to the same saved device pair. Playback still
+    // restores the protected checkpoint against actual MAIN identities separately.
+    private static bool IsUsbAudioRouteCurrent(AccountAudioAuthorization account, AudioDeviceIdentity local, AudioDeviceIdentity peer) =>
+        account.IsCurrent && (!account.IsOffline || account.Recovery is { } recovery &&
+            recovery.Scope == account.Scope && recovery.Find(local, peer) is not null);
+
+    // A missing bearer is legal only for an existing bounded offline audio
+    // publication. This never creates ordinary account-request authentication.
+    private static void RequireUsbAccount(AccountDeviceAuthentication? authentication, AccountAudioAuthorization account, bool allowOffline)
+    {
+        account.RequireCurrent();
+        if (account.IsOffline)
+        {
+            if (!allowOffline) throw new InvalidOperationException("Verify this account online before pairing a new USB device.");
+            if (authentication is not null) account.RequireAuthentication(authentication);
+            return;
+        }
+        if (authentication is null) throw new InvalidOperationException("Online USB access requires current account authentication.");
+        account.RequireAuthentication(authentication);
+        if (!SessionJwtValidator.TryValidate(authentication.AccessToken, authentication.Authority, authentication.Subject,
+                requireUnexpired: true, out _, out _))
+            throw new InvalidOperationException("The account credential expired or changed during USB bootstrap.");
     }
 
     private async Task StopUsbBootstrapAsync()

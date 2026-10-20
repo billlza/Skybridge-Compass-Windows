@@ -74,7 +74,8 @@ internal static partial class AudioObservationJournalTests
             var lease = await f.Provider.LeaseAsync(new Inbox(f.Binding), default);
             f.Clock.Now = rollback ? initial with { ContinuousMilliseconds = initial.ContinuousMilliseconds - 1 }
                 : lease.Evidence.Expires;
-            await Throws<InvalidOperationException>(() => Task.Run(lease.RequireCurrent));
+            var ended = await Throws<AudioMembershipException>(() => Task.Run(lease.RequireCurrent));
+            Require(ended.Reason == AudioMembershipFailure.Revoked, "Expired recovery lost its typed authorization cause.");
             Require(!epoch.IsCurrent && f.Owner.ReadAudioReceiverAccount() is null,
                 "Expired or clock-regressed recovery remained visible as available.");
             f.Clock.Now = initial;
@@ -164,7 +165,8 @@ internal static partial class AudioObservationJournalTests
             }
             Require(!epoch.IsCurrent && f.Owner.ReadAudioReceiverAccount() is null && f.Storage.Load().AudioState is null,
                 "Hard credential failure or signout retained offline authority.");
-            await Throws<InvalidOperationException>(() => Task.Run(lease.RequireCurrent));
+            var ended = await Throws<AudioMembershipException>(() => Task.Run(lease.RequireCurrent));
+            Require(ended.Reason == AudioMembershipFailure.Revoked, "Account retirement lost its typed authorization cause.");
         }
     }
 

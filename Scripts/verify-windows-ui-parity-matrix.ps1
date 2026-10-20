@@ -566,19 +566,26 @@ foreach ($entry in @(
     }
     [void]$control.ParentNode.RemoveChild($control)
 }
-# USB enrollment is a per-device action on a verified discovery record, not a
-# workspace navigation action. Verify its exact owner and eligibility binding.
-$usbPairControls = @($actionTemplateDocument.SelectNodes("//*[local-name()='Button']") | Where-Object {
-    $_.GetAttribute("AutomationProperties.AutomationId") -eq "Skybridge.Usb.Pair"
-})
-Assert-True ($usbPairControls.Count -eq 1) "USB enrollment must expose exactly one device-template action."
-$usbPair = $usbPairControls[0]
-Assert-True ($usbPair.GetAttribute("Click") -eq "OnUsbPairClicked") "USB pairing must use the owned window transaction."
-Assert-True ($usbPair.GetAttribute("Visibility") -eq "{Binding CanPairSkybridge, Converter={StaticResource BoolVisibilityConverter}}") "USB pairing must require an eligible verified peer."
-Assert-True ($usbPair.GetAttribute("Uid", "http://schemas.microsoft.com/winfx/2006/xaml") -eq "UsbPairDeviceButton") "USB pairing must use localized copy."
-$usbPairOwner = $usbPair.SelectSingleNode("ancestor::*[local-name()='DataTemplate']")
-Assert-True ($null -ne $usbPairOwner -and $usbPairOwner.GetAttribute("Key", "http://schemas.microsoft.com/winfx/2006/xaml") -eq "UsbDeviceItemTemplate") "USB pairing escaped its device card."
-[void]$usbPair.ParentNode.RemoveChild($usbPair)
+# USB commands belong to their verified device card, with distinct trust,
+# connection and actual installed audio-receiver eligibility.
+foreach ($usbCommand in @(
+    @{ Id = 'Pair'; Handler = 'OnUsbPairClicked'; Eligibility = 'CanPairSkybridge'; Uid = 'UsbPairDeviceButton' },
+    @{ Id = 'Connect'; Handler = 'OnUsbConnectClicked'; Eligibility = 'CanConnectSkybridge'; Uid = 'UsbConnectDeviceButton' },
+    @{ Id = 'ReceiveAudio'; Handler = 'OnUsbReceiveAudioClicked'; Eligibility = 'CanReceiveSkybridgeAudio'; Uid = 'UsbReceiveAudioButton' }
+)) {
+    $controls = @($actionTemplateDocument.SelectNodes("//*[local-name()='AppBarButton']") | Where-Object {
+        $_.GetAttribute("AutomationProperties.AutomationId") -eq "Skybridge.Usb.$($usbCommand.Id)"
+    })
+    Assert-True ($controls.Count -eq 1) "USB $($usbCommand.Id) must expose exactly one device-template command."
+    $control = $controls[0]
+    Assert-True ($control.GetAttribute('Click') -eq $usbCommand.Handler) "USB $($usbCommand.Id) lost its owned handler."
+    Assert-True ($control.GetAttribute('Visibility') -eq "{Binding $($usbCommand.Eligibility), Converter={StaticResource BoolVisibilityConverter}}") "USB $($usbCommand.Id) lost its exact eligibility binding."
+    Assert-True ($control.GetAttribute('Uid', 'http://schemas.microsoft.com/winfx/2006/xaml') -eq $usbCommand.Uid) "USB $($usbCommand.Id) must use localized copy."
+    $owner = $control.SelectSingleNode("ancestor::*[local-name()='DataTemplate']")
+    Assert-True ($null -ne $owner -and $owner.GetAttribute('Key', 'http://schemas.microsoft.com/winfx/2006/xaml') -eq 'UsbDeviceItemTemplate') "USB $($usbCommand.Id) escaped its device card."
+    Assert-True ($control.ParentNode.LocalName -eq 'CommandBar') "USB commands must use the native device command bar."
+    [void]$control.ParentNode.RemoveChild($control)
+}
 # The existing audio QR retry is owned by its failure notice, not a free-form
 # workspace action. Keep this admission specific to the real recovery handler.
 $qrRetryControls = @($actionTemplateDocument.SelectNodes("//*[local-name()='Button']") | Where-Object {

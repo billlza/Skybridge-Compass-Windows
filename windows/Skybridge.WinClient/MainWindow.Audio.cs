@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Automation;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.Services.Audio;
 using Skybridge.WinClient.Services.RemoteControl;
+using Skybridge.WinClient.ViewModels;
 
 namespace Skybridge.WinClient;
 
@@ -33,6 +34,8 @@ public sealed partial class MainWindow
         _remoteControlWorkspace.ConfigureAudioReception(_audioReceiveHost);
         AutomationProperties.SetName(AudioOutputPicker, RemoteControlText("AudioReceiveOutputLabel"));
         AutomationProperties.SetName(AudioNetworkPicker, RemoteControlText("AudioReceiveNetworkLabel"));
+        AudioNetworkPicker.Items.Add(new ComboBoxItem { Content = RemoteControlText("AudioReceiveConnectedOnly") });
+        AudioNetworkPicker.SelectedIndex = 0;
         ConfigureAudioConnectionQr();
         _audioStatusTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
         _audioStatusTimer.Tick += OnAudioStatusTick; _audioStatusTimer.Start();
@@ -40,7 +43,8 @@ public sealed partial class MainWindow
     }
     private async void OnAudioStatusTick(object? sender, object args)
     {
-        ObserveUsbPairingAuthorization();
+        ObserveUsbDeviceAuthorization();
+        ViewModel.UpdateUsbConnections(_remoteControlWorkspace.ReadConnectedUsbPeers());
         if (!_audioChanging && !_hostShutdownInProgress && _audioListenerEpoch is { IsCurrent: false })
         {
             _audioUiOperation = StopRevokedAudioAsync();
@@ -75,7 +79,8 @@ public sealed partial class MainWindow
         AudioOutputRefresh.IsEnabled = AudioOutputPicker.IsEnabled && _audioCatalogUnreleased is null;
         AudioReceiveStart.IsEnabled = AudioOutputPicker.IsEnabled && _audioCatalogUnreleased is null && receiverAccount is not null &&
             AudioOutputPicker.SelectedItem is ComboBoxItem { Tag: AudioOutputEndpoint } &&
-            AudioNetworkPicker.SelectedItem is ComboBoxItem { Tag: RemoteControlNetworkInterface };
+            (AudioNetworkPicker.SelectedItem is ComboBoxItem { Tag: RemoteControlNetworkInterface } ||
+             AudioNetworkPicker.SelectedItem is ComboBoxItem { Tag: null } && state.ConnectedDevices > 0);
         AudioReceiveStop.IsEnabled = !_audioChanging && (state.Enabled || state.Stopping || state.Phase is not null || _remoteControlWorkspace.HasIncomingMain);
         AudioConnectionCopy.IsEnabled = !_audioChanging && CanPublishAudioConnectionQr();
         UpdateAudioConnectionQr();
@@ -158,7 +163,11 @@ public sealed partial class MainWindow
             _audioNetworksTask = WindowsDeviceWorkspace.OperatorNetworkInterfacesAsync(_audioCatalogCancellation.Token);
             var networks = await _audioNetworksTask;
             var selectedNetwork = (AudioNetworkPicker.SelectedItem as ComboBoxItem)?.Tag as RemoteControlNetworkInterface;
+            bool connectedOnly = AudioNetworkPicker.SelectedItem is ComboBoxItem { Tag: null };
             AudioNetworkPicker.Items.Clear();
+            var existingConnections = new ComboBoxItem { Content = RemoteControlText("AudioReceiveConnectedOnly") };
+            AudioNetworkPicker.Items.Add(existingConnections);
+            if (connectedOnly) AudioNetworkPicker.SelectedItem = existingConnections;
             foreach (var network in networks)
             {
                 var item = new ComboBoxItem { Content = network.DisplayName, Tag = network };
@@ -174,7 +183,8 @@ public sealed partial class MainWindow
                 if (endpoint.EndpointId == selected) AudioOutputPicker.SelectedItem = item;
             }
             if (outputs.Count == 0) _audioUiError = RemoteControlText("AudioReceiveNoOutputs");
-            else if (networks.Count == 0) _audioUiError = RemoteControlText("AudioReceiveNoNetworks");
+            else if (networks.Count == 0 && _audioReceiveHost?.ReadSnapshot().ConnectedDevices == 0)
+                _audioUiError = RemoteControlText("AudioReceiveNoNetworks");
             _audioCatalogObservedFailure = null;
         }
         catch (Exception error)
@@ -212,11 +222,42 @@ public sealed partial class MainWindow
         _audioUiOperation = StartAudioInputsAsync();
         await _audioUiOperation;
     }
+    private async void OnUsbReceiveAudioClicked(object sender, RoutedEventArgs args)
+    {
+        if (_hostShutdownInProgress || _audioChanging || sender is not FrameworkElement
+            { DataContext: UsbDeviceItemView { CanReceiveSkybridgeAudio: true } item }) return;
+        // Recheck the live MAIN owner; a row saved before unplugging is not authority.
+        if (!_remoteControlWorkspace.ReadConnectedUsbPeers().Any(peer => peer.AudioReceiverInstalled &&
+            peer.Route.Udid == item.SkybridgeUdid && peer.Route.Fingerprint == item.SkybridgeFingerprint &&
+            peer.Route.PeerDeviceId == item.SkybridgeDeviceId))
+        {
+            ViewModel.UpdateUsbConnections(_remoteControlWorkspace.ReadConnectedUsbPeers());
+            ViewModel.ReportUsbManagementStatus(RemoteControlText("UsbConnectEnded"));
+            return;
+        }
+        ViewModel.SelectedFeature = ViewModel.NavigationItems.Single(feature => feature.Id == FeatureEntryId.DeviceDiscovery);
+        AudioReceivePanel.IsExpanded = true;
+        _audioUiOperation = OpenUsbAudioControlsAsync();
+        await _audioUiOperation;
+    }
+    private async Task OpenUsbAudioControlsAsync()
+    {
+        if (AudioOutputPicker.Items.Count == 0 && AudioOutputRefresh.IsEnabled) await RefreshAudioDevicesAsync();
+        if (_hostShutdownInProgress) return;
+        if (AudioNetworkPicker.IsEnabled) AudioNetworkPicker.SelectedIndex = 0;
+        AudioReceivePanel.UpdateLayout();
+        AudioReceivePanel.StartBringIntoView();
+        AudioOutputPicker.Focus(FocusState.Programmatic);
+        UpdateAudioStatus();
+    }
     private async Task StartAudioInputsAsync()
     {
         if (_audioChanging || _hostShutdownInProgress || _audioReceiveHost is null ||
             AudioOutputPicker.SelectedItem is not ComboBoxItem { Tag: AudioOutputEndpoint output } ||
-            AudioNetworkPicker.SelectedItem is not ComboBoxItem { Tag: RemoteControlNetworkInterface network }) return;
+            AudioNetworkPicker.SelectedItem is not ComboBoxItem selection ||
+            selection.Tag is not (null or RemoteControlNetworkInterface)) return;
+        var network = selection.Tag as RemoteControlNetworkInterface;
+        if (network is null && _audioReceiveHost.ReadSnapshot().ConnectedDevices == 0) return;
         _audioChanging = true; _audioUiError = null; UpdateAudioStatus();
         try
         {
@@ -226,14 +267,20 @@ public sealed partial class MainWindow
             var epoch = receiver.Authorization;
             epoch.RequireCurrent(); _audioListenerEpoch = epoch;
             await _audioReceiveHost.EnableAsync(output.EndpointId, CancellationToken.None);
-            try { await _remoteControlWorkspace.StartIncomingMainAsync(network, account, epoch, new NativePairingApproval(this), CancellationToken.None); }
+            try
+            {
+                if (network is not null)
+                    await _remoteControlWorkspace.StartIncomingMainAsync(network, account, epoch, new NativePairingApproval(this), CancellationToken.None);
+                epoch.RequireCurrent();
+            }
             catch (Exception startFailure)
             {
                 try { await StopAudioInputsAsync(); }
                 catch (Exception cleanup) { throw new AggregateException("Audio reception start and cleanup failed.", startFailure, cleanup); }
                 throw;
             }
-            await RenderAudioConnectionQrAsync();
+            if (network is not null) await RenderAudioConnectionQrAsync();
+            else ClearAudioConnectionQr();
         }
         catch (Exception error) { _audioUiError = AudioFailureText(error); WindowsRuntimeLog.Write(WindowsLogLevel.Error, "AudioReception", error.GetType().Name); }
         finally { _audioChanging = false; UpdateAudioStatus(); }

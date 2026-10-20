@@ -299,10 +299,18 @@ public sealed record UsbDeviceItemView(
     bool IsMfiCertified,
     string? SkybridgeStatus = null,
     string? SkybridgeUdid = null,
-    string? SkybridgeFingerprint = null)
+    string? SkybridgeFingerprint = null,
+    string? SkybridgeDeviceId = null,
+    bool IsSkybridgeConnected = false,
+    bool HasSkybridgeAudioReceiver = false)
 {
     public bool HasCapabilities => Capabilities.Count > 0;
-    public bool CanPairSkybridge => SkybridgeUdid is not null && SkybridgeFingerprint is not null;
+    private bool HasSkybridgeIdentity => SkybridgeUdid is not null && SkybridgeFingerprint is not null && SkybridgeDeviceId is not null;
+    public bool CanPairSkybridge => HasSkybridgeIdentity && !IsSkybridgeConnected && SkybridgeStatus == Services.Connection.UsbPeerScanner.Unpaired;
+    public bool CanConnectSkybridge => HasSkybridgeIdentity && !IsSkybridgeConnected && SkybridgeStatus == Services.Connection.UsbPeerScanner.Paired;
+    public bool CanReceiveSkybridgeAudio => HasSkybridgeIdentity && IsSkybridgeConnected && HasSkybridgeAudioReceiver;
+    public bool HasSkybridgeActions => CanPairSkybridge || CanConnectSkybridge || CanReceiveSkybridgeAudio;
+    public string? SkybridgeDisplayStatus => IsSkybridgeConnected ? "SkyBridge securely connected" : SkybridgeStatus;
 
     public static UsbDeviceItemView FromItem(UsbDeviceItem item) =>
         new(
@@ -318,7 +326,8 @@ public sealed record UsbDeviceItemView(
             item.IsMfiCertified,
             item.SkybridgeStatus,
             item.SkybridgeUdid,
-            item.SkybridgeFingerprint);
+            item.SkybridgeFingerprint,
+            item.SkybridgeDeviceId);
 }
 
 public sealed record SystemMonitorMetricView(

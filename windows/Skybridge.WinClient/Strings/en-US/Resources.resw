@@ -2055,7 +2055,7 @@
   <data name="UsbLabel.TotalDevices" xml:space="preserve"><value>Total Devices</value></data>
   <data name="UsbLabel.AppleDevice" xml:space="preserve"><value>Apple device</value></data>
   <data name="UsbLabel.AppleDetail" xml:space="preserve"><value>Connected Apple USB devices</value></data>
-  <data name="UsbPairDeviceButton.Content" xml:space="preserve"><value>Pair device</value></data>
+  <data name="UsbPairDeviceButton.Label" xml:space="preserve"><value>Pair device</value></data>
   <data name="UsbPairSignIn" xml:space="preserve"><value>Sign in to pair this USB device.</value></data>
   <data name="UsbPairPending" xml:space="preserve"><value>Pairing… Compare the code on both devices.</value></data>
   <data name="UsbPairSaved" xml:space="preserve"><value>Pairing saved. The device is not connected yet.</value></data>
@@ -2065,4 +2065,15 @@
   <data name="UsbPairTimedOut" xml:space="preserve"><value>Pairing timed out. Keep SkyBridge open on both devices, then refresh and try again.</value></data>
   <data name="UsbPairFailed" xml:space="preserve"><value>Pairing could not complete. Check the account and peer device, then refresh before trying again.</value></data>
   <data name="UsbPairCleanupFailed" xml:space="preserve"><value>Pairing could not stop cleanly. Further pairing is unavailable until the operation is released.</value></data>
+  <data name="UsbConnectDeviceButton.Label" xml:space="preserve"><value>Connect</value></data>
+  <data name="UsbReceiveAudioButton.Label" xml:space="preserve"><value>Receive audio</value></data>
+  <data name="Status.UsbConnected" xml:space="preserve"><value>SkyBridge securely connected</value></data>
+  <data name="UsbConnectSignIn" xml:space="preserve"><value>Sign in or restore an existing offline audio authorization to connect this USB device.</value></data>
+  <data name="UsbConnectPending" xml:space="preserve"><value>Connecting securely… Keep SkyBridge open on the connected device.</value></data>
+  <data name="UsbConnectReady" xml:space="preserve"><value>Secure connection established. Choose Receive audio to select an output and enable reception.</value></data>
+  <data name="UsbConnectCanceled" xml:space="preserve"><value>Connection canceled.</value></data>
+  <data name="UsbConnectFailed" xml:space="preserve"><value>Could not complete the USB connection. Check the account and keep SkyBridge open on the peer, then refresh devices.</value></data>
+  <data name="UsbConnectEnded" xml:space="preserve"><value>The USB connection has ended. Reconnect the device before receiving audio.</value></data>
+  <data name="UsbDeviceCleanupFailed" xml:space="preserve"><value>The USB operation could not release its resources. Further USB actions are unavailable until release is confirmed.</value></data>
+  <data name="AudioReceiveConnectedOnly" xml:space="preserve"><value>Use connected devices only</value></data>
 </root>

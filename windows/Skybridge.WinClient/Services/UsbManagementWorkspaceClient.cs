@@ -50,7 +50,7 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
     private volatile bool _disposed;
     private Exception? _cancellationFailure;
     private readonly object _candidateGate = new();
-    private Dictionary<string, UsbPeerInspection> _enrollmentCandidates = new(StringComparer.Ordinal);
+    private Dictionary<string, UsbPeerScanEntry> _peerCandidates = new(StringComparer.Ordinal);
     public UsbManagementWorkspaceClient() { }
     internal UsbManagementWorkspaceClient(Func<UsbPeerInspection, CancellationToken, Task<UsbPeerPairingState>> pairing)
     { _pairing = pairing; }
@@ -73,15 +73,22 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
     public static string BuildDefaultCompletedStatus(UsbManagementWorkspaceSnapshot snapshot) =>
         snapshot.SkybridgeFailureStatus ?? $"Last scan {snapshot.CapturedAt:HH:mm:ss} UTC";
 
-    internal UsbPeerInspection RequireEnrollmentTarget(string udid, string expectedFingerprint)
+    internal UsbPeerInspection RequireEnrollmentTarget(string udid, string expectedFingerprint, string expectedDeviceId) =>
+        RequireTarget(udid, expectedFingerprint, expectedDeviceId, UsbPeerScanner.Unpaired);
+
+    internal UsbPeerInspection RequireConnectionTarget(string udid, string expectedFingerprint, string expectedDeviceId) =>
+        RequireTarget(udid, expectedFingerprint, expectedDeviceId, UsbPeerScanner.Paired);
+
+    private UsbPeerInspection RequireTarget(string udid, string expectedFingerprint, string expectedDeviceId, string requiredState)
     {
         lock (_candidateGate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             _lifetime.Token.ThrowIfCancellationRequested();
-            if (!_enrollmentCandidates.TryGetValue(udid, out var target) ||
-                target.Response.Identity.Fingerprint != expectedFingerprint)
-                throw new InvalidOperationException("Refresh USB devices before pairing this identity.");
+            if (!_peerCandidates.TryGetValue(udid, out var candidate) || candidate.Status != requiredState ||
+                candidate.Inspection is not { } target || target.Response.Identity.Fingerprint != expectedFingerprint ||
+                RemoteControlHandshakeBinding.CanonicalDeviceId(target.Response.Identity.DeviceID) != expectedDeviceId)
+                throw new InvalidOperationException("Refresh USB devices before using this identity.");
             return target;
         }
     }
@@ -129,9 +136,8 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
         var report = await _peers.ScanAsync(token).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
         var candidates = report.Entries
-            .Where(entry => entry.Status == UsbPeerScanner.Unpaired && entry.Failure is null && entry.Inspection is not null)
-            .ToDictionary(entry => entry.Device.Udid, entry => entry.Inspection
-                ?? throw new InvalidOperationException("An eligible USB peer lost its verified inspection."), StringComparer.Ordinal);
+            .Where(entry => (entry.Status is UsbPeerScanner.Unpaired or UsbPeerScanner.Paired) && entry.Failure is null && entry.Inspection is not null)
+            .ToDictionary(entry => entry.Device.Udid, entry => entry, StringComparer.Ordinal);
         var items = devices.Select(d => d.ToItem()).ToList();
         foreach (var entry in report.Entries)
         {
@@ -142,6 +148,8 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
                 pair.item.SerialNumber.Replace("-", "", StringComparison.Ordinal).Equals(
                     entry.Device.Udid.Replace("-", "", StringComparison.Ordinal), StringComparison.OrdinalIgnoreCase)).ToArray();
             var name = entry.Inspection?.Response.Name;
+            var verified = candidates.TryGetValue(entry.Device.Udid, out var candidate) ? candidate.Inspection : null;
+            string? protocolId = verified is null ? null : RemoteControlHandshakeBinding.CanonicalDeviceId(verified.Response.Identity.DeviceID);
             if (string.IsNullOrWhiteSpace(name)) name = null; // Presentation only; signed identity is retained unchanged.
             if (matches.Length == 1)
             {
@@ -149,9 +157,9 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
                 items[match.index] = match.item with
                 {
                     Name = name ?? match.item.Name, SkybridgeStatus = entry.Status, IsMfiCertified = false,
-                    SkybridgeUdid = candidates.ContainsKey(entry.Device.Udid) ? entry.Device.Udid : null,
-                    SkybridgeFingerprint = candidates.TryGetValue(entry.Device.Udid, out var verified)
-                        ? verified.Response.Identity.Fingerprint : null
+                    SkybridgeUdid = verified is null ? null : entry.Device.Udid,
+                    SkybridgeFingerprint = verified?.Response.Identity.Fingerprint,
+                    SkybridgeDeviceId = protocolId
                 };
             }
             else
@@ -161,8 +169,7 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
                 items.Add(new(name ?? "Apple", "usb:" + entry.Device.Udid, "Apple device",
                     "0x05AC", $"0x{entry.Device.ProductId:X4}", entry.Device.Udid, "USB",
                     ["USB"], "appleMfi", false, entry.Status,
-                    candidates.ContainsKey(entry.Device.Udid) ? entry.Device.Udid : null,
-                    candidates.TryGetValue(entry.Device.Udid, out var verified) ? verified.Response.Identity.Fingerprint : null));
+                    verified is null ? null : entry.Device.Udid, verified?.Response.Identity.Fingerprint, protocolId));
             }
         }
         if (report.Failure is { } serviceFailure)
@@ -181,7 +188,7 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
         };
 
         token.ThrowIfCancellationRequested();
-        lock (_candidateGate) _enrollmentCandidates = candidates;
+        lock (_candidateGate) _peerCandidates = candidates;
         return new UsbManagementWorkspaceSnapshot(
             DateTimeOffset.UtcNow,
             stats,
@@ -207,7 +214,7 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
                     if (_peers is not null) await _peers.DisposeAsync().ConfigureAwait(false);
                     lock (_candidateGate)
                     {
-                        _enrollmentCandidates.Clear(); _disposed = true; _lifetime.Dispose();
+                        _peerCandidates.Clear(); _disposed = true; _lifetime.Dispose();
                     }
                 }
                 finally { _refresh.Release(); }
@@ -578,4 +585,5 @@ public sealed record UsbDeviceItem(
     bool IsMfiCertified,
     string? SkybridgeStatus = null,
     string? SkybridgeUdid = null,
-    string? SkybridgeFingerprint = null);
+    string? SkybridgeFingerprint = null,
+    string? SkybridgeDeviceId = null);

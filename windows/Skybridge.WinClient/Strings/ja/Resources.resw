@@ -2010,7 +2010,7 @@
   <data name="UsbLabel.TotalDevices" xml:space="preserve"><value>デバイス総数</value></data>
   <data name="UsbLabel.AppleDevice" xml:space="preserve"><value>Apple デバイス</value></data>
   <data name="UsbLabel.AppleDetail" xml:space="preserve"><value>接続済みの Apple USB デバイス</value></data>
-  <data name="UsbPairDeviceButton.Content" xml:space="preserve"><value>このデバイスをペアリング</value></data>
+  <data name="UsbPairDeviceButton.Label" xml:space="preserve"><value>このデバイスをペアリング</value></data>
   <data name="UsbPairSignIn" xml:space="preserve"><value>この USB デバイスをペアリングするにはサインインしてください。</value></data>
   <data name="UsbPairPending" xml:space="preserve"><value>ペアリング中…両方のデバイスでコードを確認してください。</value></data>
   <data name="UsbPairSaved" xml:space="preserve"><value>ペアリングを保存しました。デバイスはまだ接続されていません。</value></data>
@@ -2020,4 +2020,15 @@
   <data name="UsbPairTimedOut" xml:space="preserve"><value>ペアリングがタイムアウトしました。両方の SkyBridge を開いたまま一覧を更新し、再試行してください。</value></data>
   <data name="UsbPairFailed" xml:space="preserve"><value>ペアリングを完了できませんでした。アカウントと相手のデバイスを確認し、一覧を更新して再試行してください。</value></data>
   <data name="UsbPairCleanupFailed" xml:space="preserve"><value>ペアリング処理を正常に終了できませんでした。処理が解放されるまで新しいペアリングは利用できません。</value></data>
+  <data name="UsbConnectDeviceButton.Label" xml:space="preserve"><value>接続</value></data>
+  <data name="UsbReceiveAudioButton.Label" xml:space="preserve"><value>音声を受信</value></data>
+  <data name="Status.UsbConnected" xml:space="preserve"><value>SkyBridge に安全に接続済み</value></data>
+  <data name="UsbConnectSignIn" xml:space="preserve"><value>この USB デバイスに接続するには、サインインするか、有効なオフライン音声の許可を復元してください。</value></data>
+  <data name="UsbConnectPending" xml:space="preserve"><value>安全に接続しています…接続先の SkyBridge を開いたままにしてください。</value></data>
+  <data name="UsbConnectReady" xml:space="preserve"><value>安全な接続が確立しました。「音声を受信」で出力先を選び、受信を有効にしてください。</value></data>
+  <data name="UsbConnectCanceled" xml:space="preserve"><value>接続をキャンセルしました。</value></data>
+  <data name="UsbConnectFailed" xml:space="preserve"><value>USB 接続を完了できませんでした。アカウントを確認し、接続先の SkyBridge を開いたままデバイス一覧を更新してください。</value></data>
+  <data name="UsbConnectEnded" xml:space="preserve"><value>USB 接続が終了しました。音声を受信する前にデバイスを再接続してください。</value></data>
+  <data name="UsbDeviceCleanupFailed" xml:space="preserve"><value>USB 操作のリソースを解放できませんでした。解放を確認するまで新しい USB 操作は利用できません。</value></data>
+  <data name="AudioReceiveConnectedOnly" xml:space="preserve"><value>接続済みデバイスのみ使用</value></data>
 </root>

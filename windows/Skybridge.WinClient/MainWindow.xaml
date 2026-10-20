@@ -895,16 +895,12 @@
                                 Text="{Binding DeviceType, Converter={StaticResource LabelKeyToLocalizedConverter}}"
                                 FontSize="13"
                                 Foreground="{StaticResource SkyBridgeTextSecondaryBrush}" />
-                            <TextBlock Text="{Binding SkybridgeStatus, Converter={StaticResource StatusKeyToLocalizedConverter}}"
+                            <TextBlock Text="{Binding SkybridgeDisplayStatus, Converter={StaticResource StatusKeyToLocalizedConverter}}"
                                        TextWrapping="Wrap" FontSize="13"
-                                       Visibility="{Binding SkybridgeStatus, Converter={StaticResource StringPresenceVisibilityConverter}}"
+                                       Visibility="{Binding SkybridgeDisplayStatus, Converter={StaticResource StringPresenceVisibilityConverter}}"
                                        AutomationProperties.AutomationId="Skybridge.Usb.PeerStatus"
                                        Foreground="{StaticResource SkyBridgeTextSecondaryBrush}" />
                         </StackPanel>
-                        <Button Grid.Column="2" x:Uid="UsbPairDeviceButton" Content="Pair device"
-                                VerticalAlignment="Top" Click="OnUsbPairClicked"
-                                AutomationProperties.AutomationId="Skybridge.Usb.Pair"
-                                Visibility="{Binding CanPairSkybridge, Converter={StaticResource BoolVisibilityConverter}}" />
                         <!-- MFi badge (Mac DeviceCard: checkmark.seal.fill + "MFi Certified",
                              shown only when device.isMFiCertified). EC61 = CompletedSolid
                              (sealed checkmark). -->
@@ -919,6 +915,18 @@
                             </StackPanel>
                         </Border>
                     </Grid>
+                    <CommandBar DefaultLabelPosition="Right" HorizontalAlignment="Left"
+                                Visibility="{Binding HasSkybridgeActions, Converter={StaticResource BoolVisibilityConverter}}">
+                        <AppBarButton x:Uid="UsbPairDeviceButton" Icon="Add" Label="Pair device" Click="OnUsbPairClicked"
+                                      AutomationProperties.AutomationId="Skybridge.Usb.Pair"
+                                      Visibility="{Binding CanPairSkybridge, Converter={StaticResource BoolVisibilityConverter}}" />
+                        <AppBarButton x:Uid="UsbConnectDeviceButton" Icon="Link" Label="Connect" Click="OnUsbConnectClicked"
+                                      AutomationProperties.AutomationId="Skybridge.Usb.Connect"
+                                      Visibility="{Binding CanConnectSkybridge, Converter={StaticResource BoolVisibilityConverter}}" />
+                        <AppBarButton x:Uid="UsbReceiveAudioButton" Icon="Volume" Label="Receive audio" Click="OnUsbReceiveAudioClicked"
+                                      AutomationProperties.AutomationId="Skybridge.Usb.ReceiveAudio"
+                                      Visibility="{Binding CanReceiveSkybridgeAudio, Converter={StaticResource BoolVisibilityConverter}}" />
+                    </CommandBar>
                     <!-- Detail block (Mac deviceInfoRow rhythm): fixed-width label +
                          monospaced value. Each row drops out when its value is blank. -->
                     <StackPanel Spacing="6">
@@ -2168,7 +2176,7 @@
                                     VerticalAlignment="Center" />
                             </Grid>
 
-                            <Expander x:Uid="AudioReceiveExpander" Header="Audio reception" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                            <Expander x:Name="AudioReceivePanel" x:Uid="AudioReceiveExpander" Header="Audio reception" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" AutomationProperties.AutomationId="Skybridge.Audio.ReceptionPanel">
                                 <StackPanel Spacing="10">
                                     <TextBlock x:Uid="AudioReceiveDescription" Text="Play audio from authenticated connected devices through an output you choose. Each request needs your approval." TextWrapping="Wrap" />
                                     <ComboBox x:Name="AudioNetworkPicker" x:Uid="AudioNetworkPicker" PlaceholderText="Choose a local network" HorizontalAlignment="Stretch"
