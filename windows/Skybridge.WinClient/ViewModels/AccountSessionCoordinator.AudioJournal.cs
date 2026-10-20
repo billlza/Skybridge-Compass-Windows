@@ -8,7 +8,7 @@ public sealed partial class AccountSessionCoordinator : IAudioAccountObservation
 {
     async ValueTask<AudioJournalTicket> IAudioAccountObservationStore.BeginAsync(AccountAudioAuthorization epoch,
         AudioDeviceIdentity caller, AccountDeviceRegistryRequest kind, AudioCheckpointIdentity? removalTarget,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, AudioDeviceIdentity? membershipPeer)
     {
         await _mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -19,7 +19,8 @@ public sealed partial class AccountSessionCoordinator : IAudioAccountObservation
             {
                 cancellationToken.ThrowIfCancellationRequested(); RequireAudioAuthorization(epoch);
                 var state = ReadOwnedAudioJournal(epoch);
-                var request = new AudioJournalPending(Guid.NewGuid(), kind, AudioCheckpointIdentity.From(caller), removalTarget);
+                var request = new AudioJournalPending(Guid.NewGuid(), kind, AudioCheckpointIdentity.From(caller), removalTarget,
+                    membershipPeer is null ? null : AudioCheckpointIdentity.From(membershipPeer));
                 var updated = state.Begin(request);
                 CommitAudioJournal(updated);
                 // Once preparation commits, always return its ownership, even
@@ -45,8 +46,9 @@ public sealed partial class AccountSessionCoordinator : IAudioAccountObservation
                     _durableLoginId != ticket.LoginId)
                     return AudioJournalCompletion.RetiredOwner;
                 var state = ReadOwnedAudioJournal(ticket.Epoch);
-                CommitAudioJournal(state.Complete(ticket.Request, effects, failure));
-                return AudioJournalCompletion.Committed;
+                var settled = state.Complete(ticket.Request, effects, failure);
+                CommitAudioJournal(settled.State);
+                return settled.Completion;
             }).ConfigureAwait(false);
         }
         finally { _mutationGate.Release(); }

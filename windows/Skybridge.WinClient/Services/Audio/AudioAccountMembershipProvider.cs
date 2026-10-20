@@ -100,6 +100,7 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
     private readonly Func<AccountAudioAuthorization, CancellationToken, Task<AccountDeviceAuthentication>> _authenticate;
     private readonly Func<AudioAuthorizationTime> _clock;
     private readonly AudioAccountMembershipClient _client;
+    private readonly IAudioLogonContinuity _continuity;
     private readonly List<Entry> _entries = [];
     private Request? _pending;
     private readonly CancellationTokenSource _lifetime = new();
@@ -109,13 +110,14 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
 
     internal AudioAccountMembershipProvider(HttpClient http, Func<AccountAudioAuthorization?> currentEpoch,
         Func<AccountAudioAuthorization, CancellationToken, Task<AccountDeviceAuthentication>> authenticate,
-        Func<AudioAuthorizationTime>? clock = null, TimeSpan? queryTimeout = null)
+        Func<AudioAuthorizationTime>? clock = null, TimeSpan? queryTimeout = null, IAudioLogonContinuity? continuity = null)
     {
         _currentEpoch = currentEpoch ?? throw new ArgumentNullException(nameof(currentEpoch));
         _authenticate = authenticate ?? throw new ArgumentNullException(nameof(authenticate));
         _clock = clock ?? AudioAuthorizationTime.ReadWindows;
         _lifetimeToken = _lifetime.Token;
         _client = new(http, _clock, queryTimeout);
+        _continuity = continuity ?? WindowsAudioLogonContinuity.Instance;
     }
 
     internal Task<AccountAudioMembershipLease> LeaseAsync(ILanAudioStreamInbox inbox,
@@ -163,30 +165,20 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
             var authentication = await _authenticate(epoch, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested(); RequireEpoch(epoch);
             epoch.RequireAuthentication(authentication); inbox.RequireCurrent();
-            AudioRegistryObservation observation;
-            try { observation = await _client.QueryAsync(authentication, binding, cancellationToken).ConfigureAwait(false); }
-            catch (CurrentPathSignalServerException error) when (IsDeviceDenial(error))
-            {
-                // An old response can only revoke entries from its captured epoch, never a replacement.
-                lock (_gate) RevokeIdentity(epoch, local);
-                throw;
-            }
+            AudioAccountMembershipEvidence evidence;
+            try { evidence = await QueryMembershipAsync(request, authentication, inbox, cancellationToken).ConfigureAwait(false); }
             catch (Exception error) when (continuing is not null && IsTemporaryRequest(error))
             {
                 cancellationToken.ThrowIfCancellationRequested(); RequireEpoch(epoch);
                 continuing.RequireContinuation(epoch, inbox);
                 throw new AudioMembershipRequestUnavailableException(error);
             }
-            ObserveFresh(epoch, observation);
-            // Observe a completed, valid response before rejecting the now-ended requesting stream.
-            cancellationToken.ThrowIfCancellationRequested(); RequireEpoch(epoch); inbox.RequireCurrent();
-            var evidence = AudioAccountMembershipEvidence.Create(observation, local, peer);
             lock (_gate)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 RequireEpoch(epoch); inbox.RequireCurrent();
-                if (!ReferenceEquals(_pending, request) || request.Contradicted)
-                    throw new InvalidOperationException("Device authorization changed during this audio membership request.");
+                if (!ReferenceEquals(_pending, request)) throw new InvalidOperationException("Audio membership request ownership changed.");
+                if (request.Contradicted) throw new AudioMembershipSupersededException();
                 Prune();
                 if (continuing is not null) RequireContinuation();
                 var previous = _entries.Where(entry => ReferenceEquals(entry.Epoch, epoch) &&
@@ -214,6 +206,86 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
                 !ReferenceEquals(continuing.RequireContinuation(epoch, inbox), predecessor) ||
                 !_entries.Any(entry => ReferenceEquals(entry.Epoch, epoch) && ReferenceEquals(entry.Evidence, predecessor)))
                 throw new InvalidOperationException("The original audio authorization can no longer be continued.");
+        }
+    }
+
+    private async Task<AudioAccountMembershipEvidence> QueryMembershipAsync(Request request,
+        AccountDeviceAuthentication authentication, ILanAudioStreamInbox inbox, CancellationToken cancellationToken)
+    {
+        var epoch = request.Epoch;
+        var store = epoch.Observations;
+        AudioJournalTicket? ticket;
+        try
+        {
+            ticket = store is null ? null : await store.BeginAsync(epoch, request.Local, AccountDeviceRegistryRequest.List,
+                null, cancellationToken, request.Peer).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception error) { throw new AudioMembershipJournalException("preparation", error); }
+
+        AudioRegistryObservation? observation = null;
+        Exception? failure = null;
+        bool settlementAttempted = false;
+        bool callerRejected = false;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested(); RequireEpoch(epoch); inbox.RequireCurrent();
+            observation = await _client.QueryAsync(authentication, inbox.Binding, cancellationToken).ConfigureAwait(false);
+            // Completed negatives affect running consumers before any disk work,
+            // including when the requesting inbox has meanwhile ended.
+            ObserveFresh(epoch, observation);
+            cancellationToken.ThrowIfCancellationRequested(); RequireEpoch(epoch); inbox.RequireCurrent();
+            var evidence = AudioAccountMembershipEvidence.Create(observation, request.Local, request.Peer);
+            lock (_gate)
+            {
+                RequireEpoch(epoch);
+                if (!ReferenceEquals(_pending, request)) throw new InvalidOperationException("Audio membership request ownership changed.");
+                if (request.Contradicted) throw new AudioMembershipSupersededException();
+                Prune();
+                if (_entries.Count(entry => !ReferenceEquals(entry.Epoch, epoch) ||
+                    entry.Evidence.Local != request.Local || entry.Evidence.Peer != request.Peer) >= Capacity)
+                    throw new InvalidOperationException("The audio membership cache is full.");
+            }
+            if (store is not null && ticket is not null)
+            {
+                // DPAPI/sealing and canonical-file I/O never run under the
+                // provider or playback effect lock, nor inline on the UI thread.
+                var checkpoint = await Task.Run(() => AudioMembershipCheckpoint.Capture(ticket.LoginId, evidence,
+                    _clock, _continuity), cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested(); RequireEpoch(epoch); inbox.RequireCurrent();
+                settlementAttempted = true;
+                AudioJournalCompletion completed;
+                try { completed = await store.CompleteAsync(ticket, new(observation, null, false, checkpoint), null).ConfigureAwait(false); }
+                catch (Exception error) { throw new AudioMembershipJournalException("completion", error); }
+                if (completed != AudioJournalCompletion.Committed)
+                    throw new InvalidOperationException($"Audio membership journal rejected its owner: {completed}.");
+            }
+            // The caller rechecks its exact pending owner and inbox under the
+            // cache gate before publishing this evidence to any playback lease.
+            evidence.RequireValid(epoch.Scope, request.Local, request.Peer, _clock());
+            return evidence;
+        }
+        catch (Exception error)
+        {
+            failure = error;
+            callerRejected = error is CurrentPathSignalServerException denied && IsDeviceDenial(denied);
+            if (callerRejected) lock (_gate) RevokeIdentity(epoch, request.Local);
+            throw;
+        }
+        finally
+        {
+            if (store is not null && ticket is not null && !settlementAttempted)
+            {
+                // Cancellation and negative responses still settle the exact
+                // prepared owner. A failed/uncertain commit is never retried.
+                try { await store.CompleteAsync(ticket, new(observation, null, callerRejected), failure).ConfigureAwait(false); }
+                catch (Exception completionFailure)
+                {
+                    var context = new AudioMembershipJournalException("completion", completionFailure);
+                    if (failure is null) throw context;
+                    throw new AggregateException("Audio membership query and journal completion failed.", failure, context);
+                }
+            }
         }
     }
 
@@ -334,7 +406,7 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
         HttpRequestException request => AudioMembershipRequestFailure.IsTemporary(request),
         HttpIOException response => AudioMembershipRequestFailure.IsTemporary(response),
         CurrentPathSignalServerException response => AccountDeviceWire.ErrorCode(response) != "current_identity_mismatch" &&
-            AudioMembershipRequestFailure.IsTemporary(response.StatusCode),
+            !IsDeviceDenial(response) && AudioMembershipRequestFailure.IsTemporary(response.StatusCode),
         _ => false
     };
     private sealed record Entry(AccountAudioAuthorization Epoch, AudioAccountMembershipEvidence Evidence);
@@ -347,3 +419,14 @@ internal sealed class AudioAccountMembershipProvider : IAsyncDisposable
         internal TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }
+
+internal sealed class AudioMembershipJournalException(string stage, Exception cause)
+    : IOException($"Audio membership journal {stage} failed.", cause)
+{
+    internal string Stage { get; } = stage;
+}
+
+// A confirmed concurrent observation already retired this pending pair. This
+// is terminal for the request, but cannot revoke unrelated pairs as an outage.
+internal sealed class AudioMembershipSupersededException()
+    : InvalidOperationException("A confirmed device observation superseded this audio membership request.");

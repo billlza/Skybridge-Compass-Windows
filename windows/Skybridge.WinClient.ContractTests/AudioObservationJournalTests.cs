@@ -6,7 +6,7 @@ using Skybridge.WinClient.Services.Audio;
 using Skybridge.WinClient.ViewModels;
 using static AudioAccountMembershipTests;
 
-internal static class AudioObservationJournalTests
+internal static partial class AudioObservationJournalTests
 {
     internal static readonly (string Name, Func<Task> Run)[] Cases =
     [
@@ -23,7 +23,21 @@ internal static class AudioObservationJournalTests
         ("audio journal rejects corrupt unknown and excessive state without replacing it", InvalidState),
         ("audio journal a positive registry list never issues or revives a checkpoint", NoIssuance),
         ("audio journal bounds pending requests and refuses recovery until every owner settles", PendingCapacity),
-        ("audio journal protected file commits leave the caller UI context", OffUiCommit)
+        ("audio journal protected file commits leave the caller UI context", OffUiCommit),
+        ("audio membership journal commits fresh evidence before publishing its playback lease", FreshMembership),
+        ("audio membership journal persists only fresh explicit continuation", ContinuedMembership),
+        ("audio membership journal applies parsed negatives even after requester cancellation", CanceledNegativeMembership),
+        ("audio membership journal durable contradictions stop late grants across provider instances", CrossProviderContradiction),
+        ("audio membership journal superseded queries retain unrelated finite evidence", SupersededMembership),
+        ("audio membership journal preparation failures send no network request", MembershipPreparationFaults),
+        ("audio membership journal commit failures never publish a playback lease", MembershipCompletionFaults),
+        ("audio membership journal classifies unavailable and terminal query outcomes without renewal", MembershipQueryFailures),
+        ("audio membership journal cancellation during preparation and capture retains exact settlement", MembershipCancellation),
+        ("audio membership journal sealing failure remains observable and issues no checkpoint", MembershipSealFailure),
+        ("audio membership journal late results cannot write after account replacement", MembershipReplacement),
+        ("audio membership journal migrates registry-only records without creating grant owners", LegacyJournal),
+        ("audio membership journal rejects checkpoint binding and observation substitution", MembershipBinding),
+        ("audio membership journal reclaims expired capacity but never evicts a valid grant to admit another", MembershipCapacity)
     ];
 
     private sealed class PlainProtector : ISessionProtector
@@ -47,12 +61,22 @@ internal static class AudioObservationJournalTests
     private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
     { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) => send(request, token); }
 
+    private sealed class Continuity : IAudioLogonContinuity
+    {
+        private readonly IAudioLogonContinuity _inner = OperatingSystem.IsWindows()
+            ? WindowsAudioLogonContinuity.Instance : new AudioMembershipCheckpointTests.Continuity();
+        internal Action? BeforeCreate;
+        public AudioLogonSeal Create() { BeforeCreate?.Invoke(); return _inner.Create(); }
+        public void RequireCurrent(AudioLogonSeal seal) => _inner.RequireCurrent(seal);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         internal readonly string DirectoryPath = Path.Combine(Path.GetTempPath(), "skybridge-audio-journal-" + Guid.NewGuid().ToString("N"));
         internal readonly Committer Committer = new();
         internal readonly AccountAudioAuthorizationTests.Client Client = new();
         internal readonly Clock Clock = new();
+        internal readonly Continuity Continuity = new();
         internal readonly AudioSessionIdentityBinding Binding = AudioAccountMembershipTests.Binding();
         internal readonly AudioDeviceIdentity Other = Peer(AudioAccountMembershipTests.Binding(peer: 1));
         internal readonly SessionStore Storage;
@@ -72,7 +96,7 @@ internal static class AudioObservationJournalTests
         internal IAudioAccountObservationStore Journal => Epoch.Observations ?? throw new Exception("Missing product journal binding.");
         internal AudioCheckpointIdentity Target => AudioCheckpointIdentity.From(Peer(Binding));
         private static ISessionProtector Protector() => OperatingSystem.IsWindows() ? new DpapiSessionProtector() : new PlainProtector();
-        private Fixture(int minutes)
+        private Fixture(int minutes, TimeSpan? queryTimeout)
         {
             Storage = new(DirectoryPath, Protector(), Committer); Owner = new(Client, Storage);
             Token = AccountAudioAuthorizationTests.Token(minutes: minutes);
@@ -83,12 +107,14 @@ internal static class AudioObservationJournalTests
                 string path = request.RequestUri?.AbsolutePath ?? throw new Exception("Missing registry path.");
                 return OnSend?.Invoke(path, token) ?? Task.FromResult(Response(path));
             }));
-            Provider = new(Http, () => Owner.ReadAudioAuthorization(), (epoch, token) => Owner.GetAudioAuthenticationAsync(epoch, token), Clock.Read);
+            Provider = new(Http, () => Owner.ReadAudioAuthorization(), (epoch, token) => Owner.GetAudioAuthenticationAsync(epoch, token),
+                Clock.Read, queryTimeout, Continuity);
             Observer = new(Provider, Clock.Read); Roster = new(Http, Observer);
         }
-        internal static async Task<Fixture> Create(bool checkpoints = true, int minutes = 60, bool keepNearExpiry = false)
+        internal static async Task<Fixture> Create(bool checkpoints = true, int minutes = 60, bool keepNearExpiry = false,
+            TimeSpan? queryTimeout = null)
         {
-            var f = new Fixture(minutes);
+            var f = new Fixture(minutes, queryTimeout);
             var login = await f.Owner.ApplyAuthAsync(f.Token);
             if (!login.Success)
             {
@@ -103,7 +129,7 @@ internal static class AudioObservationJournalTests
                         new(f.Clock.Now.WallMilliseconds, f.Binding.LocalDeviceId, false,
                             [Entry(Local(f.Binding), true), Entry(peer)]), f.Clock.Now, f.Clock.Now);
                     var evidence = AudioAccountMembershipEvidence.Create(observation, Local(f.Binding), peer);
-                    return AudioMembershipCheckpoint.Capture(head.LoginId!.Value, evidence, f.Clock.Read, new AudioMembershipCheckpointTests.Continuity());
+                    return AudioMembershipCheckpoint.Capture(head.LoginId!.Value, evidence, f.Clock.Read, f.Continuity);
                 }).ToArray();
                 var state = AudioAccountJournalState.Empty(head.LoginId!.Value, scope) with { Checkpoints = values };
                 Require(((ISessionAudioStateStore)f.Storage).WriteAudioState(JsonSerializer.SerializeToElement(state), head.Version!, head.LoginId.Value).Succeeded,
