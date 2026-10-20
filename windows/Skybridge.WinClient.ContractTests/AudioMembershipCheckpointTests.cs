@@ -10,6 +10,7 @@ internal static class AudioMembershipCheckpointTests
     [
         ("audio checkpoint preserves evidence identity and original deadlines through serialization", RoundTrip),
         ("audio checkpoint rejects another login account tenant and exact device identity", Binding),
+        ("audio recovery discovery aliases only select candidates and never restore exact membership", DiscoveryCandidate),
         ("audio checkpoint rejects unknown malformed and excessive authority before logon verification", Shape),
         ("audio checkpoint deserialization rejects unknown authority fields", UnknownFields),
         ("audio checkpoint rejects expiry and rollback without renewing its finite interval", ClockLimits),
@@ -75,6 +76,25 @@ internal static class AudioMembershipCheckpointTests
         var changedKey = p with { Peer = p.Peer with { Fingerprint = new string('0', 64) } };
         Reject<AudioMembershipException>(() => Restore(f, changedKey, c));
         Require(c.Verifications == 0, "Mismatched ownership reached logon verification.");
+    }
+
+    private static async Task DiscoveryCandidate()
+    {
+        using var f = new Fixture(); var (_, p, continuity) = await Prepare(f);
+        var snapshot = new AudioAccountRecoverySnapshot(p.LoginId, p.Scope, "test", "test", [p], f.Clock.Read);
+        var local = Local(f.Binding); var exact = Peer(f.Binding);
+        var alias = AudioDeviceIdentity.From("android-membership-0", f.Binding.PeerProtocolIdentity);
+        Require(snapshot.HasProtocolCandidate(local, alias) && snapshot.Find(local, alias) is null &&
+            snapshot.Find(local, exact) == p, "Routing alias was either unusable for bootstrap or became exact membership authority.");
+        Reject<AudioMembershipException>(() => p.Restore(p.LoginId, p.Scope, local, alias, f.Clock.Read, continuity));
+        Require(continuity.Verifications == 0 && !snapshot.HasProtocolCandidate(local, Peer(AudioAccountMembershipTests.Binding(peer: 1))) &&
+            !snapshot.HasProtocolCandidate(local, Peer(AudioAccountMembershipTests.Binding(mlDsa: true))),
+            "Discovery candidate matching ignored a changed ID or signing identity.");
+        f.Clock.Now = p.Expires;
+        Require(!snapshot.HasProtocolCandidate(local, alias), "An expired discovery candidate remained usable.");
+        f.Clock.Now = p.Issued;
+        Require(!snapshot.HasProtocolCandidate(local, exact) && snapshot.Find(local, exact) is null,
+            "Clock recovery revived an expired candidate.");
     }
 
     private static async Task Shape()

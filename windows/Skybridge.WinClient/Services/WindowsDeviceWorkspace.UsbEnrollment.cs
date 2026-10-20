@@ -55,7 +55,7 @@ internal sealed partial class WindowsDeviceWorkspace
             token.ThrowIfCancellationRequested(); workspaceLifetime.ThrowIfCancellationRequested();
             ObjectDisposedException.ThrowIf(_disposed, this);
             RequireUsbAccount(authentication, account, allowOffline);
-            if (localForRecovery is not null && !IsUsbAudioRouteCurrent(account, localForRecovery, peerForRecovery))
+            if (localForRecovery is not null && !HasUsbAudioProtocolCandidate(account, localForRecovery, peerForRecovery))
                 throw new AudioMembershipException(AudioMembershipFailure.IdentityChanged);
         }
         RequireCurrent();
@@ -113,6 +113,10 @@ internal sealed partial class WindowsDeviceWorkspace
     private static bool IsUsbAudioRouteCurrent(AccountAudioAuthorization account, AudioDeviceIdentity local, AudioDeviceIdentity peer) =>
         account.IsCurrent && (!account.IsOffline || account.Recovery is { } recovery &&
             recovery.Scope == account.Scope && recovery.Find(local, peer) is not null);
+
+    private static bool HasUsbAudioProtocolCandidate(AccountAudioAuthorization account, AudioDeviceIdentity local, AudioDeviceIdentity discoveredPeer) =>
+        account.IsCurrent && (!account.IsOffline || account.Recovery is { } recovery &&
+            recovery.Scope == account.Scope && recovery.HasProtocolCandidate(local, discoveredPeer));
 
     // A missing bearer is legal only for an existing bounded offline audio
     // publication. This never creates ordinary account-request authentication.

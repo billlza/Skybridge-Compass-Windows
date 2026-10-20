@@ -37,8 +37,9 @@ internal sealed partial class WindowsDeviceWorkspace
             if (_controlSessions.TryGetValue(peerId, out var existing))
             {
                 existing.RequireUsbRoute(selected, account.Scope);
-                if (!IsUsbAudioRouteCurrent(account, AudioDeviceIdentity.From(existing.LocalIdentity.DeviceId, existing.LocalHandshakeIdentity),
-                        AudioDeviceIdentity.From(existing.PeerDeviceId, existing.PeerHandshakeIdentity)))
+                var binding = existing.RequireAudioIdentityBinding();
+                if (!IsUsbAudioRouteCurrent(account, AudioDeviceIdentity.From(binding.LocalDeviceId, binding.LocalProtocolIdentity),
+                        AudioDeviceIdentity.From(binding.PeerDeviceId, binding.PeerProtocolIdentity)))
                     throw new AudioMembershipException(AudioMembershipFailure.IdentityChanged);
                 return existing;
             }
@@ -56,10 +57,33 @@ internal sealed partial class WindowsDeviceWorkspace
                     var local = identity.PublicMaterial;
                     var localForRecovery = UsbAudioIdentity(local.DeviceId, local.ProtocolPublicKey.ToArray());
                     var peerForRecovery = UsbAudioIdentity(current.Response.Identity.DeviceID, current.Response.Identity.PublicKey.ToArray());
+                    AudioDeviceIdentity? admittedPeer = null;
+                    bool IsCurrent()
+                    {
+                        if (_disposed) return false;
+                        var actual = Volatile.Read(ref admittedPeer);
+                        return actual is null ? HasUsbAudioProtocolCandidate(account, localForRecovery, peerForRecovery)
+                            : IsUsbAudioRouteCurrent(account, localForRecovery, actual);
+                    }
                     var prepared = identity.PrepareUsbAuthentication(UsbControlRoute.From(current), refresh, presentation);
-                    return await LanProductControlSession.ConnectUsbAsync(prepared, carrier, account.Scope,
-                        () => !_disposed && IsUsbAudioRouteCurrent(account, localForRecovery, peerForRecovery),
-                        lifetime, token, workspaceLifetime).ConfigureAwait(false);
+                    var admitted = await LanProductControlSession.ConnectUsbAsync(prepared, carrier, account.Scope,
+                        IsCurrent, lifetime, token, workspaceLifetime).ConfigureAwait(false);
+                    try
+                    {
+                        var binding = admitted.RequireAudioIdentityBinding();
+                        if (AudioDeviceIdentity.From(binding.LocalDeviceId, binding.LocalProtocolIdentity) != localForRecovery)
+                            throw new AudioMembershipException(AudioMembershipFailure.IdentityChanged);
+                        Volatile.Write(ref admittedPeer, AudioDeviceIdentity.From(binding.PeerDeviceId, binding.PeerProtocolIdentity));
+                        if (!IsCurrent()) throw new AudioMembershipException(AudioMembershipFailure.IdentityChanged);
+                        return admitted;
+                    }
+                    catch (Exception failure)
+                    {
+                        try { await admitted.DisposeAsync().ConfigureAwait(false); }
+                        catch (Exception cleanup)
+                        { throw new ProductBootstrapReleaseException(admitted, new AggregateException(failure, cleanup)); }
+                        throw;
+                    }
                 }, token, connector).ConfigureAwait(false);
             lock (_stateGate) _controlSessions.Add(peerId, session);
             var privateDirectory = Path.Combine(_stateDirectory, "audio-playback");

@@ -14,7 +14,8 @@ internal static class UsbControlWorkspaceTests
         ("Windows USB MAIN runs native forward-secret PQC Finished and encrypted identity admission", () => NativeMain(false)),
         ("Windows USB MAIN automatically selects the matching native Q policy and exact identity", () => NativeMain(true)),
         ("Windows USB MAIN cannot publish after account revocation while handshake is pending", RevokedHandshake),
-        ("Windows USB MAIN offline access binds the exact prior device pair without bearer authentication", NativeOfflineMain)
+        ("Windows USB MAIN offline access binds the exact prior device pair without bearer authentication", () => NativeOfflineMain(false)),
+        ("Windows USB MAIN rejects a discovery alias without the exact encrypted account identity", () => NativeOfflineMain(true))
     ];
     private sealed class Approval : ILanPibApprovalPresenter
     {
@@ -75,7 +76,7 @@ internal static class UsbControlWorkspaceTests
         }
         finally { Directory.Delete(directory.FullName,recursive:true); }
     }
-    private static async Task NativeOfflineMain()
+    private static async Task NativeOfflineMain(bool wrongDeclaration)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         var directory = Directory.CreateTempSubdirectory("skybridge-usb-offline-");
@@ -95,7 +96,8 @@ internal static class UsbControlWorkspaceTests
                     material.DeviceId, CurrentPathProtocolSigningAlgorithm.MLDsa65, material.ProtocolPublicKey.ToArray())));
             }
             var remote = AudioCheckpointIdentity.From(AudioDeviceIdentity.FromRegistryBinding(new CurrentPathProtocolIdentityBinding(
-                selected.Response.Identity.DeviceID, CurrentPathProtocolSigningAlgorithm.MLDsa65, selected.Response.Identity.PublicKey.ToArray())));
+                (wrongDeclaration ? "" : "id:") + selected.Response.Identity.DeviceID,
+                CurrentPathProtocolSigningAlgorithm.MLDsa65, selected.Response.Identity.PublicKey.ToArray())));
             var clock = new AudioAccountMembershipTests.Clock();
             var login = Guid.NewGuid();
             // Controlled prior account publication. Native MAIN and DPAPI identity
@@ -127,10 +129,27 @@ internal static class UsbControlWorkspaceTests
             var offline = Offline(checkpoint, longer);
             await Reject<InvalidOperationException>(() => workspace.PairUsbPeerAsync(selected, authentication, offline,
                 new Approval(), limit.Token, connector));
+            if (wrongDeclaration)
+            {
+                peer.ExpectClientHandshakeAbort = true;
+                var error = await Reject<AudioMembershipException>(() => workspace.ConnectUsbControlAsync(selected, null, offline,
+                    new("USB account", "fixture"), limit.Token, connector));
+                await peer.MainEnded.Task.WaitAsync(limit.Token);
+                Require(error.Reason == AudioMembershipFailure.IdentityChanged && peer.MainAttempts == 1 && peer.KeyRefreshReplies == 1 &&
+                    workspace.ReadConnectedUsbPeers().Count == 0 &&
+                    audio.ReadSnapshot().ConnectedDevices == 0, "A discovery alias published MAIN or installed audio authority.");
+                await Reject<InvalidDataException>(() => Task.Run(() => workspace.RequireIncomingControlSession("id:" + selected.Response.Identity.DeviceID)));
+                return;
+            }
             var session = await workspace.ConnectUsbControlAsync(selected, null, offline, new("USB account", "fixture"), limit.Token, connector);
             await peer.MainEstablished.Task.WaitAsync(limit.Token);
             Require(session.IsReady && workspace.ReadConnectedUsbPeers().Single().AudioReceiverInstalled &&
                 peer.MainAttempts == 1 && peer.KeyRefreshReplies == 1, "Finite offline authority did not establish its exact native USB session.");
+            var binding = session.RequireAudioIdentityBinding();
+            Require(checkpoint.Peer.Matches(AudioDeviceIdentity.From(binding.PeerDeviceId, binding.PeerProtocolIdentity)),
+                "Offline MAIN used a discovery alias instead of the actual encrypted identity declaration.");
+            var reused = await workspace.ConnectUsbControlAsync(selected, null, offline, new("USB account", "fixture"), limit.Token, connector);
+            Require(ReferenceEquals(session, reused) && peer.MainAttempts == 1, "Offline route reuse replaced its exact admitted identity.");
             clock.Advance(60_000);
             Require(offline.IsCurrent && !session.IsReady && workspace.ReadConnectedUsbPeers().Count == 0,
                 "Another peer's longer grant kept the expired USB route usable or visible.");
@@ -174,6 +193,6 @@ internal static class UsbControlWorkspaceTests
         finally { Directory.Delete(directory.FullName,recursive:true); }
     }
     private static void Require(bool value,string reason) { if(!value)throw new InvalidOperationException(reason); }
-    private static async Task Reject<T>(Func<Task> call) where T:Exception
-    { try { await call(); } catch(T) { return; } throw new InvalidOperationException($"Expected {typeof(T).Name}."); }
+    private static async Task<T> Reject<T>(Func<Task> call) where T:Exception
+    { try { await call(); } catch(T error) { return error; } throw new InvalidOperationException($"Expected {typeof(T).Name}."); }
 }

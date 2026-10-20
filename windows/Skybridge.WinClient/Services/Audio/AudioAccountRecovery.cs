@@ -57,6 +57,17 @@ internal sealed class AudioAccountRecoverySnapshot
         var now = _clock();
         return _candidates.FirstOrDefault(c => c.Value.Local.Matches(local) && c.Value.Peer.Matches(peer) && c.IsCurrent(now))?.Value;
     }
+    // Discovery/SOA uses a canonical routing ID. This only decides whether to
+    // attempt MAIN; it cannot restore membership. Find still requires the exact
+    // device ID declared inside the authenticated session, including its spelling.
+    internal bool HasProtocolCandidate(AudioDeviceIdentity local, AudioDeviceIdentity discoveredPeer)
+    {
+        var now = _clock();
+        string routeId = RemoteControlHandshakeBinding.CanonicalDeviceId(discoveredPeer.DeviceId);
+        return _candidates.Any(c => c.Value.Local.Matches(local) &&
+            RemoteControlHandshakeBinding.CanonicalDeviceId(c.Value.Peer.DeviceId) == routeId &&
+            c.Value.Peer.Algorithm == discoveredPeer.Algorithm && c.Value.Peer.Fingerprint == discoveredPeer.Fingerprint && c.IsCurrent(now));
+    }
     internal void RequireLocalIdentity(AudioDeviceIdentity local)
     {
         var now = _clock();

@@ -253,7 +253,7 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
         }
         catch (IOException error) when (ExpectClientHandshakeAbort)
         {
-            // Only the explicit client-revocation test permits a transport abort.
+            // Only explicit client-revocation/identity-rejection tests permit a transport abort.
             // Preserve the actual failure; no session or success is fabricated.
             MainFailure = error;
         }
