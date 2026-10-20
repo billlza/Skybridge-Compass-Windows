@@ -12,6 +12,7 @@ internal static class ClassicFileTransferReceiver
         string? partial = null;
         string? savedPath = null;
         long received = 0;
+        bool contentEntered = false;
         try
         {
             ValidateWindowsFileName(metadata.FileName);
@@ -20,6 +21,7 @@ internal static class ClassicFileTransferReceiver
             await using (var output = new FileStream(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
+                contentEntered = true;
                 await ReceiveContentAsync(network, metadata, key, async (plaintext, token) =>
                 {
                     await output.WriteAsync(plaintext, token).ConfigureAwait(false);
@@ -46,9 +48,16 @@ internal static class ClassicFileTransferReceiver
             {
                 try
                 {
-                    await ClassicFileTransferOperation.SendReceiptAsync(network,
-                        new(metadata.TransferId, false, received, 2, Error: "The receiver could not validate and save the complete file."),
-                        key, cancellationToken).ConfigureAwait(false);
+                    if (metadata.ApprovalProtocol is not null && !contentEntered)
+                        await ClassicFileTransferOperation.SendApprovalAsync(network, metadata, key, "unavailable",
+                            cancellationToken.ThrowIfCancellationRequested, cancellationToken).ConfigureAwait(false);
+                    else if (metadata.ApprovalProtocol is null)
+                        await ClassicFileTransferOperation.SendReceiptAsync(network,
+                            new(metadata.TransferId, false, received, 2, Error: "The receiver could not validate and save the complete file."),
+                            key, cancellationToken).ConfigureAwait(false);
+                    // Once extended reception starts, a failed approval write
+                    // may have emitted only a frame prefix. Preserve the error
+                    // and let the owner close; never append a different frame.
                 }
                 catch (Exception receiptFailure) { throw new AggregateException("Receive and failure-receipt delivery failed.", failure, receiptFailure); }
             }
@@ -64,6 +73,14 @@ internal static class ClassicFileTransferReceiver
     {
         ArgumentNullException.ThrowIfNull(write); ArgumentNullException.ThrowIfNull(requireAuthorization);
         Check(); ClassicFileTransferWire.Verify(metadata, key.Span); Check();
+        if (metadata.ApprovalProtocol is not null)
+        {
+            // Both ordinary and private-audio callers have already installed
+            // their admitted sink. No file bytes are consumed before this grant.
+            await ClassicFileTransferOperation.SendApprovalAsync(network, metadata, key, null,
+                requireAuthorization, cancellationToken).ConfigureAwait(false);
+            Check();
+        }
         using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         long received = 0; int index = 0;
         while (received < metadata.FileSize)

@@ -13,7 +13,8 @@ internal static class ClassicFileTransferWireTests
         ("classic metadata rejects tampering duplicate fields and unsafe names", MetadataBoundaries),
         ("classic chunks retain authenticated bytes and enforce ordering", ChunkBoundaries),
         ("classic receipts require the expected authenticated final file", ReceiptBoundaries),
-        ("classic framing preserves ordered messages and rejects truncation before success", FrameBoundaries)
+        ("classic framing preserves ordered messages and rejects truncation before success", FrameBoundaries),
+        .. ClassicFileTransferApprovalTests.Cases
     ];
     private sealed record Golden(string MetadataTranscriptHex, string ReceiptTranscriptHex, string TransferKeyHex,
         string MetadataAuthTagHex, string RawDeflateHex, string PlainHex);

@@ -172,9 +172,11 @@
     <Compile Include="ClassicFileTransferWireTests.cs" />
     <Compile Include="LanProductControlSessionTests.cs" />
     <Compile Include="ClassicFileTransferOperationTests.cs" />
+    <Compile Include="ClassicFileTransferApprovalTests.cs" />
     <Compile Include="NativeLanFileTransferValidation.cs" />
     <None Update="Fixtures\classic-file-transfer-v2.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\Skybridge.WinClient\Services\FileTransfer\ClassicFileTransferWire.cs" Link="Services\FileTransfer\ClassicFileTransferWire.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\FileTransfer\ClassicFileTransferApproval.cs" Link="Services\FileTransfer\ClassicFileTransferApproval.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\FileTransfer\ClassicFileTransferFrames.cs" Link="Services\FileTransfer\ClassicFileTransferFrames.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\FileTransfer\ClassicFileTransferOperation.cs" Link="Services\FileTransfer\ClassicFileTransferOperation.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\FileTransfer\ClassicFileTransferSender.cs" Link="Services\FileTransfer\ClassicFileTransferSender.cs" />

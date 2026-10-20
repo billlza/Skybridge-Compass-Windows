@@ -107,6 +107,19 @@ internal static class ClassicFileTransferOperationTests
         ClassicFileTransferWire.Verify(receipt, metadata, Key);
         Require(!receipt.Success && receipt.ReceivedBytes == 0 && Directory.GetFileSystemEntries(fixture.Destination).Length == 0,
             "Destination rejection lost its authenticated negative receipt or created a file.");
+
+        var extended = ClassicFileTransferWire.Authenticate(metadata with { ApprovalProtocol = ClassicFileTransferWire.ApprovalProtocol }, Key);
+        try
+        {
+            await ClassicFileTransferReceiver.ReceiveAsync(fixture.Receive, extended, Key, fixture.Destination, null, fixture.Token);
+            throw new InvalidOperationException("Extended file reception accepted an invalid destination.");
+        }
+        catch (InvalidDataException) { }
+        var decision = await ClassicFileTransferFrames.ReadAsync(fixture.Send, fixture.Token);
+        Require(decision.Type == ClassicFileFrameType.Approval &&
+            ClassicFileTransferWire.VerifyApproval(ClassicFileTransferWire.Decode<ClassicFileApproval>(decision.Payload), extended, Key) == "unavailable" &&
+            Directory.GetFileSystemEntries(fixture.Destination).Length == 0,
+            "Unavailable storage sent permission, a premature receipt, or created a file.");
     }
 
     private static async Task FolderArchive()

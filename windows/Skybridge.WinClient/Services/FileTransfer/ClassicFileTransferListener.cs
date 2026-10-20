@@ -88,8 +88,14 @@ internal sealed class ClassicFileTransferListener : IAsyncDisposable
                     var accepted = await _approve(metadata, _destination, approval.Token).ConfigureAwait(false);
                     if (!accepted)
                     {
-                        await ClassicFileTransferOperation.SendReceiptAsync(stream,
-                            new(metadata.TransferId, false, 0, 2, Error: "The receiver declined this file."), key, operation.Token).ConfigureAwait(false);
+                        if (metadata.ApprovalProtocol is not null)
+                            await ClassicFileTransferOperation.SendApprovalAsync(stream, metadata, key, "denied", () =>
+                            {
+                                if (!session.IsReady) throw new InvalidOperationException("The declining file session has ended.");
+                            }, operation.Token).ConfigureAwait(false);
+                        else
+                            await ClassicFileTransferOperation.SendReceiptAsync(stream,
+                                new(metadata.TransferId, false, 0, 2, Error: "The receiver declined this file."), key, operation.Token).ConfigureAwait(false);
                         throw new ClassicFileTransferRejectedException("The incoming file was declined.");
                     }
                     using var power = WindowsPowerKeepAwake.Arm();

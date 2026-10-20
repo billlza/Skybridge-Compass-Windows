@@ -9,12 +9,13 @@ internal sealed class ClassicFileTransferRejectedException(string message) : IOE
 internal static class ClassicFileTransferOperation
 {
     internal static async Task WriteAsync(Stream stream, ClassicFileFrameType type, ReadOnlyMemory<byte> payload,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, Action? requireAuthorization = null)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(30));
-        try { await ClassicFileTransferFrames.WriteAsync(stream, type, payload, deadline.Token).ConfigureAwait(false); }
-        catch (OperationCanceledException failure) when (!cancellationToken.IsCancellationRequested)
+        try { await ClassicFileTransferFrames.WriteAsync(stream, type, payload, deadline.Token, requireAuthorization).ConfigureAwait(false); }
+        catch (OperationCanceledException failure) when (deadline.IsCancellationRequested &&
+            failure.CancellationToken == deadline.Token && !cancellationToken.IsCancellationRequested)
         { throw new TimeoutException($"File-transfer {type} write exceeded 30 seconds.", failure); }
     }
 
@@ -30,6 +31,16 @@ internal static class ClassicFileTransferOperation
     internal static async Task SendReceiptAsync(Stream stream, ClassicFileReceipt receipt, ReadOnlyMemory<byte> key,
         CancellationToken cancellationToken) => await WriteAsync(stream, ClassicFileFrameType.Receipt,
             ClassicFileTransferWire.Encode(ClassicFileTransferWire.Authenticate(receipt, key.Span)), cancellationToken).ConfigureAwait(false);
+
+    internal static async Task SendApprovalAsync(Stream stream, ClassicFileMetadata metadata, ReadOnlyMemory<byte> key,
+        string? refusal, Action requireAuthorization, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(requireAuthorization);
+        cancellationToken.ThrowIfCancellationRequested(); requireAuthorization();
+        var response = ClassicFileTransferWire.CreateApproval(metadata, key.Span, refusal);
+        await WriteAsync(stream, ClassicFileFrameType.Approval, ClassicFileTransferWire.Encode(response),
+            cancellationToken, requireAuthorization).ConfigureAwait(false);
+    }
 
     internal static string Hash(ReadOnlySpan<byte> digest) => Convert.ToHexStringLower(digest);
 }

@@ -12,6 +12,7 @@ internal static class AudioOriginalFileAdmissionTests
         ("original audio receives exact private file bytes and a distinct signed transfer receipt", PrivateRoundTrip),
         ("verified original audio is inspected through the same live descriptor without changing PCM", VerifiedWave),
         ("original audio binds real MAIN and classic TCP bytes to one approved artifact", TcpRoundTrip),
+        ("original audio authenticates metadata-bound approval before sender releases any file bytes", ApprovalBeforeContent),
         ("original audio rejects wrong transfer length hash peer and address before consuming its grant", MetadataBinding),
         ("original audio rejects an invalid metadata MAC before private storage", MetadataMac),
         ("original audio permission cannot borrow another MAIN inbox or output", PermissionBinding),
@@ -188,6 +189,32 @@ internal static class AudioOriginalFileAdmissionTests
             Require(receipt.Success && artifact.Length == Bytes.Length &&
                 (await artifact.ReadAsync(65530, 9, default)).SequenceEqual(Bytes.AsSpan(65530, 9).ToArray()),
                 "Real TCP changed file extent or its final bytes.");
+        }
+        finally { await artifact.DisposeAsync(); }
+        f.RequirePrivateReleased();
+    }
+    private static async Task ApprovalBeforeContent()
+    {
+        await using var f = await Fixture.Create(); using var body = await f.Body();
+        var metadata = ClassicFileTransferWire.Authenticate(f.Metadata with { ApprovalProtocol = ClassicFileTransferWire.ApprovalProtocol }, f.Key);
+        using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+        using var sender = new TcpClient(); await sender.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
+        using var receiver = await listener.AcceptTcpClientAsync();
+        var receiving = f.Receive(receiver.GetStream(), metadata);
+        var approval = await ClassicFileTransferFrames.ReadAsync(sender.GetStream(), f.Main.Lan.Token);
+        Require(approval.Type == ClassicFileFrameType.Approval && !receiving.IsCompleted,
+            "File reception completed or waited for file bytes before granting this metadata.");
+        Require(ClassicFileTransferWire.VerifyApproval(ClassicFileTransferWire.Decode<ClassicFileApproval>(approval.Payload), metadata, f.Key) is null,
+            "The admitted artifact did not approve the exact source metadata.");
+        await sender.GetStream().WriteAsync(body.ToArray(), f.Main.Lan.Token);
+        var artifact = await receiving;
+        try
+        {
+            var receipt = await ClassicFileTransferFrames.ReadAsync(sender.GetStream(), f.Main.Lan.Token);
+            Require(receipt.Type == ClassicFileFrameType.Receipt, "Approval was mistaken for the completed file receipt.");
+            ClassicFileTransferWire.Verify(ClassicFileTransferWire.Decode<ClassicFileReceipt>(receipt.Payload), metadata, f.Key);
+            Require((await artifact.ReadAsync(65530, 9, default)).SequenceEqual(Bytes.AsSpan(65530, 9).ToArray()),
+                "Approval changed source bytes.");
         }
         finally { await artifact.DisposeAsync(); }
         f.RequirePrivateReleased();

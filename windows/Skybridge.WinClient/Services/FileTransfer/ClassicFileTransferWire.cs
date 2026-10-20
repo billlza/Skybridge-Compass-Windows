@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Skybridge.WinClient.Services.FileTransfer;
 
@@ -11,7 +12,8 @@ internal sealed record ClassicFileMetadata(
     string TransferId, string FileName, long FileSize, string FileHash, int ChunkSize,
     int SecurityVersion, byte[]? MetadataAuthTag = null, string? Compression = null,
     string? SenderDeviceId = null, string? SenderDeviceName = null, string? SenderPlatform = null,
-    string? SenderOSVersion = null, string? SenderModelName = null, string? SenderChip = null);
+    string? SenderOSVersion = null, string? SenderModelName = null, string? SenderChip = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApprovalProtocol = null);
 
 internal sealed record ClassicFileChunk(int Index, byte[] Data, int Size, byte[] Nonce, byte[] AuthenticationTag);
 
@@ -20,7 +22,7 @@ internal sealed record ClassicFileReceipt(
     string? FileHash = null, string? Error = null, byte[]? AuthTag = null);
 
 /// <summary>The existing Apple LAN file-transfer v2 contract, including its named authentication transcripts.</summary>
-internal static class ClassicFileTransferWire
+internal static partial class ClassicFileTransferWire
 {
     internal const int SecurityVersion = 2;
     internal const long MaximumFileBytes = 2L * 1024 * 1024 * 1024;
@@ -173,6 +175,8 @@ internal static class ClassicFileTransferWire
             throw new InvalidDataException("The file size or negotiated chunk size is outside the protocol limits.");
         ValidateHash(value.FileHash);
         if (value.Compression is not (null or "zlib")) throw new InvalidDataException("Unsupported file compression.");
+        if (value.ApprovalProtocol is not (null or ApprovalProtocol))
+            throw new InvalidDataException("Unsupported file approval protocol.");
         foreach (var field in new[] { value.SenderDeviceId, value.SenderDeviceName, value.SenderPlatform,
             value.SenderOSVersion, value.SenderModelName, value.SenderChip }) ValidateVisible(field, 256);
     }
@@ -227,13 +231,21 @@ internal static class ClassicFileTransferWire
             throw new CryptographicException("File-transfer authentication failed.");
     }
 
-    internal static byte[] MetadataTranscript(ClassicFileMetadata m) => Transcript(1, m.SecurityVersion,
-    [
-        ("transfer_id", m.TransferId), ("file_name", m.FileName), ("file_size", m.FileSize.ToString(CultureInfo.InvariantCulture)),
-        ("file_hash", m.FileHash), ("chunk_size", m.ChunkSize.ToString(CultureInfo.InvariantCulture)), ("compression", m.Compression),
-        ("sender_device_id", m.SenderDeviceId), ("sender_device_name", m.SenderDeviceName), ("sender_platform", m.SenderPlatform),
-        ("sender_os_version", m.SenderOSVersion), ("sender_model_name", m.SenderModelName), ("sender_chip", m.SenderChip)
-    ]);
+    internal static byte[] MetadataTranscript(ClassicFileMetadata m)
+    {
+        if (m.ApprovalProtocol is not (null or ApprovalProtocol))
+            throw new InvalidDataException("Unsupported file approval protocol.");
+        (string, string?)[] fields =
+        [
+            ("transfer_id", m.TransferId), ("file_name", m.FileName), ("file_size", m.FileSize.ToString(CultureInfo.InvariantCulture)),
+            ("file_hash", m.FileHash), ("chunk_size", m.ChunkSize.ToString(CultureInfo.InvariantCulture)), ("compression", m.Compression),
+            ("sender_device_id", m.SenderDeviceId), ("sender_device_name", m.SenderDeviceName), ("sender_platform", m.SenderPlatform),
+            ("sender_os_version", m.SenderOSVersion), ("sender_model_name", m.SenderModelName), ("sender_chip", m.SenderChip)
+        ];
+        // Omitting negotiation preserves the original v2 transcript exactly.
+        if (m.ApprovalProtocol is not null) fields = [.. fields, ("approval_protocol", m.ApprovalProtocol)];
+        return Transcript(1, m.SecurityVersion, fields);
+    }
 
     internal static byte[] ReceiptTranscript(ClassicFileReceipt r) => Transcript(2, r.SecurityVersion,
     [
