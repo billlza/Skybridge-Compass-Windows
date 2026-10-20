@@ -124,7 +124,7 @@ internal static class UsbControlWorkspaceTests
                 await Reject<AudioMembershipException>(() => workspace.ConnectUsbControlAsync(selected, null, Offline(invalid),
                     new("USB account", "fixture"), limit.Token, connector));
             Require(peer.KeyRefreshReplies == 0 && peer.MainAttempts == 0, "A changed saved device identity reached SKR or MAIN.");
-            var longer = checkpoint with { EvidenceId = Guid.NewGuid(), Peer = remote with { DeviceId = "id:another-peer" },
+            var longer = checkpoint with { EvidenceId = Guid.NewGuid(), Peer = remote with { DeviceId = "id:another-offline-peer" },
                 Expires = new(clock.Now.WallMilliseconds + 120_000, clock.Now.ContinuousMilliseconds + 120_000) };
             var offline = Offline(checkpoint, longer);
             await Reject<InvalidOperationException>(() => workspace.PairUsbPeerAsync(selected, authentication, offline,
