@@ -52,4 +52,16 @@ Original evidence, including the initial unavailable default SDK attempt, is in
 After rejecting unstructured text in the plist root, the final host lane passes
 28 checks with zero compiler warnings/errors. The final-path executable again
 opens the selected iPad's app port, and the repository's offline stack gate passes.
-Windows-native execution and the actual Windows Apple service remain separate gates.
+Windows-native execution and the actual Windows Apple service are separate gates.
+
+Native run [39444823023](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/39444823023),
+at `82fd3aa81b7614c3fc2ec459a65383159f783ef8`, passes the same 28 checks on
+Windows with .NET SDK 10.0.402, zero build warnings/errors, and a self-contained
+Windows package. All 192 package files matched their recorded lengths and hashes;
+the five native source hashes matched the committed blobs after the exact
+LF-to-CRLF checkout conversion. Archive SHA-256:
+`a3c97a34ad3aed1087bbf89544b94047f1301883a85b61d95c31aab0fbf2abe0`.
+The initial raw source comparison failed on line endings and is retained alongside
+the explicit comparison. This runner exercised the Windows socket/runtime boundary,
+not a physical Apple service or USB driver. No authenticated phone-to-Windows
+session, audio transport, device-unplug behavior or strict output is admitted yet.
