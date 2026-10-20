@@ -114,7 +114,7 @@
     <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
     <!-- DPAPI (ProtectedData) for at-rest encryption of the persisted account session
          (Services/SessionStore.cs, DataProtectionScope.CurrentUser). -->
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.10" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.13" />
   </ItemGroup>
 
   <Import Project="..\NativeCore.targets" />

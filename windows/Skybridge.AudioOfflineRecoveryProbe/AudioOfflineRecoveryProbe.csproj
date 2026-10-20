@@ -7,7 +7,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.10" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.13" />
     <Compile Include="..\Skybridge.WinClient\Services\SessionPersistenceContracts.cs" Link="Product\SessionPersistenceContracts.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\SessionStore.cs" Link="Product\SessionStore.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\ISupabaseAuthClient.cs" Link="Product\ISupabaseAuthClient.cs" />

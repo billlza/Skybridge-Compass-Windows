@@ -156,12 +156,12 @@ foreach ($vorticeVersion in @($vorticeDirect3D12Version, $vorticeDxgiVersion, $v
     Assert-True -Condition ($vorticeVersion -eq "3.8.3") -Message "All Vortice packages must stay aligned on latest stable 3.8.3, got $vorticeVersion"
 }
 Assert-True -Condition ($vorticeMathematicsVersion -eq "2.1.1") -Message "Vortice.Mathematics must stay on latest stable 2.1.1, got $vorticeMathematicsVersion"
-Assert-True -Condition ($protectedDataVersion -eq "10.0.10") -Message "ProtectedData must stay on latest stable 10.0.10, got $protectedDataVersion"
+Assert-True -Condition ($protectedDataVersion -eq "10.0.13") -Message "ProtectedData must stay on latest stable 10.0.13, got $protectedDataVersion"
 Assert-True -Condition ($contractProtectedDataVersion -eq $protectedDataVersion) -Message "ContractTests ProtectedData version must match the product project. product=$protectedDataVersion tests=$contractProtectedDataVersion"
 Assert-True -Condition ($sipsorceryVersion -eq "10.0.13") -Message "SIPSorcery must stay on latest stable 10.0.13, got $sipsorceryVersion"
 Assert-Contains -Text $cargoManifest -Needle 'edition = "2021"' -Message "Rust core must stay on Rust 2021 edition until a dedicated migration is scheduled."
 Assert-Contains -Text $cargoManifest -Needle 'crate-type = ["rlib", "cdylib"]' -Message "Rust core must build both reusable rlib and native cdylib artifacts."
-Assert-True -Condition ([string]$globalJson.sdk.version -eq "10.0.302") -Message "global.json must pin the latest .NET 10 SDK 10.0.302."
+Assert-True -Condition ([string]$globalJson.sdk.version -eq "10.0.402") -Message "global.json must pin the latest .NET 10 SDK 10.0.402."
 Assert-True -Condition ([string]$globalJson.sdk.rollForward -eq "latestPatch") -Message "global.json must roll forward only within the pinned feature band."
 Assert-True -Condition (-not [bool]$globalJson.sdk.allowPrerelease) -Message "global.json must reject prerelease SDKs."
 Assert-Contains -Text $rustToolchain -Needle 'channel = "1.97.1"' -Message "rust-toolchain.toml must pin stable Rust 1.97.1."
@@ -203,8 +203,8 @@ foreach ($architectureSignal in @(
     '`WindowsPackageType=None`',
     'QRCoder `1.8.0`',
     '.NET 10',
-    '10.0.10',
-    '10.0.302',
+    '10.0.13',
+    '10.0.402',
     'November 14, 2028',
     'MsQuic v2.5.9',
     'libdatachannel',
@@ -215,7 +215,7 @@ foreach ($architectureSignal in @(
     '-EvidencePath <json>',
     'source URIs',
     'online latest-version results',
-    'Stack sources refreshed on 2026-08-10'
+    'The .NET SDK/runtime and ProtectedData baseline was refreshed on 2026-10-20'
 )) {
     Assert-Contains -Text $architecture -Needle $architectureSignal -Message "Architecture stack freshness doc missing signal: $architectureSignal"
 }
@@ -239,7 +239,7 @@ if ($CheckOnline) {
     Assert-True -Condition ($dotnet10."channel-version" -eq "10.0") -Message ".NET release metadata channel mismatch."
     Assert-True -Condition ($dotnet10."support-phase" -eq "active") -Message ".NET 10 must remain active."
     Assert-True -Condition ($dotnet10."eol-date" -eq "2028-11-14") -Message ".NET 10 EOL date changed: $($dotnet10.'eol-date')"
-    Assert-True -Condition ($dotnet10."latest-runtime" -eq "10.0.10") -Message ".NET 10 latest runtime changed: $($dotnet10.'latest-runtime')"
+    Assert-True -Condition ($dotnet10."latest-runtime" -eq "10.0.13") -Message ".NET 10 latest runtime changed: $($dotnet10.'latest-runtime')"
     Assert-True -Condition ($dotnet10."latest-sdk" -eq [string]$globalJson.sdk.version) -Message ".NET 10 SDK pin is stale: project=$($globalJson.sdk.version) latest=$($dotnet10.'latest-sdk')"
 
     $latestWindowsAppSdk = Get-LatestStableNuGetVersion -PackageId "Microsoft.WindowsAppSDK"
@@ -376,8 +376,8 @@ if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
             dependencies = $cargoVersions
         }
         approvedVersions = [ordered]@{
-            dotnetLatestRuntime = "10.0.10"
-            dotnetLatestSdk = "10.0.302"
+            dotnetLatestRuntime = "10.0.13"
+            dotnetLatestSdk = "10.0.402"
             dotnetEolDate = "2028-11-14"
             rustStable = "1.97.1"
             cargoLlvmCov = "0.8.7"
