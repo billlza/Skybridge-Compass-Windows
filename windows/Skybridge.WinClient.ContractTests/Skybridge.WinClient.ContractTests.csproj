@@ -18,6 +18,8 @@
 
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="LocationPermissionRequestTests.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\SettingsWorkspaceClient.cs" Link="Services\SettingsWorkspaceClient.cs" />
     <Compile Include="SessionFileCommitTests.cs" />
     <Compile Include="ProcessTerminationBarrier.cs" />
     <Compile Include="TestSessionState.cs" />

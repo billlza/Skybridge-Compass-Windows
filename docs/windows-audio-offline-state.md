@@ -1,6 +1,6 @@
 # Windows audio authorization across process restart
 
-Status: product offline startup, finite membership recovery and the audio receiver UI are now connected to the canonical account journal. Host component regressions pass; native validation of this integration and physical authenticated playback remain open. Cross-logon, reboot and suspend acceptance are not established. A durable login identifier alone is not audio authority.
+Status: product offline startup, finite membership recovery and the audio receiver UI are now connected to the canonical account journal. Host and native account/provider regressions pass; interactive WinUI acceptance and physical authenticated playback remain open. Cross-logon, reboot and suspend acceptance are not established. A durable login identifier alone is not audio authority.
 
 ## Current product boundaries
 
@@ -49,6 +49,8 @@ A temporary renewal failure leaves the original lease and deadlines intact. A su
 Eleven integration cases cover startup/UI eligibility, both actual identities, unchanged deadlines, expiry and clock regression, native continuity failure, canonical replacement, unresolved startup operations, temporary renewal and live promotion, TLS rejection/signout, absent local identity, cancellation, expired credentials and a separate reader process. These tests use synthetic account responses and protocol identities. On Windows the file protector and continuity tag use product DPAPI APIs; on the Mac host they use explicit fixtures. They do not demonstrate a physical USB/Wi-Fi connection, audible fidelity, power-loss durability or recovery across reboot.
 
 Credential-journal native run [39373949550](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/39373949550), at `03922715d3b1275d14b82a4aea7571ed5f9ba235`, completed both native builds with zero warnings/errors, 854 distinct contract passes and 21 QR vectors. Its full result is **failed**: the startup UI probe could not uniquely identify the real location-consent window, and the freshness gate found Windows App SDK 2.3.1 versus 2.5.1. Archive SHA-256: `032b69f2f77e86eed030b31e8504fe53b790328aa11b70553fc03b1668d9229e`. This run predates the product startup integration above; it is not evidence for that integration.
+
+Native integration run [39376957132](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/39376957132), at `0f8fd6da28654f0656d7a48ae7c6b3f4303634dc`, completed the WinUI build with zero warnings/errors and all 865 distinct contracts, including all eleven offline integration cases. The separate reader process used `CurrentUser-DPAPI+same-logon` through the real coordinator/provider. Evidence archive SHA-256: `aabf59b33ec3af4b231459626e236de4c6c6d83d64a7197349eca57878834835`. The workflow remains **failed** at the existing automatic location-dialog UI boundary and Windows App SDK freshness gate. This validates native application-process recovery within the same Windows logon; it does not establish cross-reboot recovery, a phone connection or physical playback.
 
 ## Mutation ordering required by recovery
 

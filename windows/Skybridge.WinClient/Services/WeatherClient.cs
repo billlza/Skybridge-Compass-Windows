@@ -24,7 +24,7 @@ namespace Skybridge.WinClient.Services;
 //    omitted (they only activate when the user has API keys set). If AQI cannot be
 //    determined it degrades gracefully (cell hidden), exactly like the Mac.
 //
-//  Location: we FIRST try the device's real location via the Windows Location Service
+//  Location: when already permitted, we try the device's real location via the Windows Location Service
 //  (Windows.Devices.Geolocation.Geolocator — GPS/Wi-Fi/cell, the OS-level fix). When
 //  that succeeds we query wttr.in BY COORDINATES (https://wttr.in/{lat},{lon}?format=j1)
 //  so a proxy/VPN egress IP can no longer move the forecast to the wrong city. If the
@@ -90,14 +90,10 @@ public sealed class WeatherClient : IWeatherClient
 
     public async Task<WeatherSnapshot> BuildReadOnlySnapshotAsync()
     {
-        // Step 0: try the device's REAL location via the Windows Location Service. This
-        // MUST happen before any ConfigureAwait(false) hop so RequestAccessAsync /
-        // GetGeopositionAsync run on the caller's captured (UI/STA) context — the weather
-        // refresh is kicked from the SessionViewModel on the UI thread and RefreshAsync
-        // awaits us with ConfigureAwait(true), so we are still on that context here, before
-        // the first await below. The whole attempt is guarded; ANY failure (no UI context,
-        // COM apartment issue, location OFF, denied, or timeout) yields null and we fall
-        // through to the IP-based default path. It never throws into the UI.
+        // Step 0: read device location only when permission is already granted.
+        // This automatic refresh never requests permission. The existing explicit
+        // Settings command owns RequestAccessAsync on the foreground UI context.
+        // A denied or failed location read retains the labelled approximate path.
         var coordinates = await TryGetDeviceCoordinatesAsync().ConfigureAwait(false);
 
         if (coordinates is { } point)
@@ -150,16 +146,13 @@ public sealed class WeatherClient : IWeatherClient
     {
         try
         {
-            // RequestAccessAsync surfaces the OS consent state for the unpackaged app and
-            // requires a UI/STA-friendly context; it returns Allowed only when the global
-            // Windows Location setting is ON and this app is permitted. Anything else
-            // (Denied/Unspecified) means we honestly cannot use the device fix.
-            var access = await Geolocator.RequestAccessAsync();
-            if (access != GeolocationAccessStatus.Allowed)
-            {
+            // Automatic dashboard refresh is not a user request for location.
+            // CheckAccess never prompts. Keep the existing approximate IP path
+            // until the user explicitly requests access in Settings.
+            if (WindowsLocationPermission.CheckAccess() != Windows.Security.Authorization.AppCapabilityAccess.AppCapabilityAccessStatus.Allowed)
                 return null;
-            }
-
+            // The native location read still enforces access if permission changes
+            // after the check. Never request again from this automatic path.
             var geolocator = new Geolocator
             {
                 DesiredAccuracyInMeters = LocationDesiredAccuracyInMeters
@@ -172,11 +165,12 @@ public sealed class WeatherClient : IWeatherClient
             var position = await geolocator.GetGeopositionAsync(LocationMaximumAge, LocationTimeout);
             return position.Coordinate.Point.Position;
         }
-        catch (Exception)
+        catch (Exception error)
         {
             // No location source, sensor disabled, COM apartment mismatch (off a UI thread),
-            // timeout, or any WinRT failure — degrade silently to the IP-based path. The
-            // weather card must never error out just because location is unavailable.
+            // timeout, or another WinRT failure leaves device location unavailable.
+            // Retain the failure class while the existing approximate IP path runs.
+            WindowsRuntimeLog.Write(WindowsLogLevel.Warning, "WeatherLocation", error.GetType().Name);
             return null;
         }
     }

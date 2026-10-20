@@ -100,9 +100,8 @@ internal static class WindowsNativeRuntimeDependencyFactory
     }
 
     public static ISettingsWorkspaceClient CreateSettingsWorkspaceClientFromEnvironment() =>
-        IsEnabled(SettingsSystemPreferencesVariable)
-            ? new SettingsWorkspaceClient(new WindowsSystemPreferencesLauncher())
-            : new SettingsWorkspaceClient();
+        new SettingsWorkspaceClient(IsEnabled(SettingsSystemPreferencesVariable)
+            ? new WindowsSystemPreferencesLauncher() : new DisabledSystemPreferencesLauncher(), WindowsLocationPermission.RequestAsync);
 
     internal static WindowsDiscoveryBrowserClient CreateFeaturePeerDiscoveryClient() =>
         CreateDiscoveryBrowserClientFromEnvironment(new CoreDiscoveryClient(new CoreBridge()));

@@ -241,6 +241,12 @@ public sealed class SettingsWorkspaceClient : ISettingsWorkspaceClient
     private readonly ISettingsExportPreviewClient _exportPreviewClient;
     private readonly ISettingsActionIntentClient _actionIntentClient;
     private readonly ISystemPreferencesLauncher _systemPreferencesLauncher;
+    private readonly Func<Task<SettingsWorkspaceActionResult>>? _requestPermission;
+
+    public SettingsWorkspaceClient(ISystemPreferencesLauncher systemPreferencesLauncher,
+        Func<Task<SettingsWorkspaceActionResult>> requestPermission)
+        : this(systemPreferencesLauncher, new InMemorySettingsExportPreviewClient(), new InMemorySettingsActionIntentClient(), requestPermission)
+    { ArgumentNullException.ThrowIfNull(requestPermission); }
 
     public SettingsWorkspaceClient()
         : this(
@@ -271,11 +277,13 @@ public sealed class SettingsWorkspaceClient : ISettingsWorkspaceClient
     public SettingsWorkspaceClient(
         ISystemPreferencesLauncher systemPreferencesLauncher,
         ISettingsExportPreviewClient exportPreviewClient,
-        ISettingsActionIntentClient actionIntentClient)
+        ISettingsActionIntentClient actionIntentClient,
+        Func<Task<SettingsWorkspaceActionResult>>? requestPermission = null)
     {
         _systemPreferencesLauncher = systemPreferencesLauncher ?? throw new ArgumentNullException(nameof(systemPreferencesLauncher));
         _exportPreviewClient = exportPreviewClient ?? throw new ArgumentNullException(nameof(exportPreviewClient));
         _actionIntentClient = actionIntentClient ?? throw new ArgumentNullException(nameof(actionIntentClient));
+        _requestPermission = requestPermission;
     }
 
     public string BuildInitialStatus() => DefaultInitialStatus;
@@ -482,7 +490,7 @@ public sealed class SettingsWorkspaceClient : ISettingsWorkspaceClient
         Task.FromResult(_actionIntentClient.BuildResetSettingsIntent());
 
     public Task<SettingsWorkspaceActionResult> BuildPermissionRequestActionAsync() =>
-        Task.FromResult(_actionIntentClient.BuildPermissionRequestIntent());
+        _requestPermission is null ? Task.FromResult(_actionIntentClient.BuildPermissionRequestIntent()) : _requestPermission();
 
     public Task<SettingsWorkspaceActionResult> BuildSystemPreferencesActionAsync() =>
         _systemPreferencesLauncher.OpenSystemPreferencesAsync();

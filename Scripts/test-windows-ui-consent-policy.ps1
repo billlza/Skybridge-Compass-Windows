@@ -25,3 +25,35 @@ Require-Rejection -Events @($missingWindow)
 Write-Output 'PASS duplicate, unrelated and unbound receipts are rejected'
 Assert-FirstStartLocationConsentReceipt -Events @((New-Receipt))
 Write-Output 'PASS a single complete receipt satisfies the policy only'
+
+function New-ClearReceipt {
+    [pscustomobject]@{ application='Skybridge.WinClient'; action='observe'; status='clear'; windowHandle=42; processId=123; foregroundRoot=42; centerRoot=42; overlappingWindowCount=0 }
+}
+function Require-ClearRejection([object[]]$Events) {
+    $failure = $null
+    try { Assert-NoAutomaticLocationConsentReceipt -Events $Events } catch { $failure = $_ }
+    if ($null -eq $failure) { throw 'An unproven no-prompt observation was accepted.' }
+}
+Require-ClearRejection -Events @()
+foreach ($field in @('application','action','status','windowHandle','processId','foregroundRoot','centerRoot','overlappingWindowCount')) {
+    $missing = New-ClearReceipt; $missing.PSObject.Properties.Remove($field)
+    Require-ClearRejection -Events @($missing)
+}
+$obscured = New-ClearReceipt; $obscured.overlappingWindowCount=1
+Require-ClearRejection -Events @($obscured)
+foreach ($invalidCount in @($null, 0.1, '0')) {
+    $invalid = New-ClearReceipt; $invalid.overlappingWindowCount=$invalidCount
+    Require-ClearRejection -Events @($invalid)
+}
+$clicked = New-ClearReceipt; $clicked.action='allow'
+Require-ClearRejection -Events @($clicked)
+$hidden = New-ClearReceipt; $hidden.foregroundRoot=0
+Require-ClearRejection -Events @($hidden)
+$covered = New-ClearReceipt; $covered.centerRoot=43
+Require-ClearRejection -Events @($covered)
+$changed = New-ClearReceipt; $changed.processId=124
+Require-ClearRejection -Events @((New-ClearReceipt), $changed)
+$changed = New-ClearReceipt; $changed.windowHandle=43
+Require-ClearRejection -Events @((New-ClearReceipt), $changed)
+Assert-NoAutomaticLocationConsentReceipt -Events @((New-ClearReceipt), (New-ClearReceipt))
+Write-Output 'PASS no-prompt admission requires observed unobscured windows from the same candidate and rejects permission actions'

@@ -2027,4 +2027,12 @@
   <data name="AudioReceiveVerifyAccount" xml:space="preserve"><value>Connect to the internet and verify your account to receive audio.</value></data>
   <data name="AudioReceiveOfflineUntil" xml:space="preserve"><value>Offline audio is available for previously authorized devices until {0:t}. Each device retains its own expiry.</value></data>
   <data name="AccountRestoreOfflineAudio" xml:space="preserve"><value>Account verification is temporarily unavailable. Audio reception is still available for previously authorized devices within their remaining authorization period.</value></data>
+  <data name="LocationPermissionTitle" xml:space="preserve"><value>Location access</value></data>
+  <data name="LocationPermissionAllowed" xml:space="preserve"><value>Allowed</value></data>
+  <data name="LocationPermissionDeniedByUser" xml:space="preserve"><value>Denied. You can change this in Windows privacy settings.</value></data>
+  <data name="LocationPermissionDeniedBySystem" xml:space="preserve"><value>Blocked by Windows location settings.</value></data>
+  <data name="LocationPermissionNotRequested" xml:space="preserve"><value>Not requested. Use Request Permission to enable device location.</value></data>
+  <data name="LocationPermissionUnavailable" xml:space="preserve"><value>Device location is unavailable to this app.</value></data>
+  <data name="LocationPermissionReadFailed" xml:space="preserve"><value>Could not read location permission.</value></data>
+  <data name="LocationPermissionDenied" xml:space="preserve"><value>Location permission was not granted. You can review it in Windows privacy settings.</value></data>
 </root>

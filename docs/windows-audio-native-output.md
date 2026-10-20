@@ -1,5 +1,15 @@
 # Native exact PCM output qualification
 
+## Startup location permission boundary
+
+The native audio UI gate was repeatedly obscured by the real Windows location-consent dialog, including run `39373949550` at `03922715d3b1275d14b82a4aea7571ed5f9ba235`. The retained screenshot and UI failure are under `artifacts/audio-native-20261020/credential-journal-v1/native/winui-smoke/`. The automation provider exposed insufficient text/buttons to bind that dialog safely; the gate correctly failed.
+
+Two product paths requested access during nominally read-only work: weather startup called `Geolocator.RequestAccessAsync`, and `SettingsPermissionsView.Loaded` used the same method to read status. [Microsoft documents that this request can prompt and should align with an appropriate user action](https://learn.microsoft.com/en-us/windows/win32/nativewifi/wi-fi-access-location-changes). [Capability checking is guaranteed not to prompt](https://learn.microsoft.com/en-us/uwp/api/windows.security.authorization.appcapabilityaccess.appcapabilityaccessstatus).
+
+The revised permission view only checks access and observes changes while loaded. Automatic weather refresh checks existing location authorization first and retains the already-labelled approximate IP path when it is unavailable. The existing Settings permission command invokes the real native request and reports its result; a denial or native failure cannot become an in-memory successful intent. Weather rendering and strict audio authorization/output rules are unchanged.
+
+The revised CI startup/navigation contract requires native observations of the same live, unobscured candidate window. It never grants a permission automatically. Missing observations, obscuring windows and records of permission actions fail; a zero-click count alone cannot establish success. The old prompt-handling records and their failures remain historical evidence. Native behavior after this revision, including previously granted location access and an explicit request, still requires validation; host request-dispatch and receipt-policy tests cannot substitute for it.
+
 ## Playback authorization renewal
 
 Windows reception now owns a renewal task for the exact approved stream. A fresh authenticated device-list GET may advance only the same account publication, local/peer protocol identities and live inbox lease. The original source/output consent stays fixed. Its original membership ID remains frozen so renewal cannot create another original-file transfer from old consent. Replacement logins, expired or revoked consumers, changed connections and late canceled responses cannot resurrect playback.

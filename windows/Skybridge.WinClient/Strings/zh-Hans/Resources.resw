@@ -1982,4 +1982,12 @@
   <data name="AudioReceiveVerifyAccount" xml:space="preserve"><value>请联网验证账号后接收音频。</value></data>
   <data name="AudioReceiveOfflineUntil" xml:space="preserve"><value>已有授权的设备可离线播放，最晚至 {0:t}；各设备仍以自己的授权期限为准。</value></data>
   <data name="AccountRestoreOfflineAudio" xml:space="preserve"><value>账号暂时无法联网验证。已有授权的设备仍可在剩余有效期内接收音频。</value></data>
+  <data name="LocationPermissionTitle" xml:space="preserve"><value>位置访问</value></data>
+  <data name="LocationPermissionAllowed" xml:space="preserve"><value>已授权</value></data>
+  <data name="LocationPermissionDeniedByUser" xml:space="preserve"><value>已拒绝，可在 Windows 隐私设置中更改。</value></data>
+  <data name="LocationPermissionDeniedBySystem" xml:space="preserve"><value>Windows 位置设置已禁用访问。</value></data>
+  <data name="LocationPermissionNotRequested" xml:space="preserve"><value>尚未申请，可点“请求权限”启用设备定位。</value></data>
+  <data name="LocationPermissionUnavailable" xml:space="preserve"><value>此应用当前无法使用设备定位。</value></data>
+  <data name="LocationPermissionReadFailed" xml:space="preserve"><value>无法读取位置权限。</value></data>
+  <data name="LocationPermissionDenied" xml:space="preserve"><value>未获得定位权限，可在 Windows 隐私设置中查看。</value></data>
 </root>

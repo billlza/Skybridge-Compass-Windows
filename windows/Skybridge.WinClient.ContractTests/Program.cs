@@ -6,6 +6,12 @@ using System.Text.Json;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.ViewModels;
 
+if (args.SequenceEqual(["--location-permission"]))
+{
+    foreach (var test in LocationPermissionRequestTests.Cases) { await test.Run(); Console.WriteLine("PASS " + test.Name); }
+    return;
+}
+
 if (args is ["--audio-offline-reader", var offlineDirectory])
 {
     await AudioObservationJournalTests.ReadOfflineChild(offlineDirectory);
@@ -521,7 +527,7 @@ var remoteHostTests = Skybridge.WinClient.ContractTests.WindowsRemoteControlAudi
         }
     })));
 var allTests = tests.Concat(SessionFileCommitTests.Cases).Concat(SessionStoreVersionTests.Cases).Concat(AppOperatorTests.Cases).Concat(AccountDeviceTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(AudioMembershipRenewalTests.Cases)
-    .Concat(AccountAudioAuthorizationTests.Cases).Concat(AudioMembershipCheckpointTests.Cases).Concat(AudioCheckpointStorageTests.Cases).Concat(AudioObservationJournalTests.Cases).Concat(ShellInteractionTests.Cases).Concat(remoteHostTests);
+    .Concat(AccountAudioAuthorizationTests.Cases).Concat(AudioMembershipCheckpointTests.Cases).Concat(AudioCheckpointStorageTests.Cases).Concat(AudioObservationJournalTests.Cases).Concat(LocationPermissionRequestTests.Cases).Concat(ShellInteractionTests.Cases).Concat(remoteHostTests);
 var selectedTests = args.SequenceEqual(["--audio-account"])
     ? tests.Where(test => test.Name.StartsWith("account ", StringComparison.Ordinal) || test.Name.StartsWith("supabase ", StringComparison.Ordinal))
         .Concat(AccountDeviceTests.Cases).Concat(AccountAudioAuthorizationTests.Cases).Concat(AudioAccountMembershipTests.Cases).Concat(AudioMembershipCheckpointTests.Cases).Concat(AudioAccountRegistryTests.Cases).Concat(AudioObservationJournalTests.Cases).Concat(LanProductControlSessionTests.Cases)

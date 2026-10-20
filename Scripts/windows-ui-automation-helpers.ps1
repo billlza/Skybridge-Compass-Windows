@@ -234,6 +234,28 @@ function Convert-CiConsentWindowsToEvidence {
     })
 }
 
+function Assert-CiNoAutomaticLocationConsent {
+    param(
+        [System.Windows.Automation.AutomationElement]$Window,
+        [System.Diagnostics.Process]$Process,
+        [System.Collections.Generic.List[object]]$Events,
+        [hashtable]$Diagnostics
+    )
+    Assert-True ($env:GITHUB_ACTIONS -eq 'true') 'First-start permission observation is restricted to the owned CI UI test.'
+    $Process.Refresh()
+    Assert-True (-not $Process.HasExited) 'The candidate exited before the permission check.'
+    $handle = [long]$Window.Current.NativeWindowHandle
+    Assert-True ($handle -gt 0 -and $handle -eq $Process.MainWindowHandle.ToInt64()) 'Permission observation is not bound to the candidate main window.'
+    $windows = @(Get-CiConsentWindows -Window $Window -Diagnostics $Diagnostics)
+    $Diagnostics.last = @(Convert-CiConsentWindowsToEvidence -Windows $windows)
+    Assert-True ([NativeMethods]::IsWindowVisible([IntPtr]$handle) -and -not $Window.Current.IsOffscreen) 'The candidate is not visibly present at the permission boundary.'
+    Assert-True ($Diagnostics.lastNative.foregroundRoot -eq $handle -and $Diagnostics.lastNative.centerRoot -eq $handle) 'The candidate does not own both the foreground and its center point; no-prompt state is unproven.'
+    Assert-True ($windows.Count -eq 0) 'Startup or navigation opened an unexpected obscuring dialog; no permission was granted automatically.'
+    $Events.Add([pscustomobject]@{ application = 'Skybridge.WinClient'; action = 'observe'; status = 'clear';
+        windowHandle = $handle; processId = $Process.Id; foregroundRoot = $Diagnostics.lastNative.foregroundRoot;
+        centerRoot = $Diagnostics.lastNative.centerRoot; overlappingWindowCount = 0; at = [DateTime]::UtcNow.ToString('o') })
+}
+
 function Resolve-CiLocationConsent {
     param(
         [System.Windows.Automation.AutomationElement]$Window,

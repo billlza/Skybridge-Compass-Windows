@@ -1,52 +1,62 @@
 using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Windows.Devices.Geolocation;
+using Skybridge.WinClient.Services;
+using Windows.Security.Authorization.AppCapabilityAccess;
 
 namespace Skybridge.WinClient.Settings;
 
-// SettingsPermissionsView — Tab 7 (权限 / Permissions) code-behind.
-//
-// Permissions has NO persisted settings keys and NO settable controls. The tab is read-only status
-// + HARDWARE-REAL permission rows + a static 帮助 block + the EXISTING gated actions (RefreshStatus
-// header · RequestPermission + OpenSystemPreferences toolbar) preserved in SettingsView's action
-// ItemsControls — so this tab adds no new commands and no <Button> surface.
-//
-// The one imperative piece is the HARDWARE-REAL 位置访问 (Location) status: it is read on load via
-// Windows.Devices.Geolocation.Geolocator.RequestAccessAsync(), which returns the real OS consent
-// state (Allowed / Denied / Unspecified). Fully defensive — any failure shows an honest "读取失败",
-// never a fabricated "granted". DataContext is the SessionViewModel inherited from SettingsView.
+// Reading status never requests access. The existing Settings permission command
+// is the explicit request path; AccessChanged refreshes this read-only row.
 public sealed partial class SettingsPermissionsView : UserControl
 {
+    private AppCapability? _locationCapability;
+
     public SettingsPermissionsView()
     {
         InitializeComponent();
         Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
-    private async void OnLoaded(object sender, RoutedEventArgs e) => await RefreshLocationAccessAsync();
-
-    private async System.Threading.Tasks.Task RefreshLocationAccessAsync()
+    private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        if (LocationAccessValue is null)
-        {
-            return;
-        }
-
+        if (_locationCapability is not null) return;
         try
         {
-            var status = await Geolocator.RequestAccessAsync();
-            LocationAccessValue.Text = status switch
-            {
-                GeolocationAccessStatus.Allowed => "已授权",
-                GeolocationAccessStatus.Denied => "已拒绝 · 见 Windows 隐私设置",
-                GeolocationAccessStatus.Unspecified => "未设置 · Windows 隐私设置管理",
-                _ => "未知"
-            };
+            var capability = AppCapability.Create("location");
+            capability.AccessChanged += OnLocationAccessChanged;
+            _locationCapability = capability;
+            RefreshLocationAccess();
         }
-        catch (Exception)
+        catch (Exception error) { ShowReadFailure(error); }
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (_locationCapability is not { } capability) return;
+        _locationCapability = null;
+        capability.AccessChanged -= OnLocationAccessChanged;
+    }
+
+    private void OnLocationAccessChanged(AppCapability sender, AppCapabilityAccessChangedEventArgs args)
+    {
+        if (!DispatcherQueue.TryEnqueue(() =>
         {
-            LocationAccessValue.Text = "读取失败";
-        }
+            if (ReferenceEquals(sender, _locationCapability)) RefreshLocationAccess();
+        })) WindowsRuntimeLog.Write(WindowsLogLevel.Debug, "LocationPermission", "Permission view dispatcher closed.");
+    }
+
+    private void RefreshLocationAccess()
+    {
+        if (LocationAccessValue is null || _locationCapability is null) return;
+        try { LocationAccessValue.Text = WindowsLocationPermission.Describe(_locationCapability.CheckAccess()); }
+        catch (Exception error) { ShowReadFailure(error); }
+    }
+
+    private void ShowReadFailure(Exception error)
+    {
+        LocationAccessValue.Text = WindowsLocationPermission.Text("LocationPermissionReadFailed");
+        WindowsRuntimeLog.Write(WindowsLogLevel.Warning, "LocationPermission", error.GetType().Name);
     }
 }
