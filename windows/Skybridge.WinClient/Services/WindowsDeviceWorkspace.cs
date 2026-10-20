@@ -365,6 +365,33 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
         return PreparePeerAuthenticationAsync(candidate, account, endpoint, cancellationToken);
     }
 
+    internal async Task<Connection.UsbPeerPairingState> InspectUsbPairingAsync(
+        Connection.UsbPeerInspection inspection, CancellationToken token)
+    {
+        await _operations.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_identity is null)
+            {
+                try { _identity = await RemoteControlIdentityStore.LoadExistingAsync(_stateDirectory, _displayName, token).ConfigureAwait(false); }
+                catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
+                {
+                    // A genuinely new installation has no saved identity. A missing
+                    // lock beside an existing identity is a storage failure, not an
+                    // unpaired device and never permission to recreate that identity.
+                    try { _ = File.GetAttributes(Path.Combine(_stateDirectory, "remote-control-identity.bin")); }
+                    catch (Exception absent) when (absent is FileNotFoundException or DirectoryNotFoundException)
+                    { return Connection.UsbPeerPairingState.Unpaired; }
+                    throw;
+                }
+            }
+            token.ThrowIfCancellationRequested();
+            return Connection.UsbPeerPairingMatcher.Match(inspection, _identity.PublicMaterial.DeviceId, _identity.TrustedMaterials);
+        }
+        finally { _operations.Release(); }
+    }
+
     internal Task<ProductPeerAuthentication> PrepareControlAuthenticationAsync(DiscoveryBrowserPeerCandidate candidate,
         RemoteControlViewerAccount account, CancellationToken cancellationToken)
     {

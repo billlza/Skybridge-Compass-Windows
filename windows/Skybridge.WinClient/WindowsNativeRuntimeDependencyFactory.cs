@@ -43,7 +43,7 @@ internal static class WindowsNativeRuntimeDependencyFactory
         return true;
     }
 
-    public static SessionViewModelDependencies CreateFromEnvironment(IFileTransferWorkspaceClient? fileTransferClient = null, ITopBarStatusClient? topBarStatusClient = null, SettingsService? settingsService = null)
+    public static SessionViewModelDependencies CreateFromEnvironment(IFileTransferWorkspaceClient? fileTransferClient = null, ITopBarStatusClient? topBarStatusClient = null, SettingsService? settingsService = null, IUsbManagementWorkspaceClient? usbManagementClient = null)
     {
         var coreBridge = new CoreBridge();
         var discoveryClient = new CoreDiscoveryClient(coreBridge);
@@ -84,7 +84,7 @@ internal static class WindowsNativeRuntimeDependencyFactory
             new RemoteDesktopWorkspaceClient(coreBridge),
             new RemoteDesktopProfileCatalogClient(),
             new SystemMonitorWorkspaceClient(),
-            new UsbManagementWorkspaceClient(),
+            usbManagementClient ?? new UsbManagementWorkspaceClient(),
             CreateSettingsWorkspaceClientFromEnvironment(),
             new DashboardMetricsClient(),
             new WeatherClient(),

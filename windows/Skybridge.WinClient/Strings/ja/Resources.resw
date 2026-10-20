@@ -1990,4 +1990,21 @@
   <data name="LocationPermissionUnavailable" xml:space="preserve"><value>このアプリでは現在、端末の位置情報を利用できません。</value></data>
   <data name="LocationPermissionReadFailed" xml:space="preserve"><value>位置情報の権限を読み取れませんでした。</value></data>
   <data name="LocationPermissionDenied" xml:space="preserve"><value>位置情報の権限が許可されていません。Windows のプライバシー設定で確認できます。</value></data>
+  <data name="Status.UsbPaired" xml:space="preserve"><value>SkyBridge はペアリング済み・未接続</value></data>
+  <data name="Status.UsbUnpaired" xml:space="preserve"><value>SkyBridge を検出しました。ペアリングが必要です</value></data>
+  <data name="Status.UsbIdentityConflict" xml:space="preserve"><value>デバイスの識別情報が保存済みのペアリングと一致しません</value></data>
+  <data name="Status.UsbPairingUnavailable" xml:space="preserve"><value>SkyBridge を検出しましたが、保存済みのペアリングを読み取れません</value></data>
+  <data name="Status.UsbOpenApp" xml:space="preserve"><value>接続した Apple デバイスで SkyBridge を開いてください</value></data>
+  <data name="Status.UsbDeviceUnavailable" xml:space="preserve"><value>USB デバイスが切断されました</value></data>
+  <data name="Status.UsbIdentityInvalid" xml:space="preserve"><value>SkyBridge のデバイス識別情報を検証できませんでした</value></data>
+  <data name="Status.UsbSignatureUnsupported" xml:space="preserve"><value>現在のシステムではこのデバイスの署名を検証できません</value></data>
+  <data name="Status.UsbTimeout" xml:space="preserve"><value>SkyBridge USB デバイスの応答がタイムアウトしました</value></data>
+  <data name="Status.UsbInspectionFailed" xml:space="preserve"><value>USB 上の SkyBridge を識別できませんでした</value></data>
+  <data name="Status.UsbServiceUnavailable" xml:space="preserve"><value>Apple USB 接続サービスを利用できません</value></data>
+  <data name="Status.UsbDeviceLimit" xml:space="preserve"><value>Apple USB デバイスを 8 台以下にして再試行してください</value></data>
+  <data name="Status.UsbPairingNotLoaded" xml:space="preserve"><value>SkyBridge を検出しました。ペアリング状態は未読込です</value></data>
+  <data name="Status.UsbDuplicateIdentity" xml:space="preserve"><value>複数の USB デバイスが同じ SkyBridge 識別情報を使用しています</value></data>
+  <data name="UsbLabel.AppleDevices" xml:space="preserve"><value>Apple デバイス</value></data>
+  <data name="UsbLabel.AppleDevice" xml:space="preserve"><value>Apple デバイス</value></data>
+  <data name="UsbLabel.AppleDetail" xml:space="preserve"><value>接続済みの Apple USB デバイス</value></data>
 </root>

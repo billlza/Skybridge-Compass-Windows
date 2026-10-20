@@ -305,7 +305,8 @@ public sealed record UsbDeviceItemView(
     // shows nothing — honest, no fabricated chip.
     IReadOnlyList<string> Capabilities,
     string DeviceTypeKey,
-    bool IsMfiCertified)
+    bool IsMfiCertified,
+    string? SkybridgeStatus = null)
 {
     public bool HasCapabilities => Capabilities.Count > 0;
 
@@ -320,7 +321,8 @@ public sealed record UsbDeviceItemView(
             item.ConnectionInterface,
             item.Capabilities,
             item.DeviceTypeKey,
-            item.IsMfiCertified);
+            item.IsMfiCertified,
+            item.SkybridgeStatus);
 }
 
 public sealed record SystemMonitorMetricView(

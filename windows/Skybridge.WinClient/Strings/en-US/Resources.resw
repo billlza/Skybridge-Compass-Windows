@@ -2035,4 +2035,21 @@
   <data name="LocationPermissionUnavailable" xml:space="preserve"><value>Device location is unavailable to this app.</value></data>
   <data name="LocationPermissionReadFailed" xml:space="preserve"><value>Could not read location permission.</value></data>
   <data name="LocationPermissionDenied" xml:space="preserve"><value>Location permission was not granted. You can review it in Windows privacy settings.</value></data>
+  <data name="Status.UsbPaired" xml:space="preserve"><value>SkyBridge paired; not connected</value></data>
+  <data name="Status.UsbUnpaired" xml:space="preserve"><value>SkyBridge found; pairing required</value></data>
+  <data name="Status.UsbIdentityConflict" xml:space="preserve"><value>SkyBridge identity differs from saved pairing</value></data>
+  <data name="Status.UsbPairingUnavailable" xml:space="preserve"><value>SkyBridge found; saved pairing could not be read</value></data>
+  <data name="Status.UsbOpenApp" xml:space="preserve"><value>Open SkyBridge on the connected Apple device</value></data>
+  <data name="Status.UsbDeviceUnavailable" xml:space="preserve"><value>USB device is no longer available</value></data>
+  <data name="Status.UsbIdentityInvalid" xml:space="preserve"><value>SkyBridge identity verification failed</value></data>
+  <data name="Status.UsbSignatureUnsupported" xml:space="preserve"><value>SkyBridge USB signature support is unavailable</value></data>
+  <data name="Status.UsbTimeout" xml:space="preserve"><value>SkyBridge USB device did not respond in time</value></data>
+  <data name="Status.UsbInspectionFailed" xml:space="preserve"><value>SkyBridge USB inspection failed</value></data>
+  <data name="Status.UsbServiceUnavailable" xml:space="preserve"><value>Apple USB connection service is unavailable</value></data>
+  <data name="Status.UsbDeviceLimit" xml:space="preserve"><value>Connect at most eight Apple USB devices to inspect SkyBridge</value></data>
+  <data name="Status.UsbPairingNotLoaded" xml:space="preserve"><value>SkyBridge found; pairing status is not loaded</value></data>
+  <data name="Status.UsbDuplicateIdentity" xml:space="preserve"><value>Multiple USB devices share one SkyBridge identity</value></data>
+  <data name="UsbLabel.AppleDevices" xml:space="preserve"><value>Apple Devices</value></data>
+  <data name="UsbLabel.AppleDevice" xml:space="preserve"><value>Apple device</value></data>
+  <data name="UsbLabel.AppleDetail" xml:space="preserve"><value>Connected Apple USB devices</value></data>
 </root>

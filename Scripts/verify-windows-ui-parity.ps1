@@ -354,7 +354,9 @@ foreach ($compositionSignal in @(
     "SessionViewModelDependencyFactory",
     "SessionViewModelDependencyFactory.CreateConfigured()",
     "SessionViewModelDependencyFactory.CreateDefault()",
-    "new SessionViewModel(SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu))",
+    "new SessionViewModel(SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu, _usbWorkspace))",
+    "_usbWorkspace = new(_remoteControlWorkspace.InspectUsbPairingAsync)",
+    "await _usbWorkspace.DisposeAsync()",
     "WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment()"
 )) {
     Assert-Contains -Text ($sessionViewModelDependencyFactory + $sessionViewModel + $mainWindowCode + $parityDoc) -Needle $compositionSignal -Message "Windows composition signal missing: $compositionSignal"
@@ -4042,7 +4044,7 @@ foreach ($usbSignal in @(
     "UsbManagementHeaderActions",
     "WorkspaceActionSurface.UsbManagementHeader",
     "RefreshDevices",
-    "MFi Certified",
+    "Apple Devices",
     "Android Devices",
     "Storage Devices",
     "Total Devices",

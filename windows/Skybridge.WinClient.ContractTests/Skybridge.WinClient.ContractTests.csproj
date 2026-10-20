@@ -89,6 +89,15 @@
     <Compile Include="AudioStreamingLanEnvelopeTests.cs" />
     <Compile Include="LanAudioReceiverTests.cs" />
     <Compile Include="TcpProductControlTransportTests.cs" />
+    <Compile Include="UsbPeerDiscoveryTests.cs" />
+    <Compile Include="NativeUsbDiscoveryFixture.cs" />
+    <None Update="Fixtures\usb-peer-discovery-v1\apple-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="..\Skybridge.WinClient\Services\Connection\UsbMuxProtocol.cs" Link="Services\Connection\UsbMuxProtocol.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Connection\UsbMuxConnector.cs" Link="Services\Connection\UsbMuxConnector.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Connection\UsbPeerDiscovery.cs" Link="Services\Connection\UsbPeerDiscovery.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Connection\UsbPeerDiscoveryClient.cs" Link="Services\Connection\UsbPeerDiscoveryClient.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Connection\UsbPeerScanner.cs" Link="Services\Connection\UsbPeerScanner.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Connection\UsbPeerPairingMatcher.cs" Link="Services\Connection\UsbPeerPairingMatcher.cs" />
     <Compile Include="ProductControlStreamOwnershipTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioStreamingWire.cs" Link="Services\Audio\AudioStreamingWire.cs" />
     <None Update="Fixtures\audio-streaming-v1-vectors.json" CopyToOutputDirectory="PreserveNewest" />

@@ -45,6 +45,9 @@ public sealed class LabelKeyToLocalizedConverter : IValueConverter
     private static readonly Dictionary<string, string> CanonicalToResourceKey =
         new(StringComparer.Ordinal)
         {
+            ["Apple Devices"] = "UsbLabel.AppleDevices",
+            ["Apple device"] = "UsbLabel.AppleDevice",
+            ["Connected Apple USB devices"] = "UsbLabel.AppleDetail",
             ["Sending"] = "FileTransferLiveSendingState",
             ["Receiving"] = "FileTransferLiveReceivingState",
             ["Sent"] = "FileTransferLiveSent",
@@ -150,6 +153,10 @@ public sealed class LabelKeyToLocalizedConverter : IValueConverter
     private static readonly Dictionary<string, Dictionary<string, string>> FallbackTable =
         new(StringComparer.Ordinal)
         {
+            ["UsbLabel.AppleDevices"] = new() { ["en"] = "Apple Devices", ["zh"] = "Apple 设备", ["ja"] = "Apple デバイス" },
+            ["UsbLabel.AppleDevice"] = new() { ["en"] = "Apple device", ["zh"] = "Apple 设备", ["ja"] = "Apple デバイス" },
+            ["UsbLabel.AppleDetail"] = new() { ["en"] = "Connected Apple USB devices", ["zh"] = "已连接的 Apple USB 设备", ["ja"] = "接続済みの Apple USB デバイス" },
+
             ["SysMonLabel.Health"] = new() { ["en"] = "Health", ["zh"] = "健康", ["ja"] = "ヘルス" },
             ["SysMonLabel.Monitoring"] = new() { ["en"] = "Monitoring", ["zh"] = "监控", ["ja"] = "監視" },
             ["SysMonLabel.Advanced"] = new() { ["en"] = "Advanced", ["zh"] = "高级", ["ja"] = "詳細" },

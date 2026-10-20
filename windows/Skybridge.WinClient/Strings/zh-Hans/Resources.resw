@@ -1990,4 +1990,21 @@
   <data name="LocationPermissionUnavailable" xml:space="preserve"><value>此应用当前无法使用设备定位。</value></data>
   <data name="LocationPermissionReadFailed" xml:space="preserve"><value>无法读取位置权限。</value></data>
   <data name="LocationPermissionDenied" xml:space="preserve"><value>未获得定位权限，可在 Windows 隐私设置中查看。</value></data>
+  <data name="Status.UsbPaired" xml:space="preserve"><value>SkyBridge 已配对，尚未连接</value></data>
+  <data name="Status.UsbUnpaired" xml:space="preserve"><value>已发现 SkyBridge，需要配对</value></data>
+  <data name="Status.UsbIdentityConflict" xml:space="preserve"><value>设备身份与已保存的配对记录不一致</value></data>
+  <data name="Status.UsbPairingUnavailable" xml:space="preserve"><value>已识别 SkyBridge，但无法读取配对记录</value></data>
+  <data name="Status.UsbOpenApp" xml:space="preserve"><value>请在已连接的 Apple 设备上打开 SkyBridge</value></data>
+  <data name="Status.UsbDeviceUnavailable" xml:space="preserve"><value>USB 设备已断开</value></data>
+  <data name="Status.UsbIdentityInvalid" xml:space="preserve"><value>SkyBridge 设备身份校验失败</value></data>
+  <data name="Status.UsbSignatureUnsupported" xml:space="preserve"><value>当前系统无法验证此设备的签名</value></data>
+  <data name="Status.UsbTimeout" xml:space="preserve"><value>SkyBridge USB 设备响应超时</value></data>
+  <data name="Status.UsbInspectionFailed" xml:space="preserve"><value>无法识别 USB 上的 SkyBridge</value></data>
+  <data name="Status.UsbServiceUnavailable" xml:space="preserve"><value>Apple USB 连接服务不可用</value></data>
+  <data name="Status.UsbDeviceLimit" xml:space="preserve"><value>请最多连接八台 Apple USB 设备后重试</value></data>
+  <data name="Status.UsbPairingNotLoaded" xml:space="preserve"><value>已发现 SkyBridge，配对状态尚未读取</value></data>
+  <data name="Status.UsbDuplicateIdentity" xml:space="preserve"><value>多个 USB 设备使用了相同的 SkyBridge 身份</value></data>
+  <data name="UsbLabel.AppleDevices" xml:space="preserve"><value>Apple 设备</value></data>
+  <data name="UsbLabel.AppleDevice" xml:space="preserve"><value>Apple 设备</value></data>
+  <data name="UsbLabel.AppleDetail" xml:space="preserve"><value>已连接的 Apple USB 设备</value></data>
 </root>

@@ -9,12 +9,13 @@ internal static class SessionViewModelDependencyFactory
         IFileTransferWorkspaceClient fileTransferClient,
         ITopBarNotificationCenterClient notifications,
         SettingsService settings,
-        System.Action openThemePicker) =>
+        System.Action openThemePicker,
+        IUsbManagementWorkspaceClient? usbManagementClient = null) =>
         CreateConfigured(fileTransferClient,
-            new TopBarStatusClient(notifications, new SettingsThemePreferenceClient(settings), openThemePicker), settings);
+            new TopBarStatusClient(notifications, new SettingsThemePreferenceClient(settings), openThemePicker), settings, usbManagementClient);
 
-    public static SessionViewModelDependencies CreateConfigured(IFileTransferWorkspaceClient? fileTransferClient = null, ITopBarStatusClient? topBarStatusClient = null, SettingsService? settingsService = null) =>
-        WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment(fileTransferClient, topBarStatusClient, settingsService);
+    public static SessionViewModelDependencies CreateConfigured(IFileTransferWorkspaceClient? fileTransferClient = null, ITopBarStatusClient? topBarStatusClient = null, SettingsService? settingsService = null, IUsbManagementWorkspaceClient? usbManagementClient = null) =>
+        WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment(fileTransferClient, topBarStatusClient, settingsService, usbManagementClient);
 
     public static SessionViewModelDependencies CreateDefault() =>
         WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment();

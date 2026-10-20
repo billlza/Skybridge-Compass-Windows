@@ -8,12 +8,28 @@ param(
     [string]$EvidenceHead = "",
     [switch]$RequireAccountDeviceService,
     [switch]$RequireNoAutomaticLocationConsentForCi,
-    [ValidatePattern("^[A-Fa-f0-9]{64}$")][string]$ExistingAssemblySha256
+    [ValidatePattern("^[A-Fa-f0-9]{64}$")][string]$ExistingAssemblySha256,
+    [string]$UsbFixtureDirectory = ""
 )
 
 $ErrorActionPreference = "Stop"
 if ($RequireNoAutomaticLocationConsentForCi -and $env:GITHUB_ACTIONS -ne 'true') {
     throw 'First-start permission observation is restricted to the owned CI UI test.'
+}
+if ($UsbFixtureDirectory -and $env:GITHUB_ACTIONS -ne 'true') {
+    throw 'The synthetic USB service check is restricted to the owned CI UI test.'
+}
+
+function Read-UsbFixtureReceipt {
+    param([string]$Path)
+    $stream = [IO.FileStream]::new($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+        [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+    try {
+        if ($stream.Length -gt 4096) { throw 'USB fixture receipt exceeds its expected bound.' }
+        $reader = [IO.StreamReader]::new($stream, [Text.UTF8Encoding]::new($false, $true), $true, 1024, $true)
+        try { return $reader.ReadToEnd() | ConvertFrom-Json }
+        finally { $reader.Dispose() }
+    } finally { $stream.Dispose() }
 }
 
 
@@ -321,6 +337,51 @@ try {
     $closeAccount.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     $accountOverlay = Find-ByAutomationId -Root $window -AutomationId "AccountDevices.Close"
     Assert-True -Condition ($null -eq $accountOverlay -or $accountOverlay.Current.IsOffscreen) -Message "Account device modal did not close."
+
+    if ($UsbFixtureDirectory) {
+        $stage = "usb-discovery/refusal-recovery"
+        Set-TestWindowLogicalSize -Window $window -Width 1280 -Height 900
+        Select-Feature -Window $window -FeatureId "UsbManagement" -AnchorAutomationId "WorkspaceAction.UsbManagementHeader.RefreshDevices"
+        Set-WorkspaceScrollPercent -Window $window -VerticalPercent 0
+        $usbStates = [Collections.Generic.List[object]]::new()
+        foreach ($scenario in @(
+            @{ mode = 'open'; expected = 'SkyBridge found; pairing required'; capture = 'usb-phone-found.png' },
+            @{ mode = 'closed'; expected = 'Open SkyBridge on the connected Apple device'; capture = 'usb-phone-app-closed.png' },
+            @{ mode = 'open'; expected = 'SkyBridge found; pairing required'; capture = 'usb-phone-app-restored.png' }
+        )) {
+            $closedPortMarker = Join-Path $UsbFixtureDirectory 'closed-port'
+            if ($scenario.mode -eq 'closed') { [IO.File]::WriteAllText($closedPortMarker, '') }
+            else { [IO.File]::Delete($closedPortMarker) }
+            $before = Read-UsbFixtureReceipt (Join-Path $UsbFixtureDirectory 'observations.json')
+            $refresh = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId "WorkspaceAction.UsbManagementHeader.RefreshDevices"
+            $readyLimit = [DateTimeOffset]::UtcNow.AddSeconds(20)
+            while (-not $refresh.Current.IsEnabled) {
+                if ([DateTimeOffset]::UtcNow -ge $readyLimit) { throw 'USB refresh remained busy.' }
+                Start-Sleep -Milliseconds 100
+            }
+            $refresh.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            $limit = [DateTimeOffset]::UtcNow.AddSeconds(20)
+            $matched = $false
+            do {
+                $condition = [System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'Skybridge.Usb.PeerStatus')
+                $statuses = @($window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition))
+                $matching = @($statuses | Where-Object { -not $_.Current.IsOffscreen -and $_.Current.Name -eq $scenario.expected })
+                $after = Read-UsbFixtureReceipt (Join-Path $UsbFixtureDirectory 'observations.json')
+                $freshReply = if ($scenario.mode -eq 'closed') { $after.portRefusals -gt $before.portRefusals } else { $after.responses -gt $before.responses }
+                $matched = $freshReply -and $matching.Count -eq 1 -and $refresh.Current.IsEnabled
+                if (-not $matched) { Start-Sleep -Milliseconds 100 }
+            } while (-not $matched -and [DateTimeOffset]::UtcNow -lt $limit)
+            Assert-True $matched "USB inspection did not reach the expected real UI state: $($scenario.expected)"
+            $usbStates.Add(@{ mode = $scenario.mode; visibleStatus = $matching[0].Current.Name; responses = $after.responses; portRefusals = $after.portRefusals })
+            [void](Save-WindowScreenshot -Window $window -Path (Join-Path $EvidenceDir $scenario.capture))
+        }
+        @{
+            scope = 'Synthetic USB multiplex service; real product decoder, native signatures and UI'
+            states = @($usbStates); actualAppleService = $false; actualUsbDevice = $false
+            authenticatedSession = $false; audioPlayed = $false
+        } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'usb-discovery-ui.json')
+    }
 
     Write-Output "windows-ui-automation-smoke: ok"
 }

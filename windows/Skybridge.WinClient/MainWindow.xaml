@@ -892,9 +892,14 @@
                                 MaxLines="1"
                                 Foreground="{StaticResource SkyBridgeTextPrimaryBrush}" />
                             <TextBlock
-                                Text="{Binding DeviceType}"
+                                Text="{Binding DeviceType, Converter={StaticResource LabelKeyToLocalizedConverter}}"
                                 FontSize="13"
                                 Foreground="{StaticResource SkyBridgeTextSecondaryBrush}" />
+                            <TextBlock Text="{Binding SkybridgeStatus, Converter={StaticResource StatusKeyToLocalizedConverter}}"
+                                       TextWrapping="Wrap" FontSize="13"
+                                       Visibility="{Binding SkybridgeStatus, Converter={StaticResource StringPresenceVisibilityConverter}}"
+                                       AutomationProperties.AutomationId="Skybridge.Usb.PeerStatus"
+                                       Foreground="{StaticResource SkyBridgeTextSecondaryBrush}" />
                         </StackPanel>
                         <!-- MFi badge (Mac DeviceCard: checkmark.seal.fill + "MFi Certified",
                              shown only when device.isMFiCertified). EC61 = CompletedSolid

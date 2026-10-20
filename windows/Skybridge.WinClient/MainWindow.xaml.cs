@@ -29,6 +29,7 @@ public sealed partial class MainWindow : Window
     public RemoteControlHostViewModel RemoteControlHost { get; }
     private readonly WindowsDeviceWorkspace _remoteControlWorkspace = new();
     private readonly FileTransferWorkspaceClient _fileTransferWorkspace;
+    private readonly UsbManagementWorkspaceClient _usbWorkspace;
     private RemoteControl.RemoteControlViewerWindow? _remoteControlViewer;
     private Window? _remoteControlNotice;
     private bool _closingRemoteControlNotice;
@@ -59,7 +60,8 @@ public sealed partial class MainWindow : Window
         var settings = new SettingsService();
         _operatorSettings = settings;
         _notifications = new WorkspaceNotificationCenter(ShowNotifications);
-        ViewModel = new SessionViewModel(SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu));
+        _usbWorkspace = new(_remoteControlWorkspace.InspectUsbPairingAsync);
+        ViewModel = new SessionViewModel(SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu, _usbWorkspace));
         _fileTransferWorkspace.Changed += OnFileTransferChanged;
         ViewModel.PropertyChanged += OnFileTransferAccountChanged;
         RootShell.DataContext = ViewModel;
@@ -184,6 +186,7 @@ public sealed partial class MainWindow : Window
                 _operatorServer = null;
             }
             if (_remoteControlViewer is { } viewer) await viewer.CloseForShutdownAsync();
+            await _usbWorkspace.DisposeAsync();
             await StopAudioReceptionAsync();
             await StopAccountDevicesAsync();
             await _fileTransferWorkspace.DisposeAsync();

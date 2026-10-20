@@ -22,7 +22,7 @@ namespace Skybridge.WinClient.ViewModels;
 /// 4 stat cards (UsbDeviceStats), whose stable Titles are also keyed here so each USB card
 /// reads with its own glyph the way the Mac USBStatCard does (the gate locks UsbDeviceStats
 /// to this exact template, so the per-card icon has to be resolved off the shared converter):
-///   "MFi Certified"   \u2192 EC61  (CompletedSolid, sealed check) ~ SF "checkmark.seal.fill"
+///   "Apple Devices"   \u2192 E8EA  (CellPhone, hardware family only)
 ///   "Android Devices" \u2192 E8EA  (CellPhone)                    ~ SF "smartphone"
 ///   "Storage Devices" \u2192 EDA2  (HardDrive)                    ~ SF "externaldrive.fill"
 ///   "Total Devices"   \u2192 E88E  (USB / connector)              ~ SF "cable.connector"
@@ -40,7 +40,7 @@ public sealed class MetricKeyToGlyphConverter : IValueConverter
             "Transfer Tasks" => "\uE8B7",   // Folder, matches SF "folder"
             "System Status" => "\uEC61",    // CompletedSolid - checkmark in a filled circle, matches SF "checkmark.circle.fill"
             // USB Management stat cards (shared template) \u2014 Mac USBStatCard icons.
-            "MFi Certified" => "\uEC61",    // CompletedSolid (sealed checkmark), matches SF "checkmark.seal.fill"
+            "Apple Devices" => "\uE8EA",   // Hardware family count, not certification or authentication.
             "Android Devices" => "\uE8EA",  // CellPhone, matches SF "smartphone"
             "Storage Devices" => "\uEDA2",  // HardDrive, matches SF "externaldrive.fill"
             "Total Devices" => "\uE88E",    // USB / connector, matches SF "cable.connector"
@@ -68,7 +68,7 @@ public sealed class MetricKeyToGlyphConverter : IValueConverter
 ///   "System Status"    → SkyBridgeSuccessBrush        (green,  Mac .green for "Excellent")
 /// The USB Management screen reuses the same shared metric-card template, so its 4 stat-card
 /// titles are keyed here too, element-matching the Mac USBStatCard hues:
-///   "MFi Certified"   → SkyBridgeSuccessBrush         (green,  Mac .green)
+///   "Apple Devices"   → SkyBridgeNavDashboardBrush    (blue, hardware family only)
 ///   "Android Devices" → SkyBridgeNavDashboardBrush    (blue,   Mac .blue)
 ///   "Storage Devices" → SkyBridgeWarningBrush         (orange, Mac .orange)
 ///   "Total Devices"   → SkyBridgeNavQuantumBrush      (purple, Mac .purple)
@@ -86,7 +86,7 @@ public sealed class MetricKeyToBrushConverter : IValueConverter
             "Transfer Tasks" => "SkyBridgeWarningBrush",
             "System Status" => "SkyBridgeSuccessBrush",
             // USB Management stat cards (shared template) — Mac USBStatCard hues.
-            "MFi Certified" => "SkyBridgeSuccessBrush",
+            "Apple Devices" => "SkyBridgeNavDashboardBrush",
             "Android Devices" => "SkyBridgeNavDashboardBrush",
             "Storage Devices" => "SkyBridgeWarningBrush",
             "Total Devices" => "SkyBridgeNavQuantumBrush",

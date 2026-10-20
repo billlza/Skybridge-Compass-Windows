@@ -66,6 +66,19 @@ if (args.SequenceEqual(["--tcp-transport"]))
     return;
 }
 
+if (args.SequenceEqual(["--usb-peer-discovery"]))
+{
+    foreach (var test in UsbPeerDiscoveryTests.Cases) { await test.Run(); Console.WriteLine("PASS " + test.Name); }
+    Console.WriteLine($"USB discovery native signature verification required: {OperatingSystem.IsWindows()}");
+    return;
+}
+
+if (args is ["--usb-discovery-ui-service", var usbFixtureDirectory])
+{
+    await NativeUsbDiscoveryFixture.RunUiAsync(usbFixtureDirectory);
+    return;
+}
+
 if (args.SequenceEqual(["--audio-flac-component-missing"]) || args.SequenceEqual(["--audio-flac-component-malformed"]))
 {
     await AudioFlacReceiveTests.UnavailableComponent(args[0] == "--audio-flac-component-malformed");
@@ -493,6 +506,7 @@ var remoteHostTests = Skybridge.WinClient.ContractTests.WindowsRemoteControlAudi
     .Concat(AudioOriginalFileReceiveSessionTests.Cases)
     .Concat(LanProtocolIdentityBindingTests.Cases)
     .Concat(LanPibResponderTests.Cases)
+    .Concat(UsbPeerDiscoveryTests.Cases)
     .Concat(ProtocolOnlyPairingMaterialTests.Cases)
     .Concat(SignedLanKemRefreshTests.Cases)
     .Concat(SignedLanKemRefreshResponderTests.Cases)

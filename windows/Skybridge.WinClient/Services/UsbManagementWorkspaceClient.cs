@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Windows.Devices.Enumeration;
+using Skybridge.WinClient.Services.Connection;
 
 namespace Skybridge.WinClient.Services;
 
@@ -40,8 +41,18 @@ public interface IUsbManagementWorkspaceClient
 /// the empty state) and no placeholder/fake rows are ever fabricated. Fields that genuinely
 /// cannot be read from a given source stay blank rather than carrying invented values.
 /// </summary>
-public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
+public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient, IAsyncDisposable
 {
+    private readonly Func<UsbPeerInspection, CancellationToken, Task<UsbPeerPairingState>>? _pairing;
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly SemaphoreSlim _refresh = new(1, 1), _close = new(1, 1);
+    private UsbPeerScanner? _peers;
+    private volatile bool _disposed;
+    private Exception? _cancellationFailure;
+    public UsbManagementWorkspaceClient() { }
+    internal UsbManagementWorkspaceClient(Func<UsbPeerInspection, CancellationToken, Task<UsbPeerPairingState>> pairing)
+    { _pairing = pairing; }
+
     public string BuildInitialStatus() => DefaultInitialStatus;
 
     public string BuildPendingStatus() => DefaultPendingStatus;
@@ -58,7 +69,7 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
     public static string DefaultCompletedStatusMessage { get; } = "USB management workspace updated";
 
     public static string BuildDefaultCompletedStatus(UsbManagementWorkspaceSnapshot snapshot) =>
-        $"Last scan {snapshot.CapturedAt:HH:mm:ss} UTC";
+        snapshot.SkybridgeFailureStatus ?? $"Last scan {snapshot.CapturedAt:HH:mm:ss} UTC";
 
     // ---- Vendor allow-lists, mirroring USBCConnectionManager's hardcoded lists ----
     private const ushort AppleVendorId = 0x05AC;
@@ -80,36 +91,105 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
 
     public async Task<UsbManagementWorkspaceSnapshot> BuildReadOnlySnapshotAsync()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _refresh.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+        try { return await BuildSnapshotAsync(_lifetime.Token).ConfigureAwait(false); }
+        finally { _refresh.Release(); }
+    }
+
+    private async Task<UsbManagementWorkspaceSnapshot> BuildSnapshotAsync(CancellationToken token)
+    {
         // 1) Real USB-device enumeration via the in-framework WinRT projection.
-        var usbDevices = await EnumerateUsbDevicesAsync().ConfigureAwait(false);
+        var usbDevices = await EnumerateUsbDevicesAsync(token).ConfigureAwait(false);
 
         // 2) Removable-storage volumes (DriveInfo) — merged so storage volumes keep their
         //    human label + capacity facts. Matched onto a USB device by drive letter where
         //    possible; otherwise surfaced as a standalone storage row.
-        var storageVolumes = await Task.Run(EnumerateRemovableVolumes).ConfigureAwait(false);
+        var storageVolumes = await Task.Run(EnumerateRemovableVolumes, token).ConfigureAwait(false);
 
         var devices = MergeDevices(usbDevices, storageVolumes);
 
-        var mfiCount = devices.Count(d => d.IsMfiCertified);
+        token.ThrowIfCancellationRequested();
+        _peers ??= UsbPeerScanner.Windows(_pairing);
+        var report = await _peers.ScanAsync(token).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
+        var items = devices.Select(d => d.ToItem()).ToList();
+        foreach (var entry in report.Entries)
+        {
+            if (entry.Failure is { } failure)
+                WindowsRuntimeLog.Write(WindowsLogLevel.Warning, "UsbPeerInspection", failure.GetType().Name);
+            var matches = items.Select((item, index) => (item, index)).Where(pair =>
+                UsbMuxProtocol.ValidUdid(pair.item.SerialNumber) &&
+                pair.item.SerialNumber.Replace("-", "", StringComparison.Ordinal).Equals(
+                    entry.Device.Udid.Replace("-", "", StringComparison.Ordinal), StringComparison.OrdinalIgnoreCase)).ToArray();
+            var name = entry.Inspection?.Response.Name;
+            if (string.IsNullOrWhiteSpace(name)) name = null; // Presentation only; signed identity is retained unchanged.
+            if (matches.Length == 1)
+            {
+                var match = matches[0];
+                items[match.index] = match.item with
+                {
+                    Name = name ?? match.item.Name, SkybridgeStatus = entry.Status, IsMfiCertified = false
+                };
+            }
+            else
+            {
+                // The Apple service supplies the usable route even when a generic
+                // WinRT interface is absent or ambiguous. Never bind by display name.
+                items.Add(new(name ?? "Apple", "usb:" + entry.Device.Udid, "Apple device",
+                    "0x05AC", $"0x{entry.Device.ProductId:X4}", entry.Device.Udid, "USB",
+                    ["USB"], "appleMfi", false, entry.Status));
+            }
+        }
+        if (report.Failure is { } serviceFailure)
+            WindowsRuntimeLog.Write(WindowsLogLevel.Warning, "UsbPeerEnumeration", serviceFailure.GetType().Name);
+        var appleCount = items.Count(d => d.DeviceTypeKey == "appleMfi");
         var androidCount = devices.Count(d => d.DeviceTypeKind == UsbDeviceTypeKind.Android);
         var storageCount = devices.Count(d =>
             d.DeviceTypeKind is UsbDeviceTypeKind.ExternalDrive or UsbDeviceTypeKind.FlashDrive);
 
         var stats = new List<UsbDeviceStat>
         {
-            new("MFi Certified", mfiCount.ToString(CultureInfo.InvariantCulture), "Apple-certified accessories"),
+            new("Apple Devices", appleCount.ToString(CultureInfo.InvariantCulture), "Connected Apple USB devices"),
             new("Android Devices", androidCount.ToString(CultureInfo.InvariantCulture), "ADB/MTP-class handsets"),
             new("Storage Devices", storageCount.ToString(CultureInfo.InvariantCulture), "External drives + flash media"),
-            new("Total Devices", devices.Count.ToString(CultureInfo.InvariantCulture), "Connected USB devices")
+            new("Total Devices", items.Count.ToString(CultureInfo.InvariantCulture), "Connected USB devices")
         };
 
         return new UsbManagementWorkspaceSnapshot(
             DateTimeOffset.UtcNow,
             stats,
-            devices.Select(d => d.ToItem()).ToList());
+            items, report.FailureStatus);
     }
 
-    private static async Task<List<EnumeratedUsbDevice>> EnumerateUsbDevicesAsync()
+    public async ValueTask DisposeAsync()
+    {
+        await _close.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (!_disposed)
+            {
+                try { _lifetime.Cancel(); } catch (Exception error) { _cancellationFailure ??= error; }
+                if (!await _refresh.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false))
+                {
+                    var timeout = new TimeoutException("USB workspace refresh has not released its active operation.");
+                    if (_cancellationFailure is { } cancellation) throw new AggregateException(cancellation, timeout);
+                    throw timeout;
+                }
+                try
+                {
+                    if (_peers is not null) await _peers.DisposeAsync().ConfigureAwait(false);
+                    _lifetime.Dispose(); _disposed = true;
+                }
+                finally { _refresh.Release(); }
+            }
+            if (_cancellationFailure is { } failure)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+        finally { _close.Release(); }
+    }
+
+    private static async Task<List<EnumeratedUsbDevice>> EnumerateUsbDevicesAsync(CancellationToken token)
     {
         var results = new List<EnumeratedUsbDevice>();
         try
@@ -122,7 +202,7 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
             var selector = $"System.Devices.InterfaceClassGuid:=\"{usbDeviceInterfaceClass}\"";
             var collection = await DeviceInformation
                 .FindAllAsync(selector, UsbInformationProperties)
-                .AsTask()
+                .AsTask(token)
                 .ConfigureAwait(false);
 
             foreach (var info in collection)
@@ -134,12 +214,8 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
                 }
             }
         }
-        catch (Exception)
-        {
-            // Enumeration is best-effort. If the WinRT projection is unavailable on a given
-            // host we surface zero USB devices (and let the storage pass / empty state stand)
-            // rather than throwing the whole workspace refresh.
-        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception error) { throw new IOException("USB device enumeration failed.", error); }
 
         return results;
     }
@@ -174,7 +250,8 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
 
         var serial = ExtractSerial(instanceId);
         var kind = ClassifyDevice(vendorId, name);
-        var isMfi = kind == UsbDeviceTypeKind.AppleMfi;
+        // Vendor/type hints cannot establish accessory certification or peer trust.
+        var isMfi = false;
 
         var deviceId = vendorId != 0 || productId != 0
             ? string.Create(CultureInfo.InvariantCulture, $"{vendorId:X4}:{productId:X4}{(string.IsNullOrEmpty(serial) ? string.Empty : ":" + serial)}")
@@ -307,10 +384,7 @@ public sealed class UsbManagementWorkspaceClient : IUsbManagementWorkspaceClient
                     }))
                 .ToList();
         }
-        catch (Exception)
-        {
-            return new List<RemovableVolume>();
-        }
+        catch (Exception error) { throw new IOException("USB storage enumeration failed.", error); }
     }
 
     private static string ReadStringProperty(DeviceInformation info, string key)
@@ -426,7 +500,7 @@ internal static class UsbDeviceTypeKindExtensions
 {
     public static string ToDisplayString(this UsbDeviceTypeKind kind) => kind switch
     {
-        UsbDeviceTypeKind.AppleMfi => "Apple MFi device",
+        UsbDeviceTypeKind.AppleMfi => "Apple device",
         UsbDeviceTypeKind.Android => "Android device",
         UsbDeviceTypeKind.ExternalDrive => "External drive",
         UsbDeviceTypeKind.FlashDrive => "USB flash drive",
@@ -449,7 +523,8 @@ internal static class UsbDeviceTypeKindExtensions
 public sealed record UsbManagementWorkspaceSnapshot(
     DateTimeOffset CapturedAt,
     IReadOnlyList<UsbDeviceStat> Stats,
-    IReadOnlyList<UsbDeviceItem> Devices);
+    IReadOnlyList<UsbDeviceItem> Devices,
+    string? SkybridgeFailureStatus = null);
 
 public sealed record UsbDeviceStat(
     string Title,
@@ -471,4 +546,5 @@ public sealed record UsbDeviceItem(
     // "Connected"). An empty list renders no chip row (honest — no fabricated capability).
     IReadOnlyList<string> Capabilities,
     string DeviceTypeKey,
-    bool IsMfiCertified);
+    bool IsMfiCertified,
+    string? SkybridgeStatus = null);

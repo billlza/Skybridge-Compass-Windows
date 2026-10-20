@@ -1,7 +1,8 @@
 param(
     [ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug',
     [Parameter(Mandatory = $true)][string]$EvidenceDir,
-    [Parameter(Mandatory = $true)][ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$ExistingAssemblySha256
+    [Parameter(Mandatory = $true)][ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$ExistingAssemblySha256,
+    [switch]$RequireUsbDiscoveryFixture
 )
 
 $ErrorActionPreference = 'Stop'
@@ -95,7 +96,39 @@ $original = $null
 $restoreRequired = $false
 $primaryError = $null
 $restoreError = $null
+$usbFixtureProcess = $null
+$usbFixtureDirectory = $null
+$usbFixtureOutput = $null
+$usbFixtureErrors = $null
+$usbFixtureCleanupError = $null
 try {
+    if ($RequireUsbDiscoveryFixture) {
+        $usbFixtureDirectory = Join-Path ([IO.Path]::GetFullPath($EvidenceDir)) 'usb-fixture'
+        $assembly = Join-Path (Split-Path -Parent $PSScriptRoot) "windows/Skybridge.WinClient.ContractTests/bin/$Configuration/net10.0/win-x64/Skybridge.WinClient.ContractTests.dll"
+        if (-not (Test-Path -LiteralPath $assembly -PathType Leaf)) { throw 'The native USB fixture assembly is unavailable.' }
+        $start = [Diagnostics.ProcessStartInfo]::new()
+        $start.FileName = (Get-Command dotnet).Source
+        $start.UseShellExecute = $false
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+        $start.ArgumentList.Add($assembly)
+        $start.ArgumentList.Add('--usb-discovery-ui-service')
+        $start.ArgumentList.Add($usbFixtureDirectory)
+        $usbFixtureProcess = [Diagnostics.Process]::Start($start)
+        $usbFixtureOutput = $usbFixtureProcess.StandardOutput.ReadToEndAsync()
+        $usbFixtureErrors = $usbFixtureProcess.StandardError.ReadToEndAsync()
+        $ready = Join-Path $usbFixtureDirectory 'ready.json'
+        $limit = [DateTimeOffset]::UtcNow.AddSeconds(20)
+        while (-not (Test-Path -LiteralPath $ready -PathType Leaf)) {
+            if ($usbFixtureProcess.HasExited) { throw 'The isolated USB fixture exited before readiness; inspect its retained error log.' }
+            if ([DateTimeOffset]::UtcNow -ge $limit) { throw 'The isolated USB fixture did not become ready.' }
+            Start-Sleep -Milliseconds 100
+        }
+        $publication = Get-Content -LiteralPath $ready -Raw | ConvertFrom-Json
+        if ($publication.processId -ne $usbFixtureProcess.Id -or $publication.actualAppleService -ne $false -or $publication.actualUsbDevice -ne $false) {
+            throw 'The isolated USB fixture readiness record has a different owner or scope.'
+        }
+    }
     $original = [CiDisplayMode]::Current()
     $result.original = ConvertTo-DisplayEvidence $original
     $modes = @([CiDisplayMode]::Supported())
@@ -115,12 +148,58 @@ try {
     }
     $result.active = ConvertTo-DisplayEvidence ([CiDisplayMode]::Current())
     & (Join-Path $PSScriptRoot 'verify-windows-ui-automation-smoke.ps1') -Configuration $Configuration `
-        -EvidenceDir $EvidenceDir -ExistingAssemblySha256 $ExistingAssemblySha256 -RequireNoAutomaticLocationConsentForCi
+        -EvidenceDir $EvidenceDir -ExistingAssemblySha256 $ExistingAssemblySha256 -RequireNoAutomaticLocationConsentForCi `
+        -UsbFixtureDirectory $usbFixtureDirectory
     $result.status = 'passed'
 } catch {
     $primaryError = $_.Exception
     $result.error = $primaryError.Message
 } finally {
+    if ($usbFixtureProcess) {
+        $fixtureFailures = [Collections.Generic.List[Exception]]::new()
+        try {
+            if (-not $usbFixtureProcess.HasExited) {
+                [IO.File]::WriteAllText((Join-Path $usbFixtureDirectory 'stop'), 'stop')
+                if (-not $usbFixtureProcess.WaitForExit(12000)) {
+                    throw 'The owned USB fixture failed to drain after its stop signal.'
+                }
+            }
+            if ($usbFixtureProcess.ExitCode -ne 0) { throw "The owned USB fixture failed: exit=$($usbFixtureProcess.ExitCode)" }
+            $observations = Get-Content -LiteralPath (Join-Path $usbFixtureDirectory 'observations.json') -Raw | ConvertFrom-Json
+            if ($observations.responses -lt 2 -or $observations.portRefusals -lt 1 -or -not $observations.drained) {
+                throw 'USB UI checks did not exercise discovery, refusal, recovery and actual service drain.'
+            }
+        } catch {
+            $fixtureFailures.Add($_.Exception)
+        } finally {
+            # Stop-file failure must still retire this owned child. Keep the failure;
+            # forced termination is not successful service drain.
+            try {
+                if (-not $usbFixtureProcess.HasExited) {
+                    $usbFixtureProcess.Kill($true)
+                    if (-not $usbFixtureProcess.WaitForExit(5000)) {
+                        throw 'The owned USB fixture did not exit after termination.'
+                    }
+                }
+            } catch { $fixtureFailures.Add($_.Exception) }
+            foreach ($stream in @(
+                @{ task = $usbFixtureOutput; path = 'usb-fixture-output.log' },
+                @{ task = $usbFixtureErrors; path = 'usb-fixture-error.log' }
+            )) {
+                if ($null -eq $stream.task) { continue }
+                try {
+                    if (-not $stream.task.Wait(2000)) { throw "The owned USB fixture did not close $($stream.path)." }
+                    $stream.task.GetAwaiter().GetResult() | Set-Content -Encoding utf8 (Join-Path $EvidenceDir $stream.path)
+                } catch { $fixtureFailures.Add($_.Exception) }
+            }
+            $usbFixtureProcess.Dispose()
+        }
+        if ($fixtureFailures.Count -gt 0) {
+            $usbFixtureCleanupError = [AggregateException]::new('The owned USB fixture did not complete cleanly.', $fixtureFailures)
+            $result.status = 'failed'
+            $result.usbFixtureError = $usbFixtureCleanupError.ToString()
+        }
+    }
     if ($restoreRequired) {
         try {
             [CiDisplayMode]::Apply($original)
@@ -133,6 +212,6 @@ try {
     }
     $result | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'display-preparation.json')
 }
-if ($primaryError -and $restoreError) { throw [AggregateException]::new($primaryError, $restoreError) }
-if ($primaryError) { throw $primaryError }
-if ($restoreError) { throw $restoreError }
+$failures = @(@($primaryError, $restoreError, $usbFixtureCleanupError) | Where-Object { $null -ne $_ })
+if ($failures.Count -gt 1) { throw [AggregateException]::new([Exception[]]$failures) }
+if ($failures.Count -eq 1) { throw $failures[0] }

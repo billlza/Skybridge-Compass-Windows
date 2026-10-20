@@ -185,7 +185,7 @@ jobs:
           .\Scripts\test-windows-ui-consent-policy.ps1
           $assembly = 'windows/Skybridge.WinClient/bin/Debug/net10.0-windows10.0.22621.0/win-x64/Skybridge.WinClient.dll'
           $hash = (Get-FileHash -LiteralPath $assembly -Algorithm SHA256).Hash
-          .\Scripts\invoke-windows-ui-smoke-ci.ps1 -Configuration Debug -EvidenceDir artifacts/winui-smoke -ExistingAssemblySha256 $hash
+          .\Scripts\invoke-windows-ui-smoke-ci.ps1 -Configuration Debug -EvidenceDir artifacts/winui-smoke -ExistingAssemblySha256 $hash -RequireUsbDiscoveryFixture
 
       - name: Run Windows portability gate
         if: ${{ !cancelled() && steps.rust-tooling.outcome == 'success' }}
