@@ -7,7 +7,7 @@ internal sealed class ProductBootstrapReleaseException(IAsyncDisposable retained
 {
     internal IAsyncDisposable RetainedOwner { get; } = retainedOwner;
     internal static bool ContainsUnreleasedOwner(Exception error) =>
-        error is ProductBootstrapReleaseException or LanResponderCryptoReleaseException ||
+        error is ProductBootstrapReleaseException or UsbMuxReleaseException or LanResponderCryptoReleaseException ||
         error is AggregateException aggregate && aggregate.InnerExceptions.Any(ContainsUnreleasedOwner) ||
         error.InnerException is { } inner && ContainsUnreleasedOwner(inner);
 }

@@ -2873,7 +2873,7 @@
                                     </Border>
                                 </Grid>
                                 <!-- Populated rich list (Visible when count > 0) -->
-                                <Grid x:Name="UsbDevicesInteraction">
+                                <ContentControl x:Name="UsbDevicesInteraction" HorizontalContentAlignment="Stretch" IsTabStop="False">
                                     <ListView
                                         ItemsSource="{Binding UsbDevices}"
                                         ItemTemplate="{StaticResource UsbDeviceItemTemplate}"
@@ -2881,7 +2881,7 @@
                                         SelectionMode="None"
                                         IsEnabled="{Binding IsUsbManagementSelected}"
                                         Visibility="{Binding UsbDeviceCount, Converter={StaticResource CountToVisibilityConverter}}" />
-                                </Grid>
+                                </ContentControl>
                                 <!-- Honest empty state (Visible when count == 0) — Mac
                                      emptyStateView: large muted cable.connector icon + title +
                                      guidance subtitle. E88E ~ cable.connector. -->

@@ -157,6 +157,11 @@ jobs:
             throw "Native contracts failed: full=$contractExit; additional FLAC failures=$($diagnosticFailures.Count); additional audio-host failures=$($audioHostFailures.Count); additional session-storage failures=$($sessionStorageFailures.Count)"
           }
 
+      - name: Verify standalone USB carrier ownership
+        if: ${{ !cancelled() && steps.native-client.outcome == 'success' }}
+        shell: pwsh
+        run: .\Scripts\verify-apple-usb-carrier.ps1
+
       - name: Decode Windows LAN QR images with the Android decoder
         id: lan-qr
         if: ${{ !cancelled() && steps.product-contracts.outcome == 'success' }}
@@ -216,6 +221,8 @@ jobs:
             artifacts/*.log
             artifacts/*.json
             artifacts/*.vcxproj
+            artifacts/apple-usb-carrier/*.json
+            artifacts/apple-usb-carrier/*.log
             artifacts/lan-qr-images/*
             artifacts/lan-qr-decode/*.log
             artifacts/lan-qr-decode/*.json

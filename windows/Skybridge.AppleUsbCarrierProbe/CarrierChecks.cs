@@ -72,6 +72,7 @@ internal static class CarrierChecks
             ("Canceled receive releases its daemon connection", () => Stalled(cancel: true)),
             ("Deadline releases a partial daemon reply", () => Stalled(cancel: false)),
             ("Failed request preserves its cleanup failure", CleanupFailure),
+            ("Successful enumeration cannot publish after unconfirmed release", EnumerationCloseFailure),
             ("Mux handoff preserves product framing across handshake and control readers", FramedHandoff),
             ("Mux disconnect during a product frame remains a truncated-frame failure", TruncatedFrame)
         };
@@ -237,10 +238,23 @@ internal static class CarrierChecks
 
     private static async Task CleanupFailure()
     {
-        var connector = new UsbMuxConnector(_ => Task.FromResult<Stream>(new ReplyStream([1, 2], failClose: true)));
-        var failure = await Expect<AggregateException>(() => connector.DevicesAsync(CancellationToken.None));
-        Require(failure.InnerExceptions.Count == 2 && failure.InnerExceptions[0] is EndOfStreamException &&
-            failure.InnerExceptions[1] is IOException, "Cleanup masked request failure");
+        var owner = new ReplyStream([1, 2], failClose: true);
+        var connector = new UsbMuxConnector(_ => Task.FromResult<Stream>(owner));
+        var failure = await Expect<UsbMuxReleaseException>(() => connector.DevicesAsync(CancellationToken.None));
+        Require(ReferenceEquals(failure.RetainedOwner, owner) &&
+            failure.InnerException is AggregateException { InnerExceptions.Count: 2 } aggregate &&
+            aggregate.InnerExceptions[0] is EndOfStreamException && aggregate.InnerExceptions[1] is IOException,
+            "Cleanup lost its owner or masked the request failure");
+        await Expect<IOException>(() => failure.RetainedOwner.DisposeAsync().AsTask());
+    }
+
+    private static async Task EnumerationCloseFailure()
+    {
+        var owner = new ReplyStream(UsbMuxProtocol.Packet(List(Row()), 1), failClose: true);
+        var connector = new UsbMuxConnector(_ => Task.FromResult<Stream>(owner));
+        var failure = await Expect<UsbMuxReleaseException>(() => connector.DevicesAsync(CancellationToken.None));
+        Require(ReferenceEquals(failure.RetainedOwner, owner) && failure.InnerException is IOException,
+            "A successful reply hid its release failure");
     }
 
     private sealed class FragmentedStream(byte[] bytes) : MemoryStream(bytes)

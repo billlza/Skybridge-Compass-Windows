@@ -71,10 +71,12 @@ internal static class ProductBootstrapExchangeTests
     private static async Task RetainedScanner()
     {
         foreach (bool duringEnumeration in new[] { false, true })
+        foreach (bool multiplexOwner in new[] { false, true })
         {
             int enumerations = 0, inspections = 0;
             var carrier = new Carrier { FailClose = true };
-            var failure = new ProductBootstrapReleaseException(carrier, carrier.CloseFailure);
+            Exception failure = multiplexOwner ? new UsbMuxReleaseException(carrier, carrier.CloseFailure)
+                : new ProductBootstrapReleaseException(carrier, carrier.CloseFailure);
             var scanner = new UsbPeerScanner(_ =>
             {
                 enumerations++;

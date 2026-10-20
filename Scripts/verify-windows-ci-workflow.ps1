@@ -104,6 +104,10 @@ $uiStepIndex = $workflow.IndexOf("Verify interactive WinUI launch and controls",
 Assert-True -Condition ($bundleStepIndex -gt $qrStepIndex -and $bundleStepIndex -lt $uiStepIndex) -Message "Native qualification output must be captured after QR contracts and before interactive use."
 Assert-Contains -Text $workflow -Needle "inputs.package_native_client && steps.native-client.outcome == 'success' && steps.product-contracts.outcome == 'success' && steps.lan-qr.outcome == 'success'" -Message "Native qualification artifacts must be opt-in and require native build, product contracts and QR decoding success."
 Assert-Contains -Text $workflow -Needle 'windows-native-client-${{ github.sha }}' -Message "Native qualification artifact identity must include the built commit."
+Assert-Contains -Text $workflow -Needle 'Verify standalone USB carrier ownership' -Message "CI must validate the shared carrier as an independent probe."
+Assert-Contains -Text $workflow -Needle '.\Scripts\verify-apple-usb-carrier.ps1' -Message "CI must build and run the carrier ownership contracts."
+Assert-Contains -Text $workflow -Needle 'artifacts/apple-usb-carrier/*.json' -Message "Carrier qualification receipts must be retained."
+Assert-Contains -Text $workflow -Needle 'artifacts/apple-usb-carrier/*.log' -Message "Carrier qualification failures must remain observable."
 Assert-Contains -Text $workflow -Needle 'bundleFiles = $bundleFiles' -Message "Native qualification evidence must bind all output files."
 Assert-Contains -Text $workflow -Needle 'windows/Skybridge.WinClient/bin/Debug/net10.0-windows10.0.22621.0/win-x64/**' -Message "Native qualification artifacts must carry the complete self-contained output."
 

@@ -5,6 +5,14 @@ using System.Xml.Linq;
 
 namespace Skybridge.WinClient.Services.Connection;
 
+// Multiplex ownership exists before an application bootstrap transport can take
+// over. Keep this failure in the carrier layer, which is also linked by the probe.
+internal sealed class UsbMuxReleaseException(Stream retainedOwner, Exception failure)
+    : IOException("USB multiplex stream release was not confirmed.", failure)
+{
+    internal Stream RetainedOwner { get; } = retainedOwner;
+}
+
 /// <summary>USB carrier: one bounded daemon request per connection. Successful Connect hands
 /// the same stream to its caller, without consuming any application bytes.</summary>
 internal sealed class UsbMuxConnector
@@ -64,7 +72,7 @@ internal sealed class UsbMuxConnector
             throw;
         }
         try { await stream.DisposeAsync().ConfigureAwait(false); }
-        catch (Exception cleanup) { throw new ProductBootstrapReleaseException(stream, cleanup); }
+        catch (Exception cleanup) { throw new UsbMuxReleaseException(stream, cleanup); }
         return devices;
     }
 
@@ -109,6 +117,6 @@ internal sealed class UsbMuxConnector
     {
         try { await stream.DisposeAsync().ConfigureAwait(false); }
         catch (Exception cleanup)
-        { throw new ProductBootstrapReleaseException(stream, new AggregateException("USB request and stream release failed.", failure, cleanup)); }
+        { throw new UsbMuxReleaseException(stream, new AggregateException("USB request and stream release failed.", failure, cleanup)); }
     }
 }
