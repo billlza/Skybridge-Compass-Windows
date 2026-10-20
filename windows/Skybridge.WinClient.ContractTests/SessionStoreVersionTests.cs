@@ -241,12 +241,16 @@ internal static class SessionStoreVersionTests
         Require(!result.Success && result.ErrorCode == nameof(SessionStoreWriteStatus.Conflict) && store.Load().Version == replacement.Version,
             "Read failure discarded the old owner revision and allowed it to clear a replacement login.");
     }
-    private sealed class FailingRead(ISessionStore inner) : ISessionStore
+    private sealed class FailingRead(ISessionStore inner) : ISessionStore, ISessionVerificationStore
     {
         internal bool Fail;
         public SessionStoreLoadResult Load() => Fail ? SessionStoreLoadResult.IoFailure() : inner.Load();
         public SessionStoreWriteResult Save(PersistedSession value, SessionStoreVersion expected, SessionStoreSaveMode mode) => inner.Save(value, expected, mode);
         public SessionStoreWriteResult Clear(SessionStoreVersion expected) => inner.Clear(expected);
+        public SessionStoreWriteResult BeginVerification(SessionStoreVersion expected, Guid loginId, Guid observationId, bool retireAudio) =>
+            ((ISessionVerificationStore)inner).BeginVerification(expected, loginId, observationId, retireAudio);
+        public SessionStoreWriteResult CompleteVerification(SessionStoreVersion expected, Guid loginId, Guid observationId, bool retireAudio) =>
+            ((ISessionVerificationStore)inner).CompleteVerification(expected, loginId, observationId, retireAudio);
     }
 
     internal static async Task ChildAsync(string directory, string action)

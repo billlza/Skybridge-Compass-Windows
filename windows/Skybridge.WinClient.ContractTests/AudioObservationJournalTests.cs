@@ -37,7 +37,19 @@ internal static partial class AudioObservationJournalTests
         ("audio membership journal late results cannot write after account replacement", MembershipReplacement),
         ("audio membership journal migrates registry-only records without creating grant owners", LegacyJournal),
         ("audio membership journal rejects checkpoint binding and observation substitution", MembershipBinding),
-        ("audio membership journal reclaims expired capacity but never evicts a valid grant to admit another", MembershipCapacity)
+        ("audio membership journal reclaims expired capacity but never evicts a valid grant to admit another", MembershipCapacity),
+        ("audio credential journal covers refresh rotated-token writes and live-user verification", CredentialRefresh),
+        ("audio credential journal prepares before startup identity verification without refreshing", CredentialHydration),
+        ("audio credential journal preparation failure sends no authentication request", CredentialPreparationFailure),
+        ("audio credential journal hard rejection survives failed clear and failed settlement", CredentialNegativeFailure),
+        ("audio credential journal preserves only allowlisted temporary failures without renewal", CredentialTemporaryFailure),
+        ("audio credential journal changed tenant retires old grants after a temporary user-check failure", CredentialScopeChange),
+        ("audio credential journal preserves primary and completion exceptions", CredentialExceptions),
+        ("audio credential journal failed final settlement never publishes new audio authority", CredentialCompletionFailure),
+        ("audio credential journal stale verification cannot erase a replacement account", CredentialStaleOwner),
+        ("audio credential journal a new live check retires uncertain prior audio without resetting login", CredentialInterrupted),
+        ("audio credential journal storage binds exact operation and preserves it across audio mutations", CredentialStorageOwnership),
+        ("audio credential journal schema migration and malformed markers stay explicit", CredentialStorageSchema)
     ];
 
     private sealed class PlainProtector : ISessionProtector
@@ -333,11 +345,12 @@ internal static partial class AudioObservationJournalTests
         var head = f.Storage.Load();
         Require(((ISessionAudioStateStore)f.Storage).WriteAudioState(JsonSerializer.SerializeToElement(valid with { SchemaVersion = 99 }), head.Version!, head.LoginId!.Value).Succeeded,
             "Unknown journal fixture did not persist.");
-        f.Owner = new(f.Client, f.Storage); Require((await f.Owner.HydrateFromStoreAsync()).Success, "Fixture online hydration failed.");
+        f.Owner = new(f.Client, f.Storage);
         var original = f.Storage.Load();
-        var error = await Throws<AccountDeviceRegistryObservationException>(() => f.Refresh());
-        Require(error.InnerException is InvalidDataException && f.Storage.Load().Version == original.Version && f.HttpCalls == 0,
-            "Unknown journal was replaced, ignored or reached registry HTTP.");
+        var invalidHydration = await f.Owner.HydrateFromStoreAsync();
+        Require(!invalidHydration.Success && invalidHydration.ErrorCode == "InvalidAudioJournal" &&
+            f.Storage.Load().Version == original.Version && f.HttpCalls == 0 && f.Owner.ReadAudioAuthorization() is null,
+            "Unknown journal was replaced, ignored or reached account/audio admission.");
     }
     private static async Task NoIssuance()
     {

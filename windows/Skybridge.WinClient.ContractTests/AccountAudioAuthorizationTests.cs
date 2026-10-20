@@ -311,11 +311,13 @@ internal static class AccountAudioAuthorizationTests
         internal AuthClientFailure? RefreshFailure, UserFailure;
         internal int RefreshCalls, SignOutCalls;
         internal Action? BeforeSignOut;
+        internal Action? BeforeRefresh;
         internal Func<string, string?, Task<AuthClientResult<AuthUser>>>? UserRequest;
         public Task<AuthClientResult<AuthToken>> SignInWithPasswordAsync(string email, string password) => throw new NotSupportedException();
         public Task<AuthClientResult<AuthToken>> RefreshAsync(string refreshToken)
         {
             RefreshCalls++;
+            BeforeRefresh?.Invoke();
             return Task.FromResult(RefreshFailure is { } failure ? AuthClientResult<AuthToken>.Failed(failure.Kind, failure.Code, failure.Cause, failure.StatusCode) : AuthClientResult<AuthToken>.Success(RefreshedToken));
         }
         public Task<AuthClientResult<AuthUser>> GetUserAsync(string token, string? userId = null) => UserRequest?.Invoke(token, userId) ?? Task.FromResult(

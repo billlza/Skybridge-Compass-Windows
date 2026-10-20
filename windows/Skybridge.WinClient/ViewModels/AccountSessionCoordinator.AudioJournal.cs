@@ -69,6 +69,8 @@ public sealed partial class AccountSessionCoordinator : IAudioAccountObservation
             RevokeAudioAuthorization();
             throw new AudioJournalStorageException("read", nameof(SessionStoreWriteStatus.Conflict));
         }
+        if (current.PendingVerificationId is not null)
+            throw new InvalidOperationException("Audio admission requires account verification to finish durably.");
         if (current.AudioState is not { } payload) return AudioAccountJournalState.Empty(login, epoch.Scope);
         AudioAccountJournalState state;
         try { state = AudioAccountJournalState.Read(payload); }

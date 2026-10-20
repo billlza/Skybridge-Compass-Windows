@@ -110,9 +110,11 @@
     <Compile Include="AudioAccountRegistryTests.cs" />
     <Compile Include="AudioObservationJournalTests.cs" />
     <Compile Include="AudioMembershipJournalTests.cs" />
+    <Compile Include="AudioCredentialJournalTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAccountRegistryObserver.cs" Link="Services\Audio\AudioAccountRegistryObserver.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAccountObservationJournal.cs" Link="Services\Audio\AudioAccountObservationJournal.cs" />
     <Compile Include="..\Skybridge.WinClient\ViewModels\AccountSessionCoordinator.AudioJournal.cs" Link="ViewModels\AccountSessionCoordinator.AudioJournal.cs" />
+    <Compile Include="..\Skybridge.WinClient\ViewModels\AccountSessionCoordinator.Verification.cs" Link="ViewModels\AccountSessionCoordinator.Verification.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAccountCredentialDispatcher.cs" Link="Services\Audio\AudioAccountCredentialDispatcher.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAccountMembership.cs" Link="Services\Audio\AudioAccountMembership.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioMembershipCheckpoint.cs" Link="Services\Audio\AudioMembershipCheckpoint.cs" />

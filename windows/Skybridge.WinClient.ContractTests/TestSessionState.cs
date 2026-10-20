@@ -2,7 +2,7 @@ using Skybridge.WinClient.Services;
 
 // Account-client fixtures only. Filesystem/DPAPI and cross-process ownership are
 // tested separately using the real SessionStore, never this in-memory double.
-internal class TestSessionState : ISessionStore
+internal class TestSessionState : ISessionStore, ISessionVerificationStore
 {
     public SessionStoreLoadResult LoadResult { get; set; } = SessionStoreLoadResult.Missing();
     public SessionStoreWriteResult? SaveResult { get; set; }
@@ -30,8 +30,26 @@ internal class TestSessionState : ISessionStore
         if (SaveCalls == FailSaveAt) return SessionStoreWriteResult.IoFailure();
         if (expected != LoadResult.Version) return SessionStoreWriteResult.Conflict();
         var login = mode == SessionStoreSaveMode.NewLogin ? Guid.NewGuid() : LoadResult.LoginId ?? Guid.NewGuid();
-        LoadResult = SessionStoreLoadResult.Loaded(value, NextVersion(), login);
+        LoadResult = SessionStoreLoadResult.Loaded(value, NextVersion(), login) with {
+            AudioState = mode == SessionStoreSaveMode.ContinueLogin ? LoadResult.AudioState : null,
+            PendingVerificationId = mode == SessionStoreSaveMode.ContinueLogin ? LoadResult.PendingVerificationId : null
+        };
         return SessionStoreWriteResult.Saved(LoadResult.Version!, login);
+    }
+    public SessionStoreWriteResult BeginVerification(SessionStoreVersion expected, Guid loginId, Guid observationId, bool retireAudio) =>
+        Verify(expected, loginId, observationId, retireAudio, complete: false);
+    public SessionStoreWriteResult CompleteVerification(SessionStoreVersion expected, Guid loginId, Guid observationId, bool retireAudio) =>
+        Verify(expected, loginId, observationId, retireAudio, complete: true);
+    private SessionStoreWriteResult Verify(SessionStoreVersion expected, Guid loginId, Guid id, bool retireAudio, bool complete)
+    {
+        if (expected != LoadResult.Version || loginId != LoadResult.LoginId || complete && LoadResult.PendingVerificationId != id)
+            return SessionStoreWriteResult.Conflict();
+        if (!LoadResult.Succeeded || !complete && LoadResult.PendingVerificationId is not null && !retireAudio)
+            return SessionStoreWriteResult.InvalidRecord();
+        var version = NextVersion();
+        LoadResult = LoadResult with { Version = version, PendingVerificationId = complete ? null : id,
+            AudioState = retireAudio ? null : LoadResult.AudioState };
+        return SessionStoreWriteResult.Saved(version, loginId);
     }
     public SessionStoreWriteResult Clear(SessionStoreVersion expected)
     {

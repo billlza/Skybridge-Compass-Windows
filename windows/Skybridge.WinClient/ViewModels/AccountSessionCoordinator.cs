@@ -225,6 +225,12 @@ public sealed partial class AccountSessionCoordinator
                 persistedTokenError);
         }
 
+        return await HydrateWithVerificationAsync(loadResult, persistedClaims, requestRefresh).ConfigureAwait(true);
+    }
+
+    private async Task<AccountSessionResult> RevalidatePersistedSessionAsync(PersistedSession persisted,
+        ValidatedSessionToken persistedClaims, bool requestRefresh, Action<string> observedToken)
+    {
         var accessToken = persisted.AccessToken!;
         var refreshToken = persisted.RefreshToken!;
         var subject = persistedClaims.Subject;
@@ -239,7 +245,7 @@ public sealed partial class AccountSessionCoordinator
                 || string.IsNullOrWhiteSpace(refreshed.Value.RefreshToken))
             {
                 if (IsTransientAuthFailure(refreshed.Failure))
-                    return requestRefresh ? AccountSessionResult.Failed(AccountSessionFailureKind.Network, refreshed.Failure.Code, refreshed.Failure) : DeferHydration(refreshed.Failure.Code);
+                    return requestRefresh ? AccountSessionResult.Failed(AccountSessionFailureKind.Network, refreshed.Failure.Code, refreshed.Failure) : DeferHydration(refreshed.Failure);
                 return ClearStoredSessionAfterFailure(
                     AccountSessionFailureKind.RefreshRejected,
                     refreshed.Failure?.Code ?? "auth_refresh_missing_rotated_token");
@@ -269,6 +275,7 @@ public sealed partial class AccountSessionCoordinator
             // lookup failure must not conceal a contradiction and retain the
             // old playback grant while the remaining operation is pending.
             RetireContradictedAudioAuthorization(refreshed.Value.AccessToken, subject);
+            observedToken(refreshed.Value.AccessToken);
             accessToken = refreshed.Value.AccessToken;
             refreshToken = refreshed.Value.RefreshToken;
             // Rotation has already happened on the server. Commit the replacement
@@ -298,12 +305,13 @@ public sealed partial class AccountSessionCoordinator
             || returnedSubjectMismatch)
         {
             if (!returnedSubjectMismatch && IsTransientAuthFailure(user.Failure))
-                return requestRefresh ? AccountSessionResult.Failed(AccountSessionFailureKind.Network, user.Failure.Code, user.Failure) : DeferHydration(user.Failure.Code);
+                return requestRefresh ? AccountSessionResult.Failed(AccountSessionFailureKind.Network, user.Failure.Code, user.Failure) : DeferHydration(user.Failure);
             return ClearStoredSessionAfterFailure(
                 FailureKindForUserFailure(user.Failure, returnedSubjectMismatch),
                 user.Failure?.Code ?? "auth_user_subject_mismatch");
         }
 
+        observedToken(accessToken);
         var previous = CaptureState();
         ApplyVerifiedIdentity(accessToken, refreshToken, subject, user.Value);
         var saveResult = Persist(RequireStoreVersion(), SessionStoreSaveMode.ContinueLogin);
@@ -329,8 +337,6 @@ public sealed partial class AccountSessionCoordinator
                 saveResult.Status.ToString());
         }
 
-        PublishAudioAuthorization(preserveExisting: requestRefresh);
-        RaiseIdentityChanged();
         return AccountSessionResult.Succeeded();
     }
 
@@ -683,12 +689,12 @@ public sealed partial class AccountSessionCoordinator
     private static bool IsTransientAuthFailure([NotNullWhen(true)] AuthClientFailure? failure) =>
         failure?.Kind is AuthFailureKind.Network or AuthFailureKind.Timeout or AuthFailureKind.HttpFailure;
 
-    private AccountSessionResult DeferHydration(string errorCode)
+    private AccountSessionResult DeferHydration(AuthClientFailure failure)
     {
         // A transport failure does not revoke a credential. Keep its DPAPI record,
         // but require a successful live check before exposing a signed-in identity.
         ClearInMemoryAndNotify();
-        return AccountSessionResult.Failed(AccountSessionFailureKind.Network, errorCode);
+        return AccountSessionResult.Failed(AccountSessionFailureKind.Network, failure.Code, failure);
     }
 
     private void ClearInMemoryAndNotify()
@@ -856,6 +862,7 @@ public readonly record struct AccountSessionResult(
     string ErrorCode)
 {
     internal AuthClientFailure? AuthenticationFailure { get; init; }
+    internal AccountVerificationFailure? VerificationFailure { get; init; }
     public static AccountSessionResult Succeeded() => new(true, false, null, string.Empty);
 
     public static AccountSessionResult SignedOutResult() => new(true, true, null, string.Empty);
