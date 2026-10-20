@@ -8,6 +8,7 @@ internal static class SessionStoreVersionTests
 {
     internal static readonly (string Name, Func<Task> Run)[] Cases =
     [
+        ("account state absent directory permits first login without disguising a non-directory failure", NewDirectory),
         ("account state cleared before first login rejects the pending missing revision", MissingClear),
         ("account state stale clear cannot erase a replacement login", StaleClear),
         ("account state rotation keeps login identity and explicit relogin replaces it", LoginContinuity),
@@ -27,6 +28,20 @@ internal static class SessionStoreVersionTests
     ];
 
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(20);
+    private static Task NewDirectory()
+    {
+        using var parent = TempDir.Create(); var path = Path.Combine(parent.Path, "first-account"); var store = Store(path);
+        var missing = store.Load();
+        Require(missing.Status == SessionStoreLoadStatus.Missing && missing.Version == SessionStoreVersion.Missing &&
+            !Directory.Exists(path), "A read of an absent account directory failed or created state.");
+        var saved = store.Save(Credentials(), missing.Version!, SessionStoreSaveMode.NewLogin);
+        Require(saved.Succeeded && store.Load().Succeeded, "First login could not create its previously absent account directory.");
+        var file = Path.Combine(parent.Path, "not-a-directory"); File.WriteAllText(file, "preserved");
+        var invalid = Store(file).Load();
+        Require(invalid.Status == SessionStoreLoadStatus.IoFailure && invalid.Version is null && invalid.Failure?.Operation == "InspectDirectory" &&
+            File.ReadAllText(file) == "preserved", "A non-directory was mistaken for an absent account store.");
+        return Task.CompletedTask;
+    }
     private static readonly SessionAuthority Authority = SessionAuthority.ForSupabaseProject("https://session-storage-test.supabase.co");
     private static ISessionProtector Protector() => OperatingSystem.IsWindows() ? new DpapiSessionProtector() : new PlainSessionProtector();
     private static SessionStore Store(string path) => new(path, Protector());

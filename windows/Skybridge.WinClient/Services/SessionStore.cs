@@ -90,9 +90,21 @@ public sealed class SessionStore : ISessionStore, ISessionAudioStateStore
 
     public SessionStoreLoadResult Load()
     {
-        string operation = "AcquireLease";
-        try { using var lease = AcquireLease(); operation = "ReadRecord"; return ReadHead(); }
-        catch (DirectoryNotFoundException) { return SessionStoreLoadResult.Missing(); }
+        string operation = "InspectDirectory";
+        try
+        {
+            // GetAttributes may report a missing final directory as file-not-
+            // found. Only absence at this boundary is a fresh account store;
+            // a permission failure, a non-directory, or a later lease/read
+            // race must keep its I/O failure instead of becoming signed out.
+            try { RequireDirectory(); }
+            catch (FileNotFoundException) { return SessionStoreLoadResult.Missing(); }
+            catch (DirectoryNotFoundException) { return SessionStoreLoadResult.Missing(); }
+            operation = "AcquireLease";
+            using var lease = AcquireLease();
+            operation = "ReadRecord";
+            return ReadHead();
+        }
         catch (IOException error) { return SessionStoreLoadResult.IoFailure(SessionStoreFailure.From(operation, error)); }
         catch (UnauthorizedAccessException error) { return SessionStoreLoadResult.IoFailure(SessionStoreFailure.From(operation, error)); }
     }
@@ -177,12 +189,19 @@ public sealed class SessionStore : ISessionStore, ISessionAudioStateStore
 
     private FileStream AcquireLease()
     {
-        RejectLink(_directory);
+        RequireDirectory();
         var path = Path.Combine(_directory, ".session.lock");
         RejectLinkIfPresent(path);
         // Fail promptly on contention; never remove the lease file or wait on a
         // network request while holding it. OS handle release also covers crashes.
         return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+    }
+
+    private void RequireDirectory()
+    {
+        var attributes = File.GetAttributes(_directory);
+        if ((attributes & FileAttributes.ReparsePoint) != 0 || (attributes & FileAttributes.Directory) == 0)
+            throw new IOException("Protected account state requires a directory without a filesystem link.");
     }
 
     private SessionStoreLoadResult ReadHead()
