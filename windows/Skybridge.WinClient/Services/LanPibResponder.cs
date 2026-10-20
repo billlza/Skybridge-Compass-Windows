@@ -4,8 +4,23 @@ using Skybridge.WinClient.Services.RemoteControl;
 namespace Skybridge.WinClient.Services;
 
 internal sealed record LanPibLocalIdentity(string DeviceId, string DeviceName, ImmutableArray<byte> PublicKey);
+internal enum LanPibApprovalRole { Responder, Initiator }
 internal sealed record LanPibApprovalRequest(LanPibRequest Request, LanPibCandidate Candidate,
-    string SasCode, Action RequireCurrent);
+    string SasCode, Action RequireCurrent, LanPibApprovalRole Role = LanPibApprovalRole.Responder)
+{
+    internal string PeerDeviceId => Role switch
+    {
+        LanPibApprovalRole.Initiator => Candidate.DeviceId,
+        LanPibApprovalRole.Responder => Request.RequesterDeviceId,
+        _ => throw new ArgumentOutOfRangeException(nameof(Role))
+    };
+    internal string PeerFingerprint => Role switch
+    {
+        LanPibApprovalRole.Initiator => Candidate.ProtocolIdentityFingerprint,
+        LanPibApprovalRole.Responder => Request.RequesterProtocolIdentityFingerprint,
+        _ => throw new ArgumentOutOfRangeException(nameof(Role))
+    };
+}
 internal interface ILanPibApprovalPresenter
 {
     Task<bool> ShowAsync(LanPibApprovalRequest request, CancellationToken token);

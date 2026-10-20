@@ -566,6 +566,31 @@ foreach ($entry in @(
     }
     [void]$control.ParentNode.RemoveChild($control)
 }
+# USB enrollment is a per-device action on a verified discovery record, not a
+# workspace navigation action. Verify its exact owner and eligibility binding.
+$usbPairControls = @($actionTemplateDocument.SelectNodes("//*[local-name()='Button']") | Where-Object {
+    $_.GetAttribute("AutomationProperties.AutomationId") -eq "Skybridge.Usb.Pair"
+})
+Assert-True ($usbPairControls.Count -eq 1) "USB enrollment must expose exactly one device-template action."
+$usbPair = $usbPairControls[0]
+Assert-True ($usbPair.GetAttribute("Click") -eq "OnUsbPairClicked") "USB pairing must use the owned window transaction."
+Assert-True ($usbPair.GetAttribute("Visibility") -eq "{Binding CanPairSkybridge, Converter={StaticResource BoolVisibilityConverter}}") "USB pairing must require an eligible verified peer."
+Assert-True ($usbPair.GetAttribute("Uid", "http://schemas.microsoft.com/winfx/2006/xaml") -eq "UsbPairDeviceButton") "USB pairing must use localized copy."
+$usbPairOwner = $usbPair.SelectSingleNode("ancestor::*[local-name()='DataTemplate']")
+Assert-True ($null -ne $usbPairOwner -and $usbPairOwner.GetAttribute("Key", "http://schemas.microsoft.com/winfx/2006/xaml") -eq "UsbDeviceItemTemplate") "USB pairing escaped its device card."
+[void]$usbPair.ParentNode.RemoveChild($usbPair)
+# The existing audio QR retry is owned by its failure notice, not a free-form
+# workspace action. Keep this admission specific to the real recovery handler.
+$qrRetryControls = @($actionTemplateDocument.SelectNodes("//*[local-name()='Button']") | Where-Object {
+    $_.GetAttribute("AutomationProperties.AutomationId") -eq "Skybridge.Audio.ConnectionQr.Retry"
+})
+Assert-True ($qrRetryControls.Count -eq 1) "The audio QR notice must expose exactly one retry action."
+$qrRetry = $qrRetryControls[0]
+Assert-True ($qrRetry.GetAttribute("Click") -eq "OnAudioConnectionQrRetry" -and
+    $qrRetry.GetAttribute("Uid", "http://schemas.microsoft.com/winfx/2006/xaml") -eq "AudioConnectionQrRetry") "The audio QR retry handler or localization differs."
+$qrNotice = $qrRetry.SelectSingleNode("ancestor::*[local-name()='InfoBar']")
+Assert-True ($null -ne $qrNotice -and $qrNotice.GetAttribute("Name", "http://schemas.microsoft.com/winfx/2006/xaml") -eq "AudioConnectionQrNotice") "The audio QR retry escaped its failure notice."
+[void]$qrRetry.ParentNode.RemoveChild($qrRetry)
 Assert-Count -Text $actionTemplateDocument.OuterXml -Pattern '<Button\b' -ExpectedCount 5 -Message "MainWindow must retain three shared action templates and two weather refresh buttons without extra sidebar/session controls."
 
 Assert-Ordered -Text $mainWindow -Context "MainWindow shared action template usage" -Needles @(

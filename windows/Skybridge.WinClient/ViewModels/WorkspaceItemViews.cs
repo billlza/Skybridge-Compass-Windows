@@ -297,9 +297,12 @@ public sealed record UsbDeviceItemView(
     IReadOnlyList<string> Capabilities,
     string DeviceTypeKey,
     bool IsMfiCertified,
-    string? SkybridgeStatus = null)
+    string? SkybridgeStatus = null,
+    string? SkybridgeUdid = null,
+    string? SkybridgeFingerprint = null)
 {
     public bool HasCapabilities => Capabilities.Count > 0;
+    public bool CanPairSkybridge => SkybridgeUdid is not null && SkybridgeFingerprint is not null;
 
     public static UsbDeviceItemView FromItem(UsbDeviceItem item) =>
         new(
@@ -313,7 +316,9 @@ public sealed record UsbDeviceItemView(
             item.Capabilities,
             item.DeviceTypeKey,
             item.IsMfiCertified,
-            item.SkybridgeStatus);
+            item.SkybridgeStatus,
+            item.SkybridgeUdid,
+            item.SkybridgeFingerprint);
 }
 
 public sealed record SystemMonitorMetricView(

@@ -529,6 +529,7 @@
                         <!-- ===================== GUEST MODE ===================== -->
                         <Button
                             Click="OnGuestMode"
+                            AutomationProperties.AutomationId="Skybridge.Account.ContinueAsGuest"
                             HorizontalAlignment="Stretch"
                             Style="{StaticResource GuestRowButtonStyle}">
                             <Grid ColumnSpacing="12">

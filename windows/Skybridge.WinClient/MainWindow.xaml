@@ -901,6 +901,10 @@
                                        AutomationProperties.AutomationId="Skybridge.Usb.PeerStatus"
                                        Foreground="{StaticResource SkyBridgeTextSecondaryBrush}" />
                         </StackPanel>
+                        <Button Grid.Column="2" x:Uid="UsbPairDeviceButton" Content="Pair device"
+                                VerticalAlignment="Top" Click="OnUsbPairClicked"
+                                AutomationProperties.AutomationId="Skybridge.Usb.Pair"
+                                Visibility="{Binding CanPairSkybridge, Converter={StaticResource BoolVisibilityConverter}}" />
                         <!-- MFi badge (Mac DeviceCard: checkmark.seal.fill + "MFi Certified",
                              shown only when device.isMFiCertified). EC61 = CompletedSolid
                              (sealed checkmark). -->
@@ -2869,13 +2873,15 @@
                                     </Border>
                                 </Grid>
                                 <!-- Populated rich list (Visible when count > 0) -->
-                                <ListView
-                                    ItemsSource="{Binding UsbDevices}"
-                                    ItemTemplate="{StaticResource UsbDeviceItemTemplate}"
-                                    MinHeight="118"
-                                    SelectionMode="None"
-                                    IsEnabled="{Binding IsUsbManagementSelected}"
-                                    Visibility="{Binding UsbDeviceCount, Converter={StaticResource CountToVisibilityConverter}}" />
+                                <Grid x:Name="UsbDevicesInteraction">
+                                    <ListView
+                                        ItemsSource="{Binding UsbDevices}"
+                                        ItemTemplate="{StaticResource UsbDeviceItemTemplate}"
+                                        MinHeight="118"
+                                        SelectionMode="None"
+                                        IsEnabled="{Binding IsUsbManagementSelected}"
+                                        Visibility="{Binding UsbDeviceCount, Converter={StaticResource CountToVisibilityConverter}}" />
+                                </Grid>
                                 <!-- Honest empty state (Visible when count == 0) — Mac
                                      emptyStateView: large muted cable.connector icon + title +
                                      guidance subtitle. E88E ~ cable.connector. -->
@@ -3873,6 +3879,7 @@
                • UserProfileOverlay  — visible when signed-IN  + ShowProfileOverlay
              =================================================================== -->
         <local:AuthOverlay
+            AutomationProperties.AutomationId="Skybridge.Account.SignInOverlay"
             Grid.Column="0"
             Grid.ColumnSpan="2"
             DataContext="{Binding}"

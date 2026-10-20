@@ -2164,6 +2164,19 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IDisposable
         private set => SetField(ref _usbManagementStatus, value);
     }
 
+    internal void ReportUsbManagementStatus(string status)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(status);
+        UsbManagementStatus = status;
+    }
+
+    internal async Task RefreshUsbAfterPairingAsync()
+    {
+        var snapshot = await _usbManagementClient.BuildReadOnlySnapshotAsync();
+        _readOnlyWorkspaceSnapshotHandlers.ApplyUsbManagement(snapshot);
+        UsbManagementStatus = _usbManagementClient.BuildCompletedStatus(snapshot);
+    }
+
     public int UsbDeviceCount => UsbDevices.Count;
 
     public string SettingsStatus

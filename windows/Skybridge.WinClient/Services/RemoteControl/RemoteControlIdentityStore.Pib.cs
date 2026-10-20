@@ -6,6 +6,20 @@ namespace Skybridge.WinClient.Services.RemoteControl;
 
 public sealed partial class RemoteControlIdentityStore
 {
+    internal ProductPibInitiator CreatePibInitiator(ILanPibApprovalPresenter approval, Action requireCurrent)
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed(); requireCurrent();
+            var material = PublicMaterial;
+            return new(new(material.DeviceId, material.DeviceName, material.ProtocolPublicKey.ToArray().ToImmutableArray()),
+                SignLanBootstrap, VerifyPibSignature, PreflightPibIdentity,
+                async (peer, requireCommit, token) =>
+                { await ImportApprovedPibPeerAsync(peer, requireCommit, token).ConfigureAwait(false); },
+                approval, requireCurrent);
+        }
+    }
+
     internal LanPibResponder CreatePibResponder(ILanPibApprovalPresenter approval, Action requireCurrent)
     {
         lock (_gate)

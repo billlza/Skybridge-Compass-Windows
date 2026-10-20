@@ -73,6 +73,13 @@ if (args.SequenceEqual(["--usb-peer-discovery"]))
     return;
 }
 
+if (args.SequenceEqual(["--usb-peer-enrollment"]))
+{
+    foreach (var test in ProductPibInitiatorTests.Cases) { await test.Run(); Console.WriteLine("PASS " + test.Name); }
+    Console.WriteLine($"USB enrollment native persistence required: {OperatingSystem.IsWindows()}");
+    return;
+}
+
 if (args is ["--usb-discovery-ui-service", var usbFixtureDirectory])
 {
     await NativeUsbDiscoveryFixture.RunUiAsync(usbFixtureDirectory);
@@ -507,6 +514,7 @@ var remoteHostTests = Skybridge.WinClient.ContractTests.WindowsRemoteControlAudi
     .Concat(LanProtocolIdentityBindingTests.Cases)
     .Concat(LanPibResponderTests.Cases)
     .Concat(UsbPeerDiscoveryTests.Cases)
+    .Concat(ProductPibInitiatorTests.Cases)
     .Concat(ProtocolOnlyPairingMaterialTests.Cases)
     .Concat(SignedLanKemRefreshTests.Cases)
     .Concat(SignedLanKemRefreshResponderTests.Cases)

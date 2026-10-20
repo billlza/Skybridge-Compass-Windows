@@ -40,6 +40,7 @@ public sealed partial class MainWindow
     }
     private async void OnAudioStatusTick(object? sender, object args)
     {
+        ObserveUsbPairingAuthorization();
         if (!_audioChanging && !_hostShutdownInProgress && _audioListenerEpoch is { IsCurrent: false })
         {
             _audioUiOperation = StopRevokedAudioAsync();

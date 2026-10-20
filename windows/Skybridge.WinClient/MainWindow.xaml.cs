@@ -180,6 +180,7 @@ public sealed partial class MainWindow : Window
         _hostShutdownInProgress = true;
         try
         {
+            CancelUsbPairing();
             if (_operatorServer is { } operatorServer)
             {
                 await operatorServer.DisposeAsync();
@@ -187,6 +188,7 @@ public sealed partial class MainWindow : Window
             }
             if (_remoteControlViewer is { } viewer) await viewer.CloseForShutdownAsync();
             await _usbWorkspace.DisposeAsync();
+            await StopUsbPairingAsync();
             await StopAudioReceptionAsync();
             await StopAccountDevicesAsync();
             await _fileTransferWorkspace.DisposeAsync();

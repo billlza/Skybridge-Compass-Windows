@@ -63,7 +63,8 @@ internal sealed class UsbMuxConnector
             await ReleaseFailed(stream, failure).ConfigureAwait(false);
             throw;
         }
-        await stream.DisposeAsync().ConfigureAwait(false);
+        try { await stream.DisposeAsync().ConfigureAwait(false); }
+        catch (Exception cleanup) { throw new ProductBootstrapReleaseException(stream, cleanup); }
         return devices;
     }
 
@@ -107,6 +108,7 @@ internal sealed class UsbMuxConnector
     private static async Task ReleaseFailed(Stream stream, Exception failure)
     {
         try { await stream.DisposeAsync().ConfigureAwait(false); }
-        catch (Exception cleanup) { throw new AggregateException("USB request and stream release failed.", failure, cleanup); }
+        catch (Exception cleanup)
+        { throw new ProductBootstrapReleaseException(stream, new AggregateException("USB request and stream release failed.", failure, cleanup)); }
     }
 }

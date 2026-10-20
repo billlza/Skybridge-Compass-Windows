@@ -18,6 +18,8 @@
 
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="ProductBootstrapExchangeTests.cs" />
+    <Compile Include="UsbEnrollmentWorkspaceTests.cs" />
     <Compile Include="LocationPermissionRequestTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\SettingsWorkspaceClient.cs" Link="Services\SettingsWorkspaceClient.cs" />
     <Compile Include="SessionFileCommitTests.cs" />
@@ -49,6 +51,7 @@
     <Compile Include="LanProtocolIdentityBindingTests.cs" />
     <Compile Include="LanPibResponderTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\LanPibResponder.cs" Link="Services\LanPibResponder.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\ProductPibInitiator.cs" Link="Services\ProductPibInitiator.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\RemoteControl\RemoteControlIdentityStore.Pib.cs" Link="Services\RemoteControl\RemoteControlIdentityStore.Pib.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\LanBootstrapWire.cs" Link="Services\LanBootstrapWire.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\LanProtocolIdentityBinding.cs" Link="Services\LanProtocolIdentityBinding.cs" />
@@ -90,11 +93,13 @@
     <Compile Include="LanAudioReceiverTests.cs" />
     <Compile Include="TcpProductControlTransportTests.cs" />
     <Compile Include="UsbPeerDiscoveryTests.cs" />
+    <Compile Include="ProductPibInitiatorTests.cs" />
     <Compile Include="NativeUsbDiscoveryFixture.cs" />
     <None Update="Fixtures\usb-peer-discovery-v1\apple-vectors.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\Skybridge.WinClient\Services\Connection\UsbMuxProtocol.cs" Link="Services\Connection\UsbMuxProtocol.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Connection\UsbMuxConnector.cs" Link="Services\Connection\UsbMuxConnector.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Connection\UsbPeerDiscovery.cs" Link="Services\Connection\UsbPeerDiscovery.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Connection\ProductBootstrapExchange.cs" Link="Services\Connection\ProductBootstrapExchange.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Connection\UsbPeerDiscoveryClient.cs" Link="Services\Connection\UsbPeerDiscoveryClient.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Connection\UsbPeerScanner.cs" Link="Services\Connection\UsbPeerScanner.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Connection\UsbPeerPairingMatcher.cs" Link="Services\Connection\UsbPeerPairingMatcher.cs" />
@@ -184,6 +189,7 @@
     <Compile Include="..\Skybridge.WinClient\ViewModels\RemoteControlHostSessionViewModel.cs" Link="ViewModels\RemoteControlHostSessionViewModel.cs" />
     <Compile Include="..\Skybridge.WinClient\ViewModels\WorkspaceCollectionProjector.cs" Link="ViewModels\WorkspaceCollectionProjector.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WindowsDeviceWorkspace.cs" Link="Services\WindowsDeviceWorkspace.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\WindowsDeviceWorkspace.UsbEnrollment.cs" Link="Services\WindowsDeviceWorkspace.UsbEnrollment.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\RemoteControl\RemoteControlHostWorkspaceModels.cs" Link="Services\RemoteControl\RemoteControlHostWorkspaceModels.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WindowsRuntimeLog.cs" Link="Services\WindowsRuntimeLog.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\AccountDeviceRosterClient.cs" Link="Services\AccountDeviceRosterClient.cs" />

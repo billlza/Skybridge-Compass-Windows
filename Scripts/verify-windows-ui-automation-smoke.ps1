@@ -382,13 +382,35 @@ try {
                 refreshEnabled = $refresh.Current.IsEnabled; before = $before; after = $after
             } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir "usb-state-$($usbStates.Count).json")
             Assert-True $matched "USB inspection did not reach the expected real UI state: $($scenario.expected)"
+            $pair = Find-ByAutomationId -Root $window -AutomationId 'Skybridge.Usb.Pair'
+            if ($scenario.mode -eq 'open') {
+                $pair = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId 'Skybridge.Usb.Pair'
+                Assert-True $pair.Current.IsEnabled 'An eligible USB device has no enabled pairing entry.'
+            } else {
+                Assert-True ($null -eq $pair -or $pair.Current.IsOffscreen) 'A closed USB peer still exposes pairing.'
+            }
             $usbStates.Add(@{ mode = $scenario.mode; visibleStatus = $matching[0].Current.Name; responses = $after.responses; portRefusals = $after.portRefusals })
             [void](Save-WindowScreenshot -Window $window -Path (Join-Path $EvidenceDir $scenario.capture))
         }
+        $stage = 'usb-enrollment/sign-in-boundary'
+        $beforePair = Read-UsbFixtureReceipt (Join-Path $UsbFixtureDirectory 'observations.json')
+        $pair = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId 'Skybridge.Usb.Pair'
+        $pair.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        [void](Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId 'Skybridge.Account.SignInOverlay')
+        [void](Save-WindowScreenshot -Window $window -Path (Join-Path $EvidenceDir 'usb-pair-signin.png'))
+        $guest = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId 'Skybridge.Account.ContinueAsGuest'
+        $guest.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        $overlay = Find-ByAutomationId -Root $window -AutomationId 'Skybridge.Account.SignInOverlay'
+        Assert-True ($null -eq $overlay -or $overlay.Current.IsOffscreen) 'The sign-in overlay did not dismiss.'
+        $pair = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId 'Skybridge.Usb.Pair'
+        Assert-True $pair.Current.IsEnabled 'Dismissing sign-in left USB pairing disabled.'
+        $afterPair = Read-UsbFixtureReceipt (Join-Path $UsbFixtureDirectory 'observations.json')
+        Assert-True ($afterPair.responses -eq $beforePair.responses -and $afterPair.earlyCloses -eq $beforePair.earlyCloses) 'Signed-out pairing touched the USB carrier.'
         @{
             scope = 'Synthetic USB multiplex service; real product decoder, native signatures and UI'
             states = $usbStates.ToArray(); actualAppleService = $false; actualUsbDevice = $false
             authenticatedSession = $false; audioPlayed = $false
+            pairingEntryVisible = $true; signInRequired = $true; trustCreated = $false
         } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'usb-discovery-ui.json')
     }
 

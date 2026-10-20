@@ -25,7 +25,7 @@ public sealed partial class MainWindow
                 });
                 content.Children.Add(new TextBlock
                 {
-                    Text = request.Request.RequesterDeviceId + "\n" + request.Request.RequesterProtocolIdentityFingerprint,
+                    Text = request.PeerDeviceId + "\n" + request.PeerFingerprint,
                     TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true
                 });
                 content.Children.Add(new TextBlock

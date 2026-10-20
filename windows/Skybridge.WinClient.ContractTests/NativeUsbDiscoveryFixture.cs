@@ -25,10 +25,13 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
     private readonly Func<bool> _closedPort;
     private readonly TaskCompletionSource _responded = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _responses, _portRefusals, _earlyCloses;
+    private readonly LanPibResponder? _pairing;
+    internal int PairingCommits { get; private set; }
     internal int Responses => Volatile.Read(ref _responses);
     internal EndPoint Endpoint => _listener.LocalEndpoint;
 
-    internal NativeUsbDiscoveryFixture(int port = 0, Func<bool>? closedPort = null, string? observationsPath = null)
+    internal NativeUsbDiscoveryFixture(int port = 0, Func<bool>? closedPort = null, string? observationsPath = null,
+        ILanPibApprovalPresenter? pairingApproval = null)
     {
         if (!OperatingSystem.IsWindows() || !MLDsa.IsSupported)
             throw new PlatformNotSupportedException("The native USB fixture requires Windows ML-DSA.");
@@ -36,6 +39,17 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
         var publicKey = _key.ExportMLDsaPublicKey().ToImmutableArray();
         _identity = new(Guid.NewGuid().ToString("D"), "ML-DSA-65", publicKey,
             WebRtcProductProtocolIdentityPublicKey.ComputeAuthoritativeFingerprint(WebRtcProductSignatureAlgorithm.MlDsa65, publicKey.AsSpan()));
+        if (pairingApproval is not null)
+            _pairing = new(new("id:" + _identity.DeviceID, DeviceName, publicKey),
+                bytes => _key.SignData(bytes).ToImmutableArray(),
+                (peer, bytes, signature) =>
+                {
+                    using var verifier = MLDsa.ImportMLDsaPublicKey(MLDsaAlgorithm.MLDsa65, peer.AsSpan());
+                    if (!verifier.VerifyData(bytes, signature.AsSpan())) throw new CryptographicException("Fixture rejected the request signature.");
+                }, _ => { }, (_, guard, _) =>
+                {
+                    guard(); PairingCommits++; return Task.CompletedTask;
+                }, pairingApproval, _lifetime.Token.ThrowIfCancellationRequested);
         _closedPort = closedPort ?? (() => false);
         _observationsPath = observationsPath;
         _listener = new(IPAddress.Loopback, port);
@@ -90,8 +104,17 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
                 await PublishObservationsAsync();
                 return;
             }
-            owner = new(client, UsbPeerDiscoveryWire.MaximumFrameBytes, UsbPeerDiscoveryWire.MaximumFrameBytes);
+            owner = new(client, LanBootstrapWire.MaximumBytes, LanBootstrapWire.MaximumBytes);
             var payload = await owner.ReadAsync(deadline.Token);
+            string message = LanBootstrapWire.ReadDiscriminator(payload.Span);
+            if (_pairing is { } pairing && message is "protocolIdentityBindingRequest" or "protocolIdentityBindingConfirm")
+            {
+                var reply = message == "protocolIdentityBindingRequest"
+                    ? LanPibWire.EncodeCandidate(pairing.CreateCandidate(LanPibWire.DecodeRequest(payload.Span), deadline.Token))
+                    : LanPibWire.EncodeFinalAck(await pairing.ConfirmAsync(LanPibWire.DecodeConfirm(payload.Span), deadline.Token));
+                await owner.SendAsync(reply, deadline.Token);
+                return;
+            }
             var discovery = LanBootstrapWire.Decode<UsbPeerDiscoveryRequest>(payload.Span, "usbPeerDiscoveryRequest");
             var unsigned = new UsbPeerDiscoveryResponse(discovery, _identity, DeviceName, "ios", []);
             ImmutableArray<byte> signature;

@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Runtime.ExceptionServices;
 
 namespace Skybridge.WinClient.Services.Connection;
 
@@ -26,40 +25,18 @@ internal sealed class UsbPeerDiscoveryClient
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(_timeout); // Enumeration, dial, one request, one response and verification.
-        ProductControlStreamTransport? transport = null;
-        Stream? unclaimed = null;
-        UsbPeerInspection? inspection = null;
-        Exception? failure = null;
         try
         {
-            unclaimed = await _connector.OpenAsync(udid, UsbMuxConnector.ControlPort, deadline.Token).ConfigureAwait(false);
-            transport = new(unclaimed, UsbPeerDiscoveryWire.MaximumFrameBytes, UsbPeerDiscoveryWire.MaximumFrameBytes);
-            unclaimed = null;
             var request = UsbPeerDiscoveryWire.Request(_time.GetUtcNow());
-            await transport.SendAsync(UsbPeerDiscoveryWire.Encode(request), deadline.Token).ConfigureAwait(false);
-            var bytes = await transport.ReadAsync(deadline.Token).ConfigureAwait(false);
-            inspection = UsbPeerInspection.Verify(udid, UsbPeerDiscoveryWire.Decode(bytes.Span), request,
+            var bytes = await ProductBootstrapExchange.ExchangeAsync(
+                current => _connector.OpenAsync(udid, UsbMuxConnector.ControlPort, current),
+                UsbPeerDiscoveryWire.Encode(request), UsbPeerDiscoveryWire.MaximumFrameBytes, deadline.Token).ConfigureAwait(false);
+            var inspection = UsbPeerInspection.Verify(udid, UsbPeerDiscoveryWire.Decode(bytes.Span), request,
                 _time.GetUtcNow(), _verify);
             deadline.Token.ThrowIfCancellationRequested();
+            return inspection;
         }
         catch (OperationCanceledException error) when (!token.IsCancellationRequested && deadline.IsCancellationRequested)
-        { failure = new TimeoutException("USB peer discovery exceeded its deadline.", error); }
-        catch (Exception error) { failure = error; }
-        try
-        {
-            if (transport is not null) await transport.DisposeAsync().ConfigureAwait(false);
-            else if (unclaimed is not null) await unclaimed.DisposeAsync().ConfigureAwait(false);
-        }
-        catch (Exception cleanup)
-        {
-            Exception[] errors = failure is null ? [cleanup] : [failure, cleanup];
-            throw new AggregateException("USB discovery and carrier release did not complete successfully.",
-                errors);
-        }
-        if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
-        if (deadline.IsCancellationRequested && !token.IsCancellationRequested)
-            throw new TimeoutException("USB peer discovery expired before publication.");
-        token.ThrowIfCancellationRequested();
-        return inspection ?? throw new InvalidOperationException("USB discovery completed without a verified response.");
+        { throw new TimeoutException("USB peer discovery exceeded its deadline.", error); }
     }
 }

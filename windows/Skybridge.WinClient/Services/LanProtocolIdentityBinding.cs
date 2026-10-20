@@ -254,6 +254,13 @@ internal static class LanPibValidation
     internal static void RequireCandidateBindings(LanPibRequest request, LanPibCandidate candidate, string expectedPin, long nowMilliseconds)
     {
         RequireRequestFreshness(request, nowMilliseconds);
+        RequireAdmittedCandidateCurrent(request, candidate, expectedPin, nowMilliseconds);
+    }
+    // Only after initial request freshness and the candidate signature have been
+    // verified. Human comparison may outlast the initial request's 120s window.
+    internal static void RequireAdmittedCandidateCurrent(LanPibRequest request, LanPibCandidate candidate,
+        string expectedPin, long nowMilliseconds)
+    {
         CandidateTranscript(request, candidate, expectedPin);
         Live(candidate.SentAt, candidate.ExpiresAt, nowMilliseconds);
     }

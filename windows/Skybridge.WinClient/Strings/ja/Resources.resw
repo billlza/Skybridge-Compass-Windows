@@ -2010,4 +2010,14 @@
   <data name="UsbLabel.TotalDevices" xml:space="preserve"><value>デバイス総数</value></data>
   <data name="UsbLabel.AppleDevice" xml:space="preserve"><value>Apple デバイス</value></data>
   <data name="UsbLabel.AppleDetail" xml:space="preserve"><value>接続済みの Apple USB デバイス</value></data>
+  <data name="UsbPairDeviceButton.Content" xml:space="preserve"><value>このデバイスをペアリング</value></data>
+  <data name="UsbPairSignIn" xml:space="preserve"><value>この USB デバイスをペアリングするにはサインインしてください。</value></data>
+  <data name="UsbPairPending" xml:space="preserve"><value>ペアリング中…両方のデバイスでコードを確認してください。</value></data>
+  <data name="UsbPairSaved" xml:space="preserve"><value>ペアリングを保存しました。デバイスはまだ接続されていません。</value></data>
+  <data name="UsbPairSavedRefreshFailed" xml:space="preserve"><value>ペアリングは保存されましたが、USB 一覧を更新できませんでした。一覧を更新して状態を確認してください。</value></data>
+  <data name="UsbPairCanceled" xml:space="preserve"><value>ペアリングをキャンセルしました。</value></data>
+  <data name="UsbPairDeclined" xml:space="preserve"><value>ペアリングが拒否されました。</value></data>
+  <data name="UsbPairTimedOut" xml:space="preserve"><value>ペアリングがタイムアウトしました。両方の SkyBridge を開いたまま一覧を更新し、再試行してください。</value></data>
+  <data name="UsbPairFailed" xml:space="preserve"><value>ペアリングを完了できませんでした。アカウントと相手のデバイスを確認し、一覧を更新して再試行してください。</value></data>
+  <data name="UsbPairCleanupFailed" xml:space="preserve"><value>ペアリング処理を正常に終了できませんでした。処理が解放されるまで新しいペアリングは利用できません。</value></data>
 </root>

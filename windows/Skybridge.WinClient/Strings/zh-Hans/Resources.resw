@@ -2010,4 +2010,14 @@
   <data name="UsbLabel.TotalDevices" xml:space="preserve"><value>设备总数</value></data>
   <data name="UsbLabel.AppleDevice" xml:space="preserve"><value>Apple 设备</value></data>
   <data name="UsbLabel.AppleDetail" xml:space="preserve"><value>已连接的 Apple USB 设备</value></data>
+  <data name="UsbPairDeviceButton.Content" xml:space="preserve"><value>配对此设备</value></data>
+  <data name="UsbPairSignIn" xml:space="preserve"><value>请登录后配对此 USB 设备。</value></data>
+  <data name="UsbPairPending" xml:space="preserve"><value>正在配对…请核对两台设备上的确认码。</value></data>
+  <data name="UsbPairSaved" xml:space="preserve"><value>配对已保存，设备尚未连接。</value></data>
+  <data name="UsbPairSavedRefreshFailed" xml:space="preserve"><value>配对已保存，但 USB 列表刷新失败。请刷新设备以查看状态。</value></data>
+  <data name="UsbPairCanceled" xml:space="preserve"><value>配对已取消。</value></data>
+  <data name="UsbPairDeclined" xml:space="preserve"><value>本次配对已拒绝。</value></data>
+  <data name="UsbPairTimedOut" xml:space="preserve"><value>配对超时。请保持两台设备上的 SkyBridge 打开，刷新后重试。</value></data>
+  <data name="UsbPairFailed" xml:space="preserve"><value>配对未完成。请检查账号和对端设备，刷新后重试。</value></data>
+  <data name="UsbPairCleanupFailed" xml:space="preserve"><value>配对操作未能正常结束；资源释放前无法开始新的配对。</value></data>
 </root>

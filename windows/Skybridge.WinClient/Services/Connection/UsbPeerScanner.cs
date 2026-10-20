@@ -33,6 +33,8 @@ internal sealed class UsbPeerScanner : IAsyncDisposable
     private readonly SemaphoreSlim _close = new(1, 1);
     private volatile bool _disposed;
     private Exception? _cancellationFailure;
+    private readonly object _failureGate = new();
+    private Exception? _unreleasedFailure;
 
     internal UsbPeerScanner(Func<CancellationToken, Task<IReadOnlyList<UsbMuxDevice>>> enumerate,
         Func<string, CancellationToken, Task<UsbPeerInspection>> inspect,
@@ -54,6 +56,11 @@ internal sealed class UsbPeerScanner : IAsyncDisposable
         await _scan.WaitAsync(caller.Token).ConfigureAwait(false);
         try
         {
+            lock (_failureGate)
+            {
+                if (_unreleasedFailure is { } retained)
+                    throw new InvalidOperationException("USB inspection has an unreleased native owner.", retained);
+            }
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(caller.Token);
             deadline.CancelAfter(TimeSpan.FromSeconds(40));
             var token = deadline.Token;
@@ -70,7 +77,14 @@ internal sealed class UsbPeerScanner : IAsyncDisposable
                         try { inspection = await _inspect(device.Udid, current).ConfigureAwait(false); }
                         catch (OperationCanceledException) when (current.IsCancellationRequested) { throw; }
                         catch (Exception error)
-                        { entries[index] = new(device, null, Classify(error), error); return; }
+                        {
+                            if (ProductBootstrapReleaseException.ContainsUnreleasedOwner(error))
+                            {
+                                lock (_failureGate)
+                                    _unreleasedFailure = _unreleasedFailure is null ? error : new AggregateException(_unreleasedFailure, error);
+                            }
+                            entries[index] = new(device, null, Classify(error), error); return;
+                        }
                         current.ThrowIfCancellationRequested();
                         if (inspection.Udid != device.Udid)
                             throw new InvalidDataException("USB discovery returned a different cable route.");
@@ -107,6 +121,10 @@ internal sealed class UsbPeerScanner : IAsyncDisposable
             { return new([], TimedOut, new TimeoutException("USB peer scan exceeded its deadline.", error)); }
             catch (Exception error)
             {
+                if (ProductBootstrapReleaseException.ContainsUnreleasedOwner(error))
+                {
+                    lock (_failureGate) _unreleasedFailure = error;
+                }
                 var status = error is SocketException ? ServiceUnavailable :
                     error is InvalidDataException { Message: TooManyDevices } ? TooManyDevices : Classify(error);
                 return new([], status, error);
@@ -143,7 +161,16 @@ internal sealed class UsbPeerScanner : IAsyncDisposable
                         throw new AggregateException(cancellation, timeout);
                     throw timeout;
                 }
-                try { _disposed = true; _lifetime.Dispose(); }
+                try
+                {
+                    lock (_failureGate)
+                    {
+                        if (_unreleasedFailure is { } retained)
+                            throw new InvalidOperationException("USB native cleanup remains unconfirmed.",
+                                _cancellationFailure is null ? retained : new AggregateException(_cancellationFailure, retained));
+                    }
+                    _disposed = true; _lifetime.Dispose();
+                }
                 finally { _scan.Release(); }
             }
             if (_cancellationFailure is { } failure)

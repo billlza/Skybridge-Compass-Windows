@@ -19,7 +19,7 @@ internal sealed class RemoteControlHostGenerationMismatchException()
 
 /// <summary>Application owner of the existing device identity and native feature sessions.</summary>
 [SupportedOSPlatform("windows10.0.19041")]
-internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
+internal sealed partial class WindowsDeviceWorkspace : IAsyncDisposable
 {
     private readonly string _stateDirectory;
     private readonly string _displayName;
@@ -662,6 +662,7 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _disposed = true;
+        await StopUsbEnrollmentAsync().ConfigureAwait(false);
         await StopIncomingMainAsync().ConfigureAwait(false);
         await DisconnectControlSessionsAsync().ConfigureAwait(false);
         await StopAsync().ConfigureAwait(false);
