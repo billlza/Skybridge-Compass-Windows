@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.Services.Audio;
@@ -13,6 +14,7 @@ internal static class AudioReceiveHostTests
         ("audio product host skips retired MAIN entries and drains current peer closure", ClosedMain),
         ("audio product host advertises only installed consumers and receives successive streams", SuccessiveStreams),
         ("audio product host rejects a competing peer without preempting an approval owner", CompetingPeer),
+        ("audio product host detaches an idle peer without interrupting another playing source", DetachIdlePeer),
         ("audio product host keeps listening after a peer cancels its pending approval", PeerCancellation),
         ("audio product host survives immediate withdrawn offers on the same MAIN session", WithdrawnOffers),
         ("audio product host stop waits for real native preparation and release", StopPreparation),
@@ -105,6 +107,58 @@ internal static class AudioReceiveHostTests
         await Until(() => host.ReadSnapshot() is { Phase: null, ListeningDevices: 2 }, first.Lan.Token);
         await first.Lan.Barrier(); await second.Lan.Barrier();
     }
+    private static async Task DetachIdlePeer()
+    {
+        await using var playing = await CaptureFixture.Create(); await using var idle = await CaptureFixture.Create();
+        var devices = new ConcurrentBag<NativeDevice>(); await using var host = Host(playing, devices);
+        await host.AttachAsync(playing.Lan.Session, playing.Lan.Token); await host.AttachAsync(idle.Lan.Session, idle.Lan.Token);
+        await host.EnableAsync(AudioCaptureReceiveSessionTests.Endpoint, playing.Lan.Token);
+        await Capabilities(playing.Lan, true); await Capabilities(idle.Lan, true);
+        var id = Guid.NewGuid(); await Offer(playing.Lan, id);
+        var accept = await playing.Lan.ReadAudio();
+        Require(accept.Body is AudioStreamingBody.Accept, "The playing source was not admitted.");
+        Require((await playing.Lan.ReadAudio()).Body is AudioStreamingBody.OutputReady ready && ready.Format == Format,
+            "Playing-source output readiness changed the exact source format.");
+        var bytes = new byte[6000 * (int)Format.BytesPerFrame];
+        Require(bytes.Length <= ((AudioStreamingBody.Accept)accept.Body).ReceiveWindowBytes, "Fixture exceeds its earned source window.");
+        for (int offset = 0; offset < bytes.Length; offset += 4)
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(offset), BitConverter.SingleToInt32Bits((offset / 4 % 11 - 5) / 32f));
+        int maximum = AudioStreamingWire.MaximumPcmDataBytes / (int)Format.BytesPerFrame * (int)Format.BytesPerFrame;
+        for (int offset = 0; offset < bytes.Length; offset += maximum)
+            await playing.Lan.SendAudio(new(id, new AudioStreamingBody.PcmData(offset, bytes.AsSpan(offset, Math.Min(maximum, bytes.Length - offset)).ToArray())));
+        var device = devices.Single();
+        await Until(() => Volatile.Read(ref device.Client.StartCalls) == 1, playing.Lan.Token);
+        await host.DetachAsync(idle.Lan.Session); await Capabilities(idle.Lan, false);
+        Require(host.ReadSnapshot() is { Enabled: true, ConnectedDevices: 1 } && host.OwnsSession(playing.Lan.Session) &&
+            !host.OwnsSession(idle.Lan.Session) && device.Client.DisposeCalls == 0 && device.Client.StartCalls == 1,
+            "An unrelated detach stopped or replaced the active native output owner.");
+        await playing.Lan.SendAudio(new(id, new AudioStreamingBody.End(bytes.Length, SHA256.HashData(bytes))));
+        device.Client.AllowRetirement = true;
+        bool verified = false, complete = false;
+        for (int count = 0; count < 32 && !complete; count++)
+        {
+            switch ((await playing.Lan.ReadAudio()).Body)
+            {
+                case AudioStreamingBody.Credit: break;
+                case AudioStreamingBody.ContentVerified content:
+                    Require(!verified && content.TotalBytes == bytes.Length && content.Sha256.SequenceEqual(SHA256.HashData(bytes)),
+                        "The playing source lost byte-integrity verification after another peer detached.");
+                    verified = true; break;
+                case AudioStreamingBody.PlaybackComplete result:
+                    Require(verified && result.SourceFrames == 6000 && result.TrailingPaddingFrames == 0,
+                        "Unrelated detach changed playback completion or source-frame accounting.");
+                    complete = true; break;
+                default: throw new InvalidOperationException("An unrelated detach interrupted the playing source.");
+            }
+        }
+        Require(complete, "The playing source did not finish after unrelated detach.");
+        await Until(() => host.ReadSnapshot() is { Phase: null, ListeningDevices: 1 }, playing.Lan.Token);
+        Require(device.Client.Submissions.SelectMany(packet => packet).SequenceEqual(bytes) && device.Client.StartCalls == 1 &&
+            device.Client.DisposeCalls == 1 && device.DisposeCalls == 1 && !device.WrongThread,
+            "Unrelated detach changed source PCM, restarted output or lost same-thread native cleanup.");
+        await host.DisableAsync(); await Capabilities(playing.Lan, false); await playing.Lan.Barrier();
+    }
+
     private static async Task PeerCancellation()
     {
         await using var f = await CaptureFixture.Create(); var shown = Signal();

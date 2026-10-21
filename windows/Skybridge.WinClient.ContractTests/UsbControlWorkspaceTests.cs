@@ -208,7 +208,7 @@ internal static class UsbControlWorkspaceTests
                 canceled.Cancel();
                 await Reject<OperationCanceledException>(() => workspace.DisconnectUsbControlAsync(selected.Route, selected.SessionId, canceled.Token));
             }
-            await Reject<InvalidOperationException>(() => workspace.DisconnectUsbControlAsync(selected.Route, second.SessionId, limit.Token));
+            await Reject<UsbControlSessionChangedException>(() => workspace.DisconnectUsbControlAsync(selected.Route, second.SessionId, limit.Token));
             Require(first.IsReady && second.IsReady && audio.OwnsSession(first) && audio.OwnsSession(second),
                 "Canceled or mismatched selection disconnected a live session.");
             var carrier = carriers.Single(stream => !stream.DisposeEntered.Task.IsCompleted);
@@ -236,7 +236,7 @@ internal static class UsbControlWorkspaceTests
             var replacement = await workspace.ConnectUsbControlAsync(firstTarget, authentication, account,
                 new("USB account", "fixture"), limit.Token, firstConnector);
             Require(replacement.SessionId != selected.SessionId, "The reconnected device reused an old MAIN generation.");
-            await Reject<InvalidOperationException>(() => workspace.DisconnectUsbControlAsync(selected.Route, selected.SessionId, limit.Token));
+            await Reject<UsbControlSessionChangedException>(() => workspace.DisconnectUsbControlAsync(selected.Route, selected.SessionId, limit.Token));
             Require(replacement.IsReady && second.IsReady && audio.OwnsSession(replacement) && audio.OwnsSession(second),
                 "A stale device-card action disconnected a replacement or unrelated session.");
             await workspace.DisconnectUsbControlAsync(selected.Route, replacement.SessionId, limit.Token);

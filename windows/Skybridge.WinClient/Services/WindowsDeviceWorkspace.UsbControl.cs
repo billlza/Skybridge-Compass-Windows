@@ -4,6 +4,9 @@ using Skybridge.WinClient.Services.RemoteControl;
 
 namespace Skybridge.WinClient.Services;
 
+internal sealed class UsbControlSessionChangedException() : InvalidOperationException(
+    "The selected USB session has changed. Refresh the device before disconnecting.");
+
 internal sealed partial class WindowsDeviceWorkspace
 {
     internal sealed record UsbControlSessionSnapshot(UsbControlRoute Route, string SessionId,
@@ -39,7 +42,7 @@ internal sealed partial class WindowsDeviceWorkspace
             // same cable with the same identity, must not inherit an old UI action.
             if (!_controlSessions.TryGetValue(route.PeerDeviceId, out var session)) return;
             if (session.SessionId != sessionId || session.Carrier is not ProductControlCarrier.Usb usb || usb.Route != route)
-                throw new InvalidOperationException("The selected USB session has changed. Refresh the device before disconnecting.");
+                throw new UsbControlSessionChangedException();
             // Cleanup must remain available after account expiry or revocation.
             // Once selected, drain the real owners even if the caller cancels.
             await ReleaseControlSessionAsync(route.PeerDeviceId, session).ConfigureAwait(false);

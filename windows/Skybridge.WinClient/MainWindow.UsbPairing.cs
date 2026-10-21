@@ -91,11 +91,15 @@ public sealed partial class MainWindow
         }
         catch (Exception error)
         {
-            WindowsRuntimeLog.Write(error is OperationCanceledException ? WindowsLogLevel.Info : WindowsLogLevel.Error,
-                "UsbDisconnect", error.GetType().Name);
+            WindowsRuntimeLog.Write(error is OperationCanceledException or UsbControlSessionChangedException
+                ? WindowsLogLevel.Info : WindowsLogLevel.Error, "UsbDisconnect", error.GetType().Name);
             if (!_hostShutdownInProgress)
-                ViewModel.ReportUsbManagementStatus(RemoteControlText(error is OperationCanceledException
-                    ? "UsbDisconnectCanceled" : "UsbDisconnectFailed"));
+                ViewModel.ReportUsbManagementStatus(RemoteControlText(error switch
+                {
+                    OperationCanceledException => "UsbDisconnectCanceled",
+                    UsbControlSessionChangedException => "UsbDisconnectChanged",
+                    _ => "UsbDisconnectFailed"
+                }));
         }
     }
 
