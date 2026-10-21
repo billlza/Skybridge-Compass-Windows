@@ -201,6 +201,11 @@ internal static class UsbControlWorkspaceTests
             var savedTrust = await File.ReadAllBytesAsync(path, limit.Token);
             var first = await workspace.ConnectUsbControlAsync(firstTarget, authentication, account, new("USB account", "fixture"), limit.Token, firstConnector);
             var second = await workspace.ConnectUsbControlAsync(secondTarget, authentication, account, new("USB account", "fixture"), limit.Token, secondConnector);
+            // Local admission can finish before the peer consumes its own pong.
+            // This test intentionally closes immediately, so first establish both
+            // ends of the selected generation rather than racing peer admission.
+            await firstPeer.WaitForMainAdmissionAsync(first.SessionId, limit.Token);
+            await secondPeer.WaitForMainAdmissionAsync(second.SessionId, limit.Token);
             var selected = workspace.ReadUsbControlSessions().Single(peer => peer.SessionId == first.SessionId);
             Require(audio.OwnsSession(first) && audio.OwnsSession(second), "Both real MAIN owners must attach before selective release.");
             using (var canceled = new CancellationTokenSource())
@@ -235,6 +240,7 @@ internal static class UsbControlWorkspaceTests
             await workspace.DisconnectUsbControlAsync(selected.Route, selected.SessionId, limit.Token); // Idempotent, no replacement.
             var replacement = await workspace.ConnectUsbControlAsync(firstTarget, authentication, account,
                 new("USB account", "fixture"), limit.Token, firstConnector);
+            await firstPeer.WaitForMainAdmissionAsync(replacement.SessionId, limit.Token);
             Require(replacement.SessionId != selected.SessionId, "The reconnected device reused an old MAIN generation.");
             await Reject<UsbControlSessionChangedException>(() => workspace.DisconnectUsbControlAsync(selected.Route, selected.SessionId, limit.Token));
             Require(replacement.IsReady && second.IsReady && audio.OwnsSession(replacement) && audio.OwnsSession(second),

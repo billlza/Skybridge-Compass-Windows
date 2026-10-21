@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading.Channels;
 using System.Xml.Linq;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.Services.Connection;
@@ -40,6 +41,13 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
     internal Exception? MainFailure { get; private set; }
     internal TaskCompletionSource<ushort> MainEstablished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     internal TaskCompletionSource MainEnded { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Channel<string> _mainAdmissions = Channel.CreateBounded<string>(128);
+    internal async Task WaitForMainAdmissionAsync(string sessionId, CancellationToken token)
+    {
+        string admitted = await _mainAdmissions.Reader.ReadAsync(token);
+        if (admitted != sessionId)
+            throw new InvalidDataException("The fixture admitted a different MAIN generation.");
+    }
     internal int PairingCommits { get; private set; }
     internal int Responses => Volatile.Read(ref _responses);
     internal EndPoint Endpoint => _listener.LocalEndpoint;
@@ -251,6 +259,8 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
                     handshake.PeerProtocolIdentity, handshake.ExportInitiatorExtensions());
             }
             await session.CompleteAdmissionAsync(token);
+            if (!_mainAdmissions.Writer.TryWrite(session.SessionId))
+                throw new InvalidOperationException("Fixture MAIN admission capacity exceeded.");
             MainEstablished.TrySetResult(suite);
             await session.Completion;
         }
