@@ -571,7 +571,8 @@ foreach ($entry in @(
 foreach ($usbCommand in @(
     @{ Id = 'Pair'; Handler = 'OnUsbPairClicked'; Eligibility = 'CanPairSkybridge'; Uid = 'UsbPairDeviceButton' },
     @{ Id = 'Connect'; Handler = 'OnUsbConnectClicked'; Eligibility = 'CanConnectSkybridge'; Uid = 'UsbConnectDeviceButton' },
-    @{ Id = 'ReceiveAudio'; Handler = 'OnUsbReceiveAudioClicked'; Eligibility = 'CanReceiveSkybridgeAudio'; Uid = 'UsbReceiveAudioButton' }
+    @{ Id = 'ReceiveAudio'; Handler = 'OnUsbReceiveAudioClicked'; Eligibility = 'CanReceiveSkybridgeAudio'; Uid = 'UsbReceiveAudioButton' },
+    @{ Id = 'Disconnect'; Handler = 'OnUsbDisconnectClicked'; Eligibility = 'CanDisconnectSkybridge'; Uid = 'UsbDisconnectDeviceButton' }
 )) {
     $controls = @($actionTemplateDocument.SelectNodes("//*[local-name()='AppBarButton']") | Where-Object {
         $_.GetAttribute("AutomationProperties.AutomationId") -eq "Skybridge.Usb.$($usbCommand.Id)"

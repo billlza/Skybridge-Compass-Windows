@@ -14,6 +14,7 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
 {
     internal const string DeviceName = "USB iPad fixture";
     internal const string Serial = "00008132-1111111111111111";
+    internal string Udid { get; }
     private readonly MLDsa _key;
     private readonly UsbPeerIdentity _identity;
     private readonly TcpListener _listener;
@@ -44,10 +45,12 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
     internal EndPoint Endpoint => _listener.LocalEndpoint;
 
     internal NativeUsbDiscoveryFixture(int port = 0, Func<bool>? closedPort = null, string? observationsPath = null,
-        ILanPibApprovalPresenter? pairingApproval = null, bool policyBoundMain = false)
+        ILanPibApprovalPresenter? pairingApproval = null, bool policyBoundMain = false, string serial = Serial)
     {
         if (!OperatingSystem.IsWindows() || !MLDsa.IsSupported)
             throw new PlatformNotSupportedException("The native USB fixture requires Windows ML-DSA.");
+        if (!UsbMuxProtocol.ValidUdid(serial)) throw new ArgumentException("A fixture requires a valid USB serial.", nameof(serial));
+        Udid = serial;
         _key = MLDsa.GenerateKey(MLDsaAlgorithm.MLDsa65);
         try
         {
@@ -125,7 +128,7 @@ internal sealed class NativeUsbDiscoveryFixture : IAsyncDisposable
             {
                 var row = UsbMuxProtocol.Dictionary(("DeviceID", new("integer", 7)), ("Properties",
                     UsbMuxProtocol.Dictionary(("DeviceID", new("integer", 7)), ("ProductID", new("integer", 4779)),
-                        ("SerialNumber", new("string", Serial)), ("ConnectionType", new("string", "USB")))));
+                        ("SerialNumber", new("string", Udid)), ("ConnectionType", new("string", "USB")))));
                 await stream.WriteAsync(UsbMuxProtocol.Packet(UsbMuxProtocol.Dictionary(("DeviceList", new("array", row))), tag), deadline.Token);
                 return;
             }

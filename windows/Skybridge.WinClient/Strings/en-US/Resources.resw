@@ -2076,4 +2076,11 @@
   <data name="UsbConnectEnded" xml:space="preserve"><value>The USB connection has ended. Reconnect the device before receiving audio.</value></data>
   <data name="UsbDeviceCleanupFailed" xml:space="preserve"><value>The USB operation could not release its resources. Further USB actions are unavailable until release is confirmed.</value></data>
   <data name="AudioReceiveConnectedOnly" xml:space="preserve"><value>Use connected devices only</value></data>
+  <data name="UsbDisconnectDeviceButton.Label" xml:space="preserve"><value>Disconnect</value></data>
+  <data name="Status.UsbConnectionEnded" xml:space="preserve"><value>SkyBridge connection ended</value></data>
+  <data name="UsbDisconnectPending" xml:space="preserve"><value>Disconnecting this device and stopping its audio…</value></data>
+  <data name="UsbDisconnectReady" xml:space="preserve"><value>Device disconnected. Saved pairing is kept for your next connection.</value></data>
+  <data name="UsbDisconnectChanged" xml:space="preserve"><value>This connection has changed. Check the current device before disconnecting.</value></data>
+  <data name="UsbDisconnectCanceled" xml:space="preserve"><value>Disconnect canceled before resource release started.</value></data>
+  <data name="UsbDisconnectFailed" xml:space="preserve"><value>Could not fully release this device. Its connection is retained for cleanup; try disconnecting again.</value></data>
 </root>

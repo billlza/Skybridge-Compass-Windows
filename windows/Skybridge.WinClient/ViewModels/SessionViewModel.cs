@@ -2177,16 +2177,17 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IDisposable
         UsbManagementStatus = _usbManagementClient.BuildCompletedStatus(snapshot);
     }
 
-    internal void UpdateUsbConnections(IReadOnlyList<WindowsDeviceWorkspace.ConnectedUsbPeer> peers)
+    internal void UpdateUsbConnections(IReadOnlyList<WindowsDeviceWorkspace.UsbControlSessionSnapshot> peers)
     {
         for (int index = 0; index < UsbDevices.Count; index++)
         {
             var item = UsbDevices[index];
             var current = peers.SingleOrDefault(peer => peer.Route.Udid == item.SkybridgeUdid &&
                 peer.Route.Fingerprint == item.SkybridgeFingerprint && peer.Route.PeerDeviceId == item.SkybridgeDeviceId);
-            bool connected = current is not null, audio = current?.AudioReceiverInstalled == true;
-            if (item.IsSkybridgeConnected != connected || item.HasSkybridgeAudioReceiver != audio)
-                UsbDevices[index] = item with { IsSkybridgeConnected = connected, HasSkybridgeAudioReceiver = audio };
+            bool connected = current?.IsConnected == true, audio = current?.AudioReceiverInstalled == true;
+            if (item.IsSkybridgeConnected != connected || item.HasSkybridgeAudioReceiver != audio || item.SkybridgeSessionId != current?.SessionId)
+                UsbDevices[index] = item with { IsSkybridgeConnected = connected, HasSkybridgeAudioReceiver = audio,
+                    SkybridgeSessionId = current?.SessionId };
         }
     }
 

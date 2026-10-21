@@ -14,22 +14,34 @@ public sealed partial class MainWindow
     private AccountAudioAuthorization? _usbDeviceEpoch;
     private Exception? _usbDeviceReleaseFailure;
     private bool _usbDeviceRequiresOnline;
+    private enum UsbDeviceAction { Pair, Connect, Disconnect }
 
     private async void OnUsbPairClicked(object sender, RoutedEventArgs args) =>
-        await RunUsbDeviceFromUiAsync(sender, pairing: true);
+        await RunUsbDeviceFromUiAsync(sender, UsbDeviceAction.Pair);
 
     private async void OnUsbConnectClicked(object sender, RoutedEventArgs args) =>
-        await RunUsbDeviceFromUiAsync(sender, pairing: false);
+        await RunUsbDeviceFromUiAsync(sender, UsbDeviceAction.Connect);
 
-    private async Task RunUsbDeviceFromUiAsync(object sender, bool pairing)
+    private async void OnUsbDisconnectClicked(object sender, RoutedEventArgs args) =>
+        await RunUsbDeviceFromUiAsync(sender, UsbDeviceAction.Disconnect);
+
+    private async Task RunUsbDeviceFromUiAsync(object sender, UsbDeviceAction action)
     {
         if (_hostShutdownInProgress || _usbDeviceOperation is { IsCompleted: false } ||
             _usbDeviceReleaseFailure is not null) return;
         if (sender is not FrameworkElement { DataContext: UsbDeviceItemView item } ||
             item.SkybridgeUdid is not { } udid || item.SkybridgeFingerprint is not { } fingerprint ||
             item.SkybridgeDeviceId is not { } deviceId ||
-            !(pairing ? item.CanPairSkybridge : item.CanConnectSkybridge)) return;
-        if (pairing ? !ViewModel.AccountSession.IsSignedIn : ViewModel.AccountSession.ReadAudioReceiverAccount() is null)
+            !(action switch
+            {
+                UsbDeviceAction.Pair => item.CanPairSkybridge,
+                UsbDeviceAction.Connect => item.CanConnectSkybridge,
+                UsbDeviceAction.Disconnect => item.CanDisconnectSkybridge,
+                _ => false
+            })) return;
+        bool pairing = action == UsbDeviceAction.Pair;
+        if (action != UsbDeviceAction.Disconnect &&
+            (pairing ? !ViewModel.AccountSession.IsSignedIn : ViewModel.AccountSession.ReadAudioReceiverAccount() is null))
         {
             ViewModel.ReportUsbManagementStatus(RemoteControlText(pairing ? "UsbPairSignIn" : "UsbConnectSignIn"));
             ViewModel.ToggleAccountOverlay();
@@ -39,8 +51,13 @@ public sealed partial class MainWindow
         _usbDeviceCancellation = cancellation;
         _usbDeviceRequiresOnline = pairing;
         UsbDevicesInteraction.IsEnabled = false;
-        _usbDeviceOperation = pairing ? PairUsbFromWindowAsync(udid, fingerprint, deviceId, cancellation.Token)
-            : ConnectUsbFromWindowAsync(udid, fingerprint, deviceId, cancellation.Token);
+        _usbDeviceOperation = action switch
+        {
+            UsbDeviceAction.Pair => PairUsbFromWindowAsync(udid, fingerprint, deviceId, cancellation.Token),
+            UsbDeviceAction.Connect => ConnectUsbFromWindowAsync(udid, fingerprint, deviceId, cancellation.Token),
+            UsbDeviceAction.Disconnect => DisconnectUsbFromWindowAsync(item, cancellation.Token),
+            _ => throw new ArgumentOutOfRangeException(nameof(action))
+        };
         try { await _usbDeviceOperation; }
         finally
         {
@@ -52,7 +69,33 @@ public sealed partial class MainWindow
                 cancellation.Dispose();
                 UsbDevicesInteraction.IsEnabled = true;
             }
-            ViewModel.UpdateUsbConnections(_remoteControlWorkspace.ReadConnectedUsbPeers());
+            ViewModel.UpdateUsbConnections(_remoteControlWorkspace.ReadUsbControlSessions());
+        }
+    }
+
+    private async Task DisconnectUsbFromWindowAsync(UsbDeviceItemView item, CancellationToken token)
+    {
+        try
+        {
+            var selected = _remoteControlWorkspace.ReadUsbControlSessions().SingleOrDefault(peer =>
+                peer.SessionId == item.SkybridgeSessionId && peer.Route.Udid == item.SkybridgeUdid &&
+                peer.Route.Fingerprint == item.SkybridgeFingerprint && peer.Route.PeerDeviceId == item.SkybridgeDeviceId);
+            if (selected is null)
+            {
+                ViewModel.ReportUsbManagementStatus(RemoteControlText("UsbDisconnectChanged"));
+                return;
+            }
+            ViewModel.ReportUsbManagementStatus(RemoteControlText("UsbDisconnectPending"));
+            await _remoteControlWorkspace.DisconnectUsbControlAsync(selected.Route, selected.SessionId, token);
+            ViewModel.ReportUsbManagementStatus(RemoteControlText("UsbDisconnectReady"));
+        }
+        catch (Exception error)
+        {
+            WindowsRuntimeLog.Write(error is OperationCanceledException ? WindowsLogLevel.Info : WindowsLogLevel.Error,
+                "UsbDisconnect", error.GetType().Name);
+            if (!_hostShutdownInProgress)
+                ViewModel.ReportUsbManagementStatus(RemoteControlText(error is OperationCanceledException
+                    ? "UsbDisconnectCanceled" : "UsbDisconnectFailed"));
         }
     }
 

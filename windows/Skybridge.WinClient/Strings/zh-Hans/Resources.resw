@@ -2031,4 +2031,11 @@
   <data name="UsbConnectEnded" xml:space="preserve"><value>USB 连接已结束。请重新连接设备后接收音频。</value></data>
   <data name="UsbDeviceCleanupFailed" xml:space="preserve"><value>USB 操作未能正常释放资源；确认释放前无法开始新的 USB 操作。</value></data>
   <data name="AudioReceiveConnectedOnly" xml:space="preserve"><value>仅使用已连接设备</value></data>
+  <data name="UsbDisconnectDeviceButton.Label" xml:space="preserve"><value>断开连接</value></data>
+  <data name="Status.UsbConnectionEnded" xml:space="preserve"><value>SkyBridge 连接已结束</value></data>
+  <data name="UsbDisconnectPending" xml:space="preserve"><value>正在断开此设备并停止它的音频…</value></data>
+  <data name="UsbDisconnectReady" xml:space="preserve"><value>设备已断开。已保存的配对将保留，方便下次连接。</value></data>
+  <data name="UsbDisconnectChanged" xml:space="preserve"><value>此连接已发生变化。请核对当前设备后再断开。</value></data>
+  <data name="UsbDisconnectCanceled" xml:space="preserve"><value>已取消断开，尚未开始释放资源。</value></data>
+  <data name="UsbDisconnectFailed" xml:space="preserve"><value>未能完整释放此设备的资源。连接记录已保留，请重试断开。</value></data>
 </root>

@@ -6,20 +6,45 @@ namespace Skybridge.WinClient.Services;
 
 internal sealed partial class WindowsDeviceWorkspace
 {
-    internal sealed record ConnectedUsbPeer(UsbControlRoute Route, bool AudioReceiverInstalled);
+    internal sealed record UsbControlSessionSnapshot(UsbControlRoute Route, string SessionId,
+        bool IsConnected, bool AudioReceiverInstalled);
 
-    internal IReadOnlyList<ConnectedUsbPeer> ReadConnectedUsbPeers()
+    internal IReadOnlyList<UsbControlSessionSnapshot> ReadUsbControlSessions()
     {
         lock (_stateGate)
         {
             if (_disposed) return [];
-            var connected = new List<ConnectedUsbPeer>();
+            var sessions = new List<UsbControlSessionSnapshot>();
             foreach (var session in _controlSessions.Values)
-                if (session.IsReady && session.Carrier is ProductControlCarrier.Usb usb)
-                    connected.Add(new(usb.Route, OriginalAudioFiles.UsbReceiverFor(session) is not null &&
-                        _audioReceiveHost?.OwnsSession(session) == true));
-            return connected;
+                if (session.Carrier is ProductControlCarrier.Usb usb)
+                {
+                    bool ready = session.IsReady;
+                    sessions.Add(new(usb.Route, session.SessionId, ready, ready &&
+                        OriginalAudioFiles.UsbReceiverFor(session) is not null && _audioReceiveHost?.OwnsSession(session) == true));
+                }
+            // Retired owners remain visible until their resources have actually drained.
+            return sessions;
         }
+    }
+
+    internal async Task DisconnectUsbControlAsync(UsbControlRoute route, string sessionId, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        await _controlOperations.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            // Already released is an idempotent close. A replacement, even on the
+            // same cable with the same identity, must not inherit an old UI action.
+            if (!_controlSessions.TryGetValue(route.PeerDeviceId, out var session)) return;
+            if (session.SessionId != sessionId || session.Carrier is not ProductControlCarrier.Usb usb || usb.Route != route)
+                throw new InvalidOperationException("The selected USB session has changed. Refresh the device before disconnecting.");
+            // Cleanup must remain available after account expiry or revocation.
+            // Once selected, drain the real owners even if the caller cancels.
+            await ReleaseControlSessionAsync(route.PeerDeviceId, session).ConfigureAwait(false);
+        }
+        finally { _controlOperations.Release(); }
     }
 
     internal async Task<LanProductControlSession> ConnectUsbControlAsync(UsbPeerInspection selected,

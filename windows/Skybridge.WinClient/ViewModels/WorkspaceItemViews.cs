@@ -302,15 +302,18 @@ public sealed record UsbDeviceItemView(
     string? SkybridgeFingerprint = null,
     string? SkybridgeDeviceId = null,
     bool IsSkybridgeConnected = false,
-    bool HasSkybridgeAudioReceiver = false)
+    bool HasSkybridgeAudioReceiver = false,
+    string? SkybridgeSessionId = null)
 {
     public bool HasCapabilities => Capabilities.Count > 0;
     private bool HasSkybridgeIdentity => SkybridgeUdid is not null && SkybridgeFingerprint is not null && SkybridgeDeviceId is not null;
-    public bool CanPairSkybridge => HasSkybridgeIdentity && !IsSkybridgeConnected && SkybridgeStatus == Services.Connection.UsbPeerScanner.Unpaired;
-    public bool CanConnectSkybridge => HasSkybridgeIdentity && !IsSkybridgeConnected && SkybridgeStatus == Services.Connection.UsbPeerScanner.Paired;
+    public bool CanPairSkybridge => HasSkybridgeIdentity && SkybridgeSessionId is null && !IsSkybridgeConnected && SkybridgeStatus == Services.Connection.UsbPeerScanner.Unpaired;
+    public bool CanConnectSkybridge => HasSkybridgeIdentity && SkybridgeSessionId is null && !IsSkybridgeConnected && SkybridgeStatus == Services.Connection.UsbPeerScanner.Paired;
     public bool CanReceiveSkybridgeAudio => HasSkybridgeIdentity && IsSkybridgeConnected && HasSkybridgeAudioReceiver;
-    public bool HasSkybridgeActions => CanPairSkybridge || CanConnectSkybridge || CanReceiveSkybridgeAudio;
-    public string? SkybridgeDisplayStatus => IsSkybridgeConnected ? "SkyBridge securely connected" : SkybridgeStatus;
+    public bool CanDisconnectSkybridge => HasSkybridgeIdentity && SkybridgeSessionId is not null;
+    public bool HasSkybridgeActions => CanPairSkybridge || CanConnectSkybridge || CanReceiveSkybridgeAudio || CanDisconnectSkybridge;
+    public string? SkybridgeDisplayStatus => IsSkybridgeConnected ? "SkyBridge securely connected" :
+        SkybridgeSessionId is not null ? "SkyBridge connection ended" : SkybridgeStatus;
 
     public static UsbDeviceItemView FromItem(UsbDeviceItem item) =>
         new(

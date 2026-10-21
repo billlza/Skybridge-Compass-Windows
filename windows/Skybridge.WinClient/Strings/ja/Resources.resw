@@ -2031,4 +2031,11 @@
   <data name="UsbConnectEnded" xml:space="preserve"><value>USB 接続が終了しました。音声を受信する前にデバイスを再接続してください。</value></data>
   <data name="UsbDeviceCleanupFailed" xml:space="preserve"><value>USB 操作のリソースを解放できませんでした。解放を確認するまで新しい USB 操作は利用できません。</value></data>
   <data name="AudioReceiveConnectedOnly" xml:space="preserve"><value>接続済みデバイスのみ使用</value></data>
+  <data name="UsbDisconnectDeviceButton.Label" xml:space="preserve"><value>切断</value></data>
+  <data name="Status.UsbConnectionEnded" xml:space="preserve"><value>SkyBridge 接続は終了しました</value></data>
+  <data name="UsbDisconnectPending" xml:space="preserve"><value>このデバイスを切断し、音声を停止しています…</value></data>
+  <data name="UsbDisconnectReady" xml:space="preserve"><value>デバイスを切断しました。ペアリングは次回の接続のために保存されています。</value></data>
+  <data name="UsbDisconnectChanged" xml:space="preserve"><value>接続が変更されました。現在のデバイスを確認してから切断してください。</value></data>
+  <data name="UsbDisconnectCanceled" xml:space="preserve"><value>リソースの解放を開始する前に切断をキャンセルしました。</value></data>
+  <data name="UsbDisconnectFailed" xml:space="preserve"><value>このデバイスのリソースを完全に解放できませんでした。接続の記録を保持しています。もう一度切断してください。</value></data>
 </root>

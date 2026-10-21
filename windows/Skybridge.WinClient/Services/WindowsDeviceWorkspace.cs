@@ -434,12 +434,17 @@ internal sealed partial class WindowsDeviceWorkspace : IAsyncDisposable
     private async Task RemoveStoppedControlSessionsAsync()
     {
         foreach (var stale in _controlSessions.Where(entry => !entry.Value.IsReady).ToArray())
-        {
-            if (_audioReceiveHost is { } audio) await audio.DetachAsync(stale.Value).ConfigureAwait(false);
-            await OriginalAudioFiles.UnbindUsbAsync(stale.Value).ConfigureAwait(false);
-            await stale.Value.DisposeAsync().ConfigureAwait(false);
-            lock (_stateGate) _controlSessions.Remove(stale.Key);
-        }
+            await ReleaseControlSessionAsync(stale.Key, stale.Value).ConfigureAwait(false);
+    }
+
+    // Called only while the control-operation gate is held. Keep the dictionary
+    // owner on any failure; removing a row is evidence of completed release.
+    private async Task ReleaseControlSessionAsync(string peerId, LanProductControlSession session)
+    {
+        if (_audioReceiveHost is { } audio) await audio.DetachAsync(session).ConfigureAwait(false);
+        await OriginalAudioFiles.UnbindUsbAsync(session).ConfigureAwait(false);
+        await session.DisposeAsync().ConfigureAwait(false);
+        lock (_stateGate) _controlSessions.Remove(peerId);
     }
 
     internal LanProductControlSession RequireIncomingControlSession(string deviceId)
@@ -462,10 +467,7 @@ internal sealed partial class WindowsDeviceWorkspace : IAsyncDisposable
             {
                 try
                 {
-                    if (_audioReceiveHost is { } audio) await audio.DetachAsync(entry.Value).ConfigureAwait(false);
-                    await OriginalAudioFiles.UnbindUsbAsync(entry.Value).ConfigureAwait(false);
-                    await entry.Value.DisposeAsync().ConfigureAwait(false);
-                    lock (_stateGate) _controlSessions.Remove(entry.Key);
+                    await ReleaseControlSessionAsync(entry.Key, entry.Value).ConfigureAwait(false);
                 }
                 catch (Exception failure) { failures.Add(failure); }
             }

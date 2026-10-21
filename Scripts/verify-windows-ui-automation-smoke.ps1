@@ -382,6 +382,10 @@ try {
                 refreshEnabled = $refresh.Current.IsEnabled; before = $before; after = $after
             } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir "usb-state-$($usbStates.Count).json")
             Assert-True $matched "USB inspection did not reach the expected real UI state: $($scenario.expected)"
+            foreach ($inactiveAction in @('Connect', 'ReceiveAudio', 'Disconnect')) {
+                $inactive = Find-ByAutomationId -Root $window -AutomationId "Skybridge.Usb.$inactiveAction"
+                Assert-True ($null -eq $inactive -or $inactive.Current.IsOffscreen) "An unpaired USB device exposes $inactiveAction."
+            }
             $pair = Find-ByAutomationId -Root $window -AutomationId 'Skybridge.Usb.Pair'
             if ($scenario.mode -eq 'open') {
                 $pair = Assert-PresentAndVisibleByAutomationId -Root $window -AutomationId 'Skybridge.Usb.Pair'

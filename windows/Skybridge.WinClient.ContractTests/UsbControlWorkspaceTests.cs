@@ -15,7 +15,8 @@ internal static class UsbControlWorkspaceTests
         ("Windows USB MAIN automatically selects the matching native Q policy and exact identity", () => NativeMain(true)),
         ("Windows USB MAIN cannot publish after account revocation while handshake is pending", RevokedHandshake),
         ("Windows USB MAIN offline access binds the exact prior device pair without bearer authentication", () => NativeOfflineMain(false)),
-        ("Windows USB MAIN rejects a discovery alias without the exact encrypted account identity", () => NativeOfflineMain(true))
+        ("Windows USB MAIN rejects a discovery alias without the exact encrypted account identity", () => NativeOfflineMain(true)),
+        ("Windows USB selected disconnect preserves another audio owner and rejects stale session actions", NativeSelectedDisconnect)
     ];
     private sealed class Approval : ILanPibApprovalPresenter
     {
@@ -51,8 +52,9 @@ internal static class UsbControlWorkspaceTests
                 var reused = await workspace.ConnectUsbControlAsync(selected, authentication, account, new("USB account","fixture"), limit.Token, connector);
                 Require(ReferenceEquals(session,reused) && peer.MainAttempts == 1 && peer.KeyRefreshReplies == 1,
                     "A matching live USB session was recreated or refreshed unnecessarily.");
-                var visible = workspace.ReadConnectedUsbPeers().Single();
-                Require(visible.Route == UsbControlRoute.From(selected) && !visible.AudioReceiverInstalled,
+                var visible = workspace.ReadUsbControlSessions().Single();
+                Require(visible.Route == UsbControlRoute.From(selected) && visible.SessionId == session.SessionId &&
+                    visible.IsConnected && !visible.AudioReceiverInstalled,
                     "The UI lost its exact USB route or implied an audio consumer that was not installed.");
                 var binding = session.RequireAudioIdentityBinding();
                 Require(binding.PeerProtocolIdentity.Fingerprint == selected.Response.Identity.Fingerprint &&
@@ -67,8 +69,9 @@ internal static class UsbControlWorkspaceTests
                 var after = await File.ReadAllBytesAsync(path,limit.Token);
                 Require(before.AsSpan().SequenceEqual(after), "USB handshake persisted temporary KEM or replaced trust.");
                 account.Revoke(); Require(!session.IsReady, "Revoked account retained USB readiness.");
-                Require(workspace.ReadConnectedUsbPeers().Count == 0, "Revoked USB session still appeared connected.");
-                await workspace.DisconnectControlSessionsAsync();
+                Require(!workspace.ReadUsbControlSessions().Single().IsConnected, "Revoked USB session still appeared connected.");
+                await workspace.DisconnectUsbControlAsync(visible.Route, visible.SessionId, limit.Token);
+                Require(workspace.ReadUsbControlSessions().Count == 0, "Released USB owner remained visible.");
                 await peer.MainEnded.Task.WaitAsync(limit.Token);
             }
             using var restored = await RemoteControlIdentityStore.LoadExistingAsync(directory.FullName,"USB requester");
@@ -136,14 +139,14 @@ internal static class UsbControlWorkspaceTests
                     new("USB account", "fixture"), limit.Token, connector));
                 await peer.MainEnded.Task.WaitAsync(limit.Token);
                 Require(error.Reason == AudioMembershipFailure.IdentityChanged && peer.MainAttempts == 1 && peer.KeyRefreshReplies == 1 &&
-                    workspace.ReadConnectedUsbPeers().Count == 0 &&
+                    workspace.ReadUsbControlSessions().Count == 0 &&
                     audio.ReadSnapshot().ConnectedDevices == 0, "A discovery alias published MAIN or installed audio authority.");
                 await Reject<InvalidDataException>(() => Task.Run(() => workspace.RequireIncomingControlSession("id:" + selected.Response.Identity.DeviceID)));
                 return;
             }
             var session = await workspace.ConnectUsbControlAsync(selected, null, offline, new("USB account", "fixture"), limit.Token, connector);
             await peer.MainEstablished.Task.WaitAsync(limit.Token);
-            Require(session.IsReady && workspace.ReadConnectedUsbPeers().Single().AudioReceiverInstalled &&
+            Require(session.IsReady && workspace.ReadUsbControlSessions().Single().AudioReceiverInstalled &&
                 peer.MainAttempts == 1 && peer.KeyRefreshReplies == 1, "Finite offline authority did not establish its exact native USB session.");
             var binding = session.RequireAudioIdentityBinding();
             Require(checkpoint.Peer.Matches(AudioDeviceIdentity.From(binding.PeerDeviceId, binding.PeerProtocolIdentity)),
@@ -151,12 +154,15 @@ internal static class UsbControlWorkspaceTests
             var reused = await workspace.ConnectUsbControlAsync(selected, null, offline, new("USB account", "fixture"), limit.Token, connector);
             Require(ReferenceEquals(session, reused) && peer.MainAttempts == 1, "Offline route reuse replaced its exact admitted identity.");
             clock.Advance(60_000);
-            Require(offline.IsCurrent && !session.IsReady && workspace.ReadConnectedUsbPeers().Count == 0,
+            Require(offline.IsCurrent && !session.IsReady && !workspace.ReadUsbControlSessions().Single().IsConnected &&
+                !workspace.ReadUsbControlSessions().Single().AudioReceiverInstalled,
                 "Another peer's longer grant kept the expired USB route usable or visible.");
             var after = await File.ReadAllBytesAsync(path, limit.Token);
             Require(before.AsSpan().SequenceEqual(after),
                 "Offline connection changed durable device trust.");
-            await workspace.DisconnectControlSessionsAsync();
+            var expired = workspace.ReadUsbControlSessions().Single();
+            await workspace.DisconnectUsbControlAsync(expired.Route, expired.SessionId, limit.Token);
+            Require(workspace.ReadUsbControlSessions().Count == 0, "Expired USB owner could not be released without fresh account authority.");
             await peer.MainEnded.Task.WaitAsync(limit.Token);
             clock.Advance(-60_000);
             await Reject<AudioMembershipException>(() => workspace.ConnectUsbControlAsync(selected, null, offline,
@@ -165,6 +171,88 @@ internal static class UsbControlWorkspaceTests
         }
         finally { Directory.Delete(directory.FullName, recursive: true); }
     }
+    private static async Task NativeSelectedDisconnect()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        var directory = Directory.CreateTempSubdirectory("skybridge-usb-disconnect-");
+        try
+        {
+            using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            await using var firstPeer = new NativeUsbDiscoveryFixture(pairingApproval: new Approval());
+            await using var secondPeer = new NativeUsbDiscoveryFixture(pairingApproval: new Approval(),
+                serial: "00008132-2222222222222222");
+            var carriers = new List<ProductControlStreamOwnershipTests.ObservedStream>();
+            var firstConnector = new UsbMuxConnector(async token =>
+            {
+                var stream = new ProductControlStreamOwnershipTests.ObservedStream(await UsbMuxConnector.ConnectSocket(firstPeer.Endpoint, token));
+                carriers.Add(stream); return stream;
+            });
+            var secondConnector = Connector(secondPeer);
+            var firstTarget = await new UsbPeerDiscoveryClient(firstConnector).InspectAsync(firstPeer.Udid, limit.Token);
+            var secondTarget = await new UsbPeerDiscoveryClient(secondConnector).InspectAsync(secondPeer.Udid, limit.Token);
+            var authentication = Authentication(); var account = new AccountAudioAuthorization(AudioAccountScope.From(authentication));
+            await using var workspace = new WindowsDeviceWorkspace(directory.FullName, "USB requester");
+            await using var audio = new AudioReceiveHost((_, _) =>
+                throw new InvalidOperationException("Disconnect tests must not start playback."), workspace.OriginalAudioFiles);
+            workspace.ConfigureAudioReception(audio);
+            await workspace.PairUsbPeerAsync(firstTarget, authentication, account, new Approval(), limit.Token, firstConnector);
+            await workspace.PairUsbPeerAsync(secondTarget, authentication, account, new Approval(), limit.Token, secondConnector);
+            string path = Path.Combine(directory.FullName, "remote-control-identity.bin");
+            var savedTrust = await File.ReadAllBytesAsync(path, limit.Token);
+            var first = await workspace.ConnectUsbControlAsync(firstTarget, authentication, account, new("USB account", "fixture"), limit.Token, firstConnector);
+            var second = await workspace.ConnectUsbControlAsync(secondTarget, authentication, account, new("USB account", "fixture"), limit.Token, secondConnector);
+            var selected = workspace.ReadUsbControlSessions().Single(peer => peer.SessionId == first.SessionId);
+            Require(audio.OwnsSession(first) && audio.OwnsSession(second), "Both real MAIN owners must attach before selective release.");
+            using (var canceled = new CancellationTokenSource())
+            {
+                canceled.Cancel();
+                await Reject<OperationCanceledException>(() => workspace.DisconnectUsbControlAsync(selected.Route, selected.SessionId, canceled.Token));
+            }
+            await Reject<InvalidOperationException>(() => workspace.DisconnectUsbControlAsync(selected.Route, second.SessionId, limit.Token));
+            Require(first.IsReady && second.IsReady && audio.OwnsSession(first) && audio.OwnsSession(second),
+                "Canceled or mismatched selection disconnected a live session.");
+            var carrier = carriers.Single(stream => !stream.DisposeEntered.Task.IsCompleted);
+            carrier.HoldDisposal = true;
+            using var closeCancellation = CancellationTokenSource.CreateLinkedTokenSource(limit.Token);
+            var disconnecting = Task.Run(() => workspace.DisconnectUsbControlAsync(selected.Route, selected.SessionId, closeCancellation.Token));
+            try
+            {
+                await carrier.DisposeEntered.Task.WaitAsync(limit.Token);
+                closeCancellation.Cancel();
+                Require(!disconnecting.IsCompleted && workspace.ReadUsbControlSessions().Any(peer => peer.SessionId == selected.SessionId) &&
+                    second.IsReady && audio.OwnsSession(second),
+                    "Disconnect reported completion or lost ownership before the selected carrier finished releasing.");
+            }
+            finally { carrier.ReleaseDisposal.Set(); }
+            await disconnecting;
+            await firstPeer.MainEnded.Task.WaitAsync(limit.Token);
+            Require(!first.IsReady && !audio.OwnsSession(first) && workspace.OriginalAudioFiles.UsbReceiverFor(first) is null,
+                "Selected MAIN, audio consumer or USB file-return owner survived disconnect.");
+            Require(second.IsReady && audio.OwnsSession(second) && !secondPeer.MainEnded.Task.IsCompleted &&
+                workspace.OriginalAudioFiles.UsbReceiverFor(second)?.IsCurrentFor(second) == true &&
+                workspace.ReadUsbControlSessions().Single().SessionId == second.SessionId,
+                "Disconnecting the first device damaged the other device's MAIN or audio reception.");
+            await workspace.DisconnectUsbControlAsync(selected.Route, selected.SessionId, limit.Token); // Idempotent, no replacement.
+            var replacement = await workspace.ConnectUsbControlAsync(firstTarget, authentication, account,
+                new("USB account", "fixture"), limit.Token, firstConnector);
+            Require(replacement.SessionId != selected.SessionId, "The reconnected device reused an old MAIN generation.");
+            await Reject<InvalidOperationException>(() => workspace.DisconnectUsbControlAsync(selected.Route, selected.SessionId, limit.Token));
+            Require(replacement.IsReady && second.IsReady && audio.OwnsSession(replacement) && audio.OwnsSession(second),
+                "A stale device-card action disconnected a replacement or unrelated session.");
+            await workspace.DisconnectUsbControlAsync(selected.Route, replacement.SessionId, limit.Token);
+            var remaining = workspace.ReadUsbControlSessions().Single();
+            account.Revoke();
+            await workspace.DisconnectUsbControlAsync(remaining.Route, remaining.SessionId, limit.Token);
+            await secondPeer.MainEnded.Task.WaitAsync(limit.Token);
+            Require(workspace.ReadUsbControlSessions().Count == 0 && !audio.OwnsSession(second),
+                "Revocation prevented cleanup of the last selected owner.");
+            var after = await File.ReadAllBytesAsync(path, limit.Token);
+            Require(savedTrust.AsSpan().SequenceEqual(after),
+                "Disconnect or reconnect rewrote the saved device pairing.");
+        }
+        finally { Directory.Delete(directory.FullName, recursive: true); }
+    }
+
     private static async Task RevokedHandshake()
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();

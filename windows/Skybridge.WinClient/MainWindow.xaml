@@ -926,6 +926,9 @@
                         <AppBarButton x:Uid="UsbReceiveAudioButton" Icon="Volume" Label="Receive audio" Click="OnUsbReceiveAudioClicked"
                                       AutomationProperties.AutomationId="Skybridge.Usb.ReceiveAudio"
                                       Visibility="{Binding CanReceiveSkybridgeAudio, Converter={StaticResource BoolVisibilityConverter}}" />
+                        <AppBarButton x:Uid="UsbDisconnectDeviceButton" Icon="Cancel" Label="Disconnect" Click="OnUsbDisconnectClicked"
+                                      AutomationProperties.AutomationId="Skybridge.Usb.Disconnect"
+                                      Visibility="{Binding CanDisconnectSkybridge, Converter={StaticResource BoolVisibilityConverter}}" />
                     </CommandBar>
                     <!-- Detail block (Mac deviceInfoRow rhythm): fixed-width label +
                          monospaced value. Each row drops out when its value is blank. -->

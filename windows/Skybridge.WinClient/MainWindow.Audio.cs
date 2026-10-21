@@ -44,7 +44,7 @@ public sealed partial class MainWindow
     private async void OnAudioStatusTick(object? sender, object args)
     {
         ObserveUsbDeviceAuthorization();
-        ViewModel.UpdateUsbConnections(_remoteControlWorkspace.ReadConnectedUsbPeers());
+        ViewModel.UpdateUsbConnections(_remoteControlWorkspace.ReadUsbControlSessions());
         if (!_audioChanging && !_hostShutdownInProgress && _audioListenerEpoch is { IsCurrent: false })
         {
             _audioUiOperation = StopRevokedAudioAsync();
@@ -227,11 +227,12 @@ public sealed partial class MainWindow
         if (_hostShutdownInProgress || _audioChanging || sender is not FrameworkElement
             { DataContext: UsbDeviceItemView { CanReceiveSkybridgeAudio: true } item }) return;
         // Recheck the live MAIN owner; a row saved before unplugging is not authority.
-        if (!_remoteControlWorkspace.ReadConnectedUsbPeers().Any(peer => peer.AudioReceiverInstalled &&
+        if (!_remoteControlWorkspace.ReadUsbControlSessions().Any(peer => peer.AudioReceiverInstalled &&
+            peer.SessionId == item.SkybridgeSessionId &&
             peer.Route.Udid == item.SkybridgeUdid && peer.Route.Fingerprint == item.SkybridgeFingerprint &&
             peer.Route.PeerDeviceId == item.SkybridgeDeviceId))
         {
-            ViewModel.UpdateUsbConnections(_remoteControlWorkspace.ReadConnectedUsbPeers());
+            ViewModel.UpdateUsbConnections(_remoteControlWorkspace.ReadUsbControlSessions());
             ViewModel.ReportUsbManagementStatus(RemoteControlText("UsbConnectEnded"));
             return;
         }
