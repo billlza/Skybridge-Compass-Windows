@@ -1,5 +1,39 @@
 # Native exact PCM output qualification
 
+## Current Windows checkpoint, 2026-10-24
+
+[Run 40123123386](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/40123123386)
+qualified commit `e4a28846836f058325b4593a6acfc0be9b76382e` on the Windows runner.
+Both the WinUI client and contract executable built with zero warnings and errors;
+all 941 distinct contract cases passed. The separate USB carrier ownership check
+and all 21 Windows-generated QR vectors decoded by the Android decoder also passed.
+This was a new run of the current code, not reuse of the earlier native receipts.
+
+The interactive UI step passed with 14 baseline captures and 36 observations of
+the unobscured candidate window, with no permission action. The USB view exercised
+an explicitly synthetic Apple-device service through open, closed and reopened
+states; the real product decoder and native signatures produced the expected UI.
+Pairing correctly required sign-in, and dismissing sign-in returned to the view.
+The account modal was signed out. These checks did not create trust, establish a
+real device session, access an actual Apple USB service or play audio.
+
+The overall workflow **failed** at the existing online stack gate:
+`Microsoft.WindowsAppSDK package is not current stable: project=2.3.1 latest=2.5.1`.
+No version, check or failure policy was changed. Later portability checks and Rust
+CLI coverage were not reached. The downloaded evidence archive matched GitHub's
+SHA-256 `2c95fefc6a6dd24f81b622711936dd212d67f7a0b65db6a8e8aa462bbf735737`;
+logs, manifests, UI observations and screenshots are retained under
+`artifacts/audio-native-20261024/native-client-current-v1/`.
+
+Physical phone-to-Windows playback, the Realtek padding failure and strict output
+remain open. The existing v4 prefill experiment was reverified against all 283
+packaged files, but its physical execution is deferred. It compares the original
+failure revision with that revision's isolated prefill change; subsequent product
+prefetch/pacing changes mean it cannot qualify the current client. Historical
+sections below retain the results and limitations of their named revisions;
+the protected account recovery implementation is tracked in
+[the offline-state record](windows-audio-offline-state.md).
+
 ## Startup location permission boundary
 
 The native audio UI gate was repeatedly obscured by the real Windows location-consent dialog, including run `39373949550` at `03922715d3b1275d14b82a4aea7571ed5f9ba235`. The retained screenshot and UI failure are under `artifacts/audio-native-20261020/credential-journal-v1/native/winui-smoke/`. The automation provider exposed insufficient text/buttons to bind that dialog safely; the gate correctly failed.
