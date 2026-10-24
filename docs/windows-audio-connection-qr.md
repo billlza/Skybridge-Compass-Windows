@@ -27,17 +27,28 @@ The existing 30-second presence loop, registered identity, account authorization
 receiver approval and strict output policy are unchanged. Reading presence does
 not start reception or authorize a peer. Routing hints do not prove reachability
 or bypass network isolation. This adds Windows reporting only; it does not add
-Windows roster-based dialing or iOS consumption of live account routes. The
-corresponding server route extension remains undeployed, so source-level success
-does not establish live same-account reconnection.
+Windows roster-based dialing or iOS consumption of live account routes. This
+client change does not deploy the corresponding server route extension;
+online route publication and real same-account reconnection remain unverified.
 
 The Mac-host contract build passed with zero warnings/errors; 199 account/audio
 cases (including 11 new presence cases) and 17 existing publication/QR cases
 passed. Those runs include registration-time port replacement, stop/restart,
 wrong identities, changed owners/endpoints, lookup failure and cancellation.
 Receipts and source hashes are under
-`artifacts/account-live-route-20261024/windows-presence-v1/`. Windows-native build
-and current-device account reconnection remain separate checks.
+`artifacts/account-live-route-20261024/windows-presence-v1/`.
+
+[Native run 40126669451](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/40126669451)
+then built commit `f3a87fab82b36b7f725f7bbfe614252ee83933a2` with zero warnings/errors
+and passed all 952 distinct product cases, including the 11 new presence cases.
+USB ownership, 21 QR vectors and interactive UI checks also passed; the UI receipt
+contains 14 baseline captures and 36 clear-window observations. Its account view
+was signed out and its USB service was synthetic. This does not verify a real
+account route, peer connection or audio output. No device installation or server
+deployment was performed. The archive matched GitHub's SHA-256
+`a76f64977d37674e4f5cff8ed27710ce3a1ad862667624070eb8cee64cc89187`.
+The overall workflow still failed the unchanged WindowsAppSDK freshness gate
+(`project=2.3.1 latest=2.5.1`); later portability/Rust coverage was not reached.
 
 ## QR rendering and native verification
 

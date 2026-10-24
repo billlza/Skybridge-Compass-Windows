@@ -1,6 +1,6 @@
 # Native exact PCM output qualification
 
-## Current Windows checkpoint, 2026-10-24
+## Windows checkpoint at e4a28846, 2026-10-24
 
 [Run 40123123386](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/40123123386)
 qualified commit `e4a28846836f058325b4593a6acfc0be9b76382e` on the Windows runner.
@@ -33,6 +33,11 @@ prefetch/pacing changes mean it cannot qualify the current client. Historical
 sections below retain the results and limitations of their named revisions;
 the protected account recovery implementation is tracked in
 [the offline-state record](windows-audio-offline-state.md).
+
+The subsequent native check of the account-presence route change at `f3a87fab`
+passed 952 product cases and the same build/UI gates, while retaining the SDK
+freshness failure. Its scope and receipts are recorded with
+[the listener-presence implementation](windows-audio-connection-qr.md#same-account-listener-presence-2026-10-24).
 
 ## Startup location permission boundary
 
