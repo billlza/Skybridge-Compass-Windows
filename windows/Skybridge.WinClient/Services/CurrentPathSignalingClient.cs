@@ -537,7 +537,8 @@ public sealed partial class CurrentPathSignalServerClient
         object? body,
         bool requiresUserAuthentication,
         IReadOnlyDictionary<string, string>? extraHeaders,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? requireCurrentBeforeSend = null)
     {
         var baseUri = new Uri(CurrentPathOriginPolicy.CanonicalOrigin(_options.BaseUrl));
         var requestUri = new Uri(baseUri, path);
@@ -592,6 +593,10 @@ public sealed partial class CurrentPathSignalServerClient
                 "application/json");
         }
 
+        // Credentials may have awaited a refresh. Route publications must recheck
+        // their exact owner after that work, at admission to the HTTP send.
+        cancellationToken.ThrowIfCancellationRequested();
+        requireCurrentBeforeSend?.Invoke();
         using var response = await _httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,

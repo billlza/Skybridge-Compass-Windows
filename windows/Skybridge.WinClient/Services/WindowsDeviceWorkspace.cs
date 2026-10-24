@@ -56,22 +56,32 @@ internal sealed partial class WindowsDeviceWorkspace : IAsyncDisposable
     }
 
     internal async Task<LanConnectionInfoPublication> PrepareIncomingMainConnectionInfoAsync(CancellationToken token)
+        => await ReadIncomingMainConnectionInfoAsync(token).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("No current MAIN listener is available on the selected network.");
+
+    /// <summary>Read the existing receiver only; absence does not start a listener or grant access.</summary>
+    internal async Task<LanConnectionInfoPublication?> ReadIncomingMainConnectionInfoAsync(CancellationToken token)
     {
         LanProductControlListener listener;
         RemoteControlIdentityStore identity;
         RemoteControlNetworkInterface network;
         lock (_stateGate)
         {
+            token.ThrowIfCancellationRequested();
             ObjectDisposedException.ThrowIf(_disposed, this);
-            listener = _mainListener ?? throw new InvalidOperationException("Enable reception before sharing connection information.");
+            if (_mainStarting || _mainListener is null || !_mainListener.IsListening) return null;
+            listener = _mainListener;
             identity = _identity ?? throw new InvalidOperationException("The local device identity is unavailable.");
             network = _mainNetwork ?? throw new InvalidOperationException("The listening network is unavailable.");
         }
         var currentNetworks = await OperatorNetworkInterfacesAsync(token).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
-        WindowsLanConnectionInfo.RequireCurrentRoute(network, currentNetworks);
+        if (!WindowsLanConnectionInfo.IsCurrentRoute(network, currentNetworks)) return null;
         lock (_stateGate)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_mainStarting || !ReferenceEquals(listener, _mainListener) || !ReferenceEquals(identity, _identity) ||
+                !ReferenceEquals(network, _mainNetwork) || !listener.IsListening) return null;
             return new(identity.PublicMaterial, () =>
             {
                 lock (_stateGate)

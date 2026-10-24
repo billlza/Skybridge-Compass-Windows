@@ -21,7 +21,8 @@ internal static class AccountDeviceTests
         ("existing account automatically registers the exact current identity",UnapprovedAccountAsync),
         ("strict presence admission still registers a missing caller and preserves revocation",StrictPresenceEnrollmentAsync),
         ("removal sends the exact target and rejects an unconfirmed response",RemovalWireAsync),
-        ("self removal stops synchronization and stale confirmations cannot change another account",RemovalLifecycleAsync)
+        ("self removal stops synchronization and stale confirmations cannot change another account",RemovalLifecycleAsync),
+        .. AccountPresenceRouteTests.Cases
     ];
     private static readonly SessionAuthority Authority = SessionAuthority.ForSupabaseProject("https://account-test.supabase.co");
     private static readonly CurrentPathProtocolIdentityBinding Binding = new("WINDOWS-DEVICE-ACCOUNT-0001", CurrentPathProtocolSigningAlgorithm.Ed25519, new byte[32]);

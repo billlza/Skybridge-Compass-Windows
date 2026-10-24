@@ -18,7 +18,8 @@ public sealed partial class MainWindow
         var account=ViewModel.AccountSession;
         _audioCredentials=new AudioAccountCredentialDispatcher(action => DispatcherQueue.TryEnqueue(() => action()),account.GetAudioAuthenticationAsync);
         _audioMembership=new AudioAccountMembershipProvider(_accountDeviceHttp,account.ReadAudioAuthorization,_audioCredentials.AuthenticateAsync);
-        _accountDevices=new AccountDevicesCoordinator(new AccountDeviceRosterClient(_accountDeviceHttp,new AudioAccountRegistryObserver(_audioMembership)),account.GetDeviceAuthenticationAsync,
+        _accountDevices=new AccountDevicesCoordinator(new AccountDeviceRosterClient(_accountDeviceHttp,new AudioAccountRegistryObserver(_audioMembership),
+            _remoteControlWorkspace.ReadIncomingMainConnectionInfoAsync),account.GetDeviceAuthenticationAsync,
             _remoteControlWorkspace.AccountIdentityAsync,WindowsAccountDeviceMetadata.ReadAsync,RemoteControlText);
         AccountDevicesFooter.Configure(_accountDevices,"AccountDevices.OpenFooter");
         AccountDevicesDashboard.Configure(_accountDevices,"AccountDevices.OpenDashboard",glassSurface: true);

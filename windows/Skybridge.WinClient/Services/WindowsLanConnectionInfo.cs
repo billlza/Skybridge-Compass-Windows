@@ -36,10 +36,16 @@ internal static class WindowsLanConnectionInfo
     internal static void RequireCurrentRoute(RemoteControlNetworkInterface selected,
         IReadOnlyList<RemoteControlNetworkInterface> current)
     {
-        ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(current);
-        if (!current.Any(route => string.Equals(route.AdapterId, selected.AdapterId, StringComparison.Ordinal) &&
-            route.InterfaceIndex == selected.InterfaceIndex && route.Address.Equals(selected.Address)))
+        if (!IsCurrentRoute(selected, current))
             throw new InvalidOperationException("The selected network no longer owns the listening address.");
+    }
+
+    internal static bool IsCurrentRoute(RemoteControlNetworkInterface selected,
+        IReadOnlyList<RemoteControlNetworkInterface> current)
+    {
+        ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(current);
+        return current.Any(route => string.Equals(route.AdapterId, selected.AdapterId, StringComparison.Ordinal) &&
+            route.InterfaceIndex == selected.InterfaceIndex && route.Address.Equals(selected.Address));
     }
 
     private static string Field(string text) => Convert.ToBase64String(StrictUtf8.GetBytes(text))
@@ -64,6 +70,7 @@ internal sealed class LanConnectionInfoPublication
     private readonly Func<IPEndPoint> _readCurrentEndpoint;
     private readonly IPEndPoint _endpoint;
     private readonly string _text;
+    private readonly string _deviceId, _algorithm, _fingerprint;
 
     internal LanConnectionInfoPublication(RemoteControlPairingMaterial identity, Func<IPEndPoint> readCurrentEndpoint)
     {
@@ -72,6 +79,9 @@ internal sealed class LanConnectionInfoPublication
         var current = readCurrentEndpoint();
         _endpoint = new(new IPAddress(current.Address.GetAddressBytes()), current.Port);
         _text = WindowsLanConnectionInfo.Encode(_endpoint, identity);
+        _deviceId = identity.DeviceId;
+        _algorithm = identity.ProtocolSigningAlgorithm;
+        _fingerprint = identity.ProtocolPublicKeyFingerprint;
     }
 
     internal string ReadCurrentText()
@@ -79,6 +89,17 @@ internal sealed class LanConnectionInfoPublication
         if (!_endpoint.Equals(_readCurrentEndpoint()))
             throw new InvalidOperationException("The MAIN listener changed. Refresh its connection information.");
         return _text;
+    }
+
+    internal IPEndPoint ReadCurrentEndpoint(CurrentPathProtocolIdentityBinding expectedIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(expectedIdentity);
+        if (expectedIdentity.DeviceId != _deviceId || expectedIdentity.ProtocolSigningAlgorithmWireName != _algorithm ||
+            expectedIdentity.ProtocolPublicKeyFingerprint != _fingerprint)
+            throw new InvalidDataException("The account presence identity does not own this MAIN listener.");
+        _ = ReadCurrentText();
+        // IPEndPoint is mutable; no caller may change the frozen publication.
+        return new(new IPAddress(_endpoint.Address.GetAddressBytes()), _endpoint.Port);
     }
 
     internal Task CopyAsync(Func<string, Task> copy)

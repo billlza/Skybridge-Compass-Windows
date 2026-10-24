@@ -4,6 +4,43 @@ Device Discovery's existing audio reception panel shows a LAN QR after reception
 
 Publication captures the exact MAIN listener, account lifetime, identity and selected interface. The interface ID, index and address are checked against current native enumeration. Image decoding remains owned until it completes, then publication is rechecked before display. The existing UI timer coalesces network events, clears stale pixels and permits one refresh per network revision; an explicit retry handles a failed render. Stopping reception or retiring the account clears the QR. Errors are visible and do not substitute another address or relax authentication.
 
+## Same-account listener presence, 2026-10-24
+
+Windows presence previously reported local addresses without the actual MAIN
+port. The existing account loop now reads the same live publication as the QR
+for every presence request, including a retry after registering the device.
+Only the selected listening address is associated with `lanControlPort`:
+Windows MAIN does not bind all interfaces. The complete registered device ID,
+signing algorithm and fingerprint must match the listener's identity.
+
+Reception that is disabled, starting, stopped or no longer attached to the
+selected interface has no publication; the heartbeat omits `lanControlPort` so
+the supporting server withdraws its earlier route. Native enumeration failures
+remain failures, rather than becoming a successful empty report. A captured
+owner or endpoint that changes before the HTTP send also fails explicitly.
+The send recheck runs after asynchronous credential preparation. A counterexample
+against the first implementation of this change actually sent the stale route
+after that preparation retired its owner; the final implementation rejects it
+before HTTP. Original failures are retained.
+
+The existing 30-second presence loop, registered identity, account authorization,
+receiver approval and strict output policy are unchanged. Reading presence does
+not start reception or authorize a peer. Routing hints do not prove reachability
+or bypass network isolation. This adds Windows reporting only; it does not add
+Windows roster-based dialing or iOS consumption of live account routes. The
+corresponding server route extension remains undeployed, so source-level success
+does not establish live same-account reconnection.
+
+The Mac-host contract build passed with zero warnings/errors; 199 account/audio
+cases (including 11 new presence cases) and 17 existing publication/QR cases
+passed. Those runs include registration-time port replacement, stop/restart,
+wrong identities, changed owners/endpoints, lookup failure and cancellation.
+Receipts and source hashes are under
+`artifacts/account-live-route-20261024/windows-presence-v1/`. Windows-native build
+and current-device account reconnection remain separate checks.
+
+## QR rendering and native verification
+
 QRCoder 1.8.0 renders the complete UTF-8 payload with error correction M and a four-module white quiet zone. The 21 deterministic vectors cover ASCII, Chinese, supplementary Unicode and mixed maximum-length names. The contract executable can export them to a new directory with `--export-lan-qr <directory>`. `Scripts/verify-windows-lan-qr-images.ps1` checks their hashes, bounds, quiet zones and exact decoded payloads using the SHA-256-pinned ZXing 3.5.4 artifact used by Android.
 
 Two generated images exposed a single-candidate finder failure in the earlier Android decoder. Changing QR encoding mode alone did not fix both. The Android repository independently fixes its bounded multi-candidate detector and retains both regression images; phones need that repair for the full corpus. No wire-format or trust-policy change is involved.

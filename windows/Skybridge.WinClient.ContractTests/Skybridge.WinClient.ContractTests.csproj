@@ -124,6 +124,7 @@
     <Compile Include="AppOperatorTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\AppOperatorServer.cs" Link="Services\AppOperatorServer.cs" />
     <Compile Include="AccountDeviceTests.cs" />
+    <Compile Include="AccountPresenceRouteTests.cs" />
     <Compile Include="AccountAudioAuthorizationTests.cs" />
     <Compile Include="AudioAccountMembershipTests.cs" />
     <Compile Include="AudioMembershipCheckpointTests.cs" />

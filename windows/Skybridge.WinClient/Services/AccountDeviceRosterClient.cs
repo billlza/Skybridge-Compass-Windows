@@ -48,7 +48,8 @@ internal interface IAccountDeviceRegistryObservation
 // Use the same bounded signaling HTTP path as all other current-path requests.
 // No direct table query: the service overlays only exact registered identities
 // with live presence and authorizes the tenant/user from the verified bearer.
-internal sealed class AccountDeviceRosterClient(HttpClient httpClient, IAccountDeviceRegistryObserver? observer = null) : IAccountDeviceRosterClient
+internal sealed class AccountDeviceRosterClient(HttpClient httpClient, IAccountDeviceRegistryObserver? observer = null,
+    Func<CancellationToken, Task<LanConnectionInfoPublication?>>? readLanConnectionInfo = null) : IAccountDeviceRosterClient
 {
     private string? _registrationScope;
     private int _registrationAttempts;
@@ -68,8 +69,15 @@ internal sealed class AccountDeviceRosterClient(HttpClient httpClient, IAccountD
                 () => client.ListAccountDevicesAsync(binding, cancellationToken),
                 (observation, result) => observation.Listed(result), cancellationToken).ConfigureAwait(false);
         }
-        Task PresenceAsync() => ObserveAsync(auth, binding, AccountDeviceRegistryRequest.Presence,
-            () => client.PublishAccountPresenceAsync(binding, metadata, cancellationToken), null, cancellationToken);
+        async Task PresenceAsync()
+        {
+            // Read again for each presence request, including after registration. A listener
+            // can stop or acquire another endpoint while that earlier request is in flight.
+            var publication = readLanConnectionInfo is null ? null : await readLanConnectionInfo(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            await ObserveAsync(auth, binding, AccountDeviceRegistryRequest.Presence,
+                () => client.PublishAccountPresenceAsync(binding, metadata, cancellationToken, publication), null, cancellationToken).ConfigureAwait(false);
+        }
         string scope = auth.Scope + "/" + binding.DeviceId + "/" + binding.ProtocolPublicKeyFingerprint;
         if (_registrationScope != scope) { _registrationScope = scope; ResetRegistration(); }
         async Task RegisterAsync()
@@ -214,22 +222,34 @@ public sealed partial class CurrentPathSignalServerClient
         ["X-SkyBridge-Client-Version"] = _options.ClientVersion,
         ["X-SkyBridge-Protocol-Version"] = _options.ProtocolVersion
     };
-    internal async Task PublishAccountPresenceAsync(CurrentPathProtocolIdentityBinding binding, AccountDeviceMetadata metadata, CancellationToken ct)
+    internal async Task PublishAccountPresenceAsync(CurrentPathProtocolIdentityBinding binding, AccountDeviceMetadata metadata, CancellationToken ct,
+        LanConnectionInfoPublication? publication = null)
     {
-        var response = await PerformJsonRequestAsync<JsonElement>("/api/presence/register", HttpMethod.Post, new
+        ct.ThrowIfCancellationRequested();
+        var payload = new Dictionary<string, object?>
         {
-            deviceId = binding.DeviceId,
-            protocolSigningAlgorithm = binding.ProtocolSigningAlgorithmWireName,
-            protocolPublicKeyFingerprint = binding.ProtocolPublicKeyFingerprint,
-            clientVersion = _options.ClientVersion,
-            protocolVersion = _options.ProtocolVersion,
-            deviceName = metadata.DeviceName,
-            platform = "windows",
-            deviceModel = metadata.DeviceModel,
-            osVersion = metadata.OsVersion,
-            lanAddresses = metadata.LanAddresses,
-            capabilities = new[] { "file_transfer", "remote_desktop" }
-        }, true, AccountVersionHeaders, ct).ConfigureAwait(false);
+            ["deviceId"] = binding.DeviceId,
+            ["protocolSigningAlgorithm"] = binding.ProtocolSigningAlgorithmWireName,
+            ["protocolPublicKeyFingerprint"] = binding.ProtocolPublicKeyFingerprint,
+            ["clientVersion"] = _options.ClientVersion,
+            ["protocolVersion"] = _options.ProtocolVersion,
+            ["deviceName"] = metadata.DeviceName,
+            ["platform"] = "windows",
+            ["deviceModel"] = metadata.DeviceModel,
+            ["osVersion"] = metadata.OsVersion,
+            ["lanAddresses"] = metadata.LanAddresses,
+            ["capabilities"] = new[] { "file_transfer", "remote_desktop" }
+        };
+        if (publication is not null)
+        {
+            var endpoint = publication.ReadCurrentEndpoint(binding);
+            // Windows MAIN binds one selected interface, not every local address.
+            payload["lanAddresses"] = new[] { endpoint.Address.ToString() };
+            payload["lanControlPort"] = endpoint.Port;
+        }
+        var response = await PerformJsonRequestAsync<JsonElement>("/api/presence/register", HttpMethod.Post,
+            payload, true, AccountVersionHeaders, ct,
+            publication is null ? null : () => { _ = publication.ReadCurrentEndpoint(binding); }).ConfigureAwait(false);
         if (!AccountDeviceWire.Boolean(response, "online") || AccountDeviceWire.Integer(response, "ttlMs") != 90_000
             || AccountDeviceWire.Integer(response, "expiresAt") <= 0)
             throw new InvalidDataException("Presence response is invalid.");
