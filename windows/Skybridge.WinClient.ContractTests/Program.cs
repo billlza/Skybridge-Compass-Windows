@@ -6,6 +6,12 @@ using System.Text.Json;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.ViewModels;
 
+if (args is ["--audio-capture-interop-peer", var captureScenario, var captureBytes, var captureFrames, var captureDigest])
+{
+    await AudioCaptureInteropPeer.RunAsync(captureScenario, captureBytes, captureFrames, captureDigest);
+    return;
+}
+
 if (args.SequenceEqual(["--audio-prefetch-worker-child"]))
 {
     AudioFilePcmPlaybackTests.SharedWorkerPressureChild();

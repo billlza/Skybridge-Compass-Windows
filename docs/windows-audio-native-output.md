@@ -202,3 +202,34 @@ For the non-event exclusive mode used here, [GetCurrentPadding](https://learn.mi
 The diagnostic build passed with warnings treated as errors, and all 18 file-pump regressions passed on the Mac host. Build/test inputs remained unchanged. The new 283-file package was verified entry by entry and by HTTP download hash. The original failure and diagnostic build records are under `artifacts/audio-native-20261019/physical-native-stall-v1/`.
 
 The returned diagnostic report matched assembly SHA-256 `313a94faf78cfb950f013c4dd68cea3c173f9fbff709a81fe8a26b4b652d8eb8` and reproduced the five-second failure. Both format support and initialization returned S_OK. All 2,611 post-Start padding queries reported the full 9,728-frame buffer, while all 2,611 clock calls returned S_OK and the observed position advanced from 1 to 163,152 at frequency 48,000. The maximum completed pacing wait was 3.3344 ms. All 50 sampled observations and the final raw observation were retained, with no truncation. No refill occurred, and Stop/client/device release each completed once. This isolates the immediate blocker to padding-based writable-capacity reporting for this call pattern; it does not yet establish a driver defect or authorize deriving writable space from the advancing clock.
+
+## Cross-runtime captured PCM contract, 2026-10-24
+
+`AudioCaptureInteropPeer` is an explicit contract-executable entry, consumed by
+the Android repository's `scripts/audio_windows_interop/interop.gradle`. It
+connects the actual Kotlin capture sender to this receiver's real admission,
+credit, integrity, output-owner and completion loops. The subprocess bridge
+checks byte-identical SBAU codec round trips before forwarding through the
+existing encrypted loopback MAIN fixture. Established keys, account responses,
+source samples and the output device are controlled test boundaries. It does
+not expose a product listener, read account credentials or open WASAPI.
+
+Six cases passed on the Mac host using the pinned .NET SDK and JVM: multi-window
+48 kHz Float32 stereo, an independent one-frame tail, packed 96 kHz / 24-bit
+stereo, 44.1 kHz / 16-bit mono, receiver decline and a deliberately incorrect End
+digest. All accepted samples at the controlled output boundary matched the
+source hashes and frame counts, with no padding or format change. Float32 inputs
+include low mantissa bits, negative zero and subnormals. Decline opened no source
+or output; digest corruption produced ContentMismatch without either completion
+receipt. Each case confirmed output release and retained MAIN by encrypted
+ping/pong. All peer processes and readers exited, and test/build inputs remained
+unchanged during execution. The existing 20 receive-session cases also passed;
+the contract assembly built with warnings treated as errors and none reported.
+
+Commands, source hashes, six peer transcripts and results are retained in the
+Android checkout's `artifacts/android-windows-pcm-interop-20261024/`. Reproduction
+and the exact source/output boundary are documented in its
+`scripts/audio_windows_interop/README.md`. This is shared-runtime contract
+evidence, not Windows-native execution or phone-to-Windows playback. The real
+Realtek padding/progress failure above is still unresolved; no output mode,
+precision, timeout or failure criterion was changed to obtain these passes.

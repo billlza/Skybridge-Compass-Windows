@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="AudioCaptureInteropPeer.cs" />
     <Compile Include="ProductBootstrapExchangeTests.cs" />
     <Compile Include="UsbEnrollmentWorkspaceTests.cs" />
     <Compile Include="UsbControlWorkspaceTests.cs" />
