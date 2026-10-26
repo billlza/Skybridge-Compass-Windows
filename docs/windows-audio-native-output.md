@@ -413,8 +413,44 @@ Native attempts exposed failures that were not observable in the Mac host run:
 
 The Windows patch does not change the shared decoder C boundary or its ABI.
 Every patched provider file has exact before/after hashes. No warning suppression,
-authentication downgrade or audio-format conversion was added. The three retained
+authentication downgrade or audio-format conversion was added. The four retained
 failure archives match GitHub's SHA-256 digests, and their extracted files were
 compared with the verified ZIP contents. Attempt IDs, compiler/configuration logs,
 local input checks and artifact checksums are in
 `artifacts/alac-windows-build-20261026/`.
+
+The subsequent native Windows x64 run
+[40275273234](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/40275273234)
+at `073c2def7cbcda463da7b1df93b7d0a9529526f5` completed successfully. MSVC
+14.51.36231 built the provider and bridge with warning failures enabled. The
+native arithmetic executable matched all four independent reference ranges for
+131,081 input values. The contract executable and actual WinUI client each built
+with zero warnings and zero errors. Explicit Windows suites passed 12 ALAC
+metadata cases, 35 native decoder cases, 43 ALAC receiver/preparation cases,
+9 FLAC product cases and 28 original-file product cases: 127 cases total.
+The decoder cases include all 24 independent sample references across 44.1,
+48 and 96 kHz, mono/stereo, and 16/20/24/32 valid integer bits, compared byte for
+byte. Account approval, USB acquisition and output effects in these product
+tests are controlled adapters; this is not phone-to-hardware interoperability.
+
+The final decoder SHA-256 is
+`b605a73b6e202a2b7cf706a847bc10493de3230409a90332a62f629b8b85dc32`.
+It has the ten required exports, an x64 PE header, and only `KERNEL32.dll` and
+`bcrypt.dll` as runtime imports. The DLL copied into the actual WinUI output is
+byte-identical to that qualified artifact. The downloaded evidence ZIP matches
+GitHub's SHA-256
+`bd82f66e7b053673b6b86f3b12772a808735242621a2ed6fa95c0385f04a0796`.
+All 31 retained bound files and all 18 recipe inputs in its source materials were
+checked against the native receipt. Fourteen build intermediates are deliberately
+absent from that download; it is not a complete reusable build cache.
+
+The real WinUI shell launched and passed navigation checks, with 14 visual
+captures and 36 clear, unobscured native-window observations. No permission
+action was taken. The account view remained signed out with zero device rows.
+This verifies the CI shell and signed-out UI, not an authenticated audio dialog
+or real account/device service. Commands, cases, hashes, earlier failures and
+remaining gates are in `artifacts/alac-windows-build-20261026/receipt.json`.
+Windows ARM64 native execution, physical WASAPI playback and the Realtek stall,
+authenticated phone interoperability, and the full portability/freshness workflow
+at this revision remain separate open gates. Physical Windows testing is still
+deferred; the strict-output and Q-Periapt policies are unchanged.
