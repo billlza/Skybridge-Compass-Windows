@@ -4,6 +4,7 @@ on:
   push:
     branches: [feature/windows-audio-qr]
     paths:
+      - '.gitattributes'
       - '.github/workflows/windows-alac.yml'
       - 'Scripts/*windows-alac*'
       - 'native/audio-alac/**'
@@ -57,7 +58,8 @@ jobs:
       - name: Build qualified Windows decoder
         shell: pwsh
         run: |
-          .\Scripts\build-windows-alac.ps1 -Architecture x64 -WorkDirectory "$pwd\artifacts\native-alac\x64" -MsysRoot $env:SKYBRIDGE_MSYS2_ROOT
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          .\Scripts\build-windows-alac.ps1 -Architecture x64 -WorkDirectory "$pwd\artifacts\native-alac\x64" -MsysRoot $env:SKYBRIDGE_MSYS2_ROOT 2>&1 | Tee-Object artifacts/alac-native-build.log
       - name: Build and execute native decoder and product contracts
         shell: pwsh
         run: |

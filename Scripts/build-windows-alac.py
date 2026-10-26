@@ -42,8 +42,9 @@ def sha(path):
 
 
 def checked(path, expected):
-    if sha(path) != expected:
-        raise ValueError(f'Input/output hash differs: {path}')
+    actual = sha(path)
+    if actual != expected:
+        raise ValueError(f'Input/output hash differs: {path}; expected={expected}; actual={actual}')
 
 
 def recipe_inputs():

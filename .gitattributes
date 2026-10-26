@@ -3,3 +3,5 @@
 # Shared FLAC sources, licenses and patch are bound by source-lock.json.
 # Preserve their exact bytes even when Windows checkout enables core.autocrlf.
 native/audio-flac/** -text
+native/audio-alac/** -text
+windows/Skybridge.WinClient.ContractTests/Fixtures/alac-decoder-v1/** -text
