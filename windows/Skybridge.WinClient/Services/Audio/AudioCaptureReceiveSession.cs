@@ -504,6 +504,12 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
         if (error is AudioFilePcmPlaybackException file) return file.Reason;
         if (error is OperationCanceledException) return AudioStreamingStopReason.UserStopped;
         if (error is TimeoutException) return AudioStreamingStopReason.TimedOut;
+        if (error is AudioAlacDecodeException alac)
+            return alac.Status is AudioAlacDecoderStatus.CodecError or
+                AudioAlacDecoderStatus.MissingFrame or AudioAlacDecoderStatus.FormatChanged or AudioAlacDecoderStatus.FrameCountMismatch or
+                AudioAlacDecoderStatus.ExtraOutput or AudioAlacDecoderStatus.SampleRangeError
+                ? AudioStreamingStopReason.ContentMismatch : AudioStreamingStopReason.SourceFailed;
+        if (error is AudioAlacFileException or AudioAlacComponentException) return AudioStreamingStopReason.UnsupportedSource;
         if (error is AudioWavePcmFileException or AudioFlacMetadataException or AudioFlacDecodeException or AudioOriginalFilePreparationException or AudioFlacComponentException)
             return AudioStreamingStopReason.UnsupportedSource;
         if (error is AudioMembershipException) return AudioStreamingStopReason.AccountRevoked;
@@ -514,6 +520,11 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
                 AudioPlaybackApprovalFailure.Revoked or AudioPlaybackApprovalFailure.ClockChanged => AudioStreamingStopReason.PermissionRevoked,
                 _ => AudioStreamingStopReason.ReceiverDeclined
             };
+        // Preparing also covers opening output, but a fault from the preceding
+        // file task occurred before that device effect. Preserve its cause and
+        // do not report disk/decoder/adapter failures as output incompatibility.
+        if (_fileInspection?.Exception is { } preparationFailure && Includes(preparationFailure, error))
+            return AudioStreamingStopReason.SourceFailed;
         return Phase switch
         {
             AudioCaptureReceivePhase.Authorizing => AudioStreamingStopReason.AccountRevoked,

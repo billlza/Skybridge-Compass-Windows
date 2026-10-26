@@ -1,0 +1,12 @@
+LIBRARY skybridge_alac
+EXPORTS
+    sbalac_decoder_create
+    sbalac_decoder_decode
+    sbalac_decoder_finish
+    sbalac_decoder_destroy
+    sbalac_linked_version
+    sbalac_provider_contract_version
+    sbalac_bridge_abi_version
+    sbalac_source_description_size
+    sbalac_control_size
+    sbalac_result_size

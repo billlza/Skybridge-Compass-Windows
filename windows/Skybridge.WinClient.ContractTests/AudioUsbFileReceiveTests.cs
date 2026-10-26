@@ -65,9 +65,21 @@ internal static class AudioUsbFileReceiveTests
         }
         finally { consumerLifetime.Cancel(); await Reject<OperationCanceledException>(() => consumer); }
     }
-    private static async Task Complete()
+    private static Task Complete()
+    {
+        var pcm = AudioOriginalFileReceiveSessionTests.Pcm(25001);
+        return CompleteFile(AudioOriginalFileReceiveSessionTests.Wave(pcm), "source.wav",
+            new(48000, 2, AudioStreamingEncoding.Float32, 32, 3), pcm);
+    }
+    internal static async Task CompleteAlac(string name)
+    {
+        var bytes = AudioAlacDecoderTests.Bytes(name); var metadata = await AudioAlacDecoderTests.Metadata(bytes);
+        await CompleteFile(bytes, "source.m4a", metadata.DecodedFormat, AudioAlacDecoderTests.Bytes(name, ".pcm"));
+    }
+    private static async Task CompleteFile(byte[] bytes, string name, AudioStreamingPcmFormat format, byte[] pcm)
     {
         await using var f = await Fixture.Create();
+        f.Bytes = bytes; f.FileName = name; f.Main.Native.ExpectedFormat = format.RequireExactOutputFormat();
         await f.Offer(); await f.Return();
         await using (var network = new LanProductControlListener((_, _) => Task.CompletedTask, static () => true))
         {
@@ -75,17 +87,45 @@ internal static class AudioUsbFileReceiveTests
             f.Registry.Unbind(network); // Network shutdown must not cancel the USB ticket.
         }
         await f.SendFile();
-        Require((await f.Main.Read()).Body is AudioStreamingBody.OutputReady ready && ready.Format.SampleRate == 48000 &&
-            ready.Format.Encoding == AudioStreamingEncoding.Float32 && ready.Format.ValidBits == 32, "USB changed PCM representation.");
-        Require((await f.Main.Read()).Body is AudioStreamingBody.PlaybackComplete { SourceFrames: 25001, TrailingPaddingFrames: 0 },
+        Require((await f.Main.Read()).Body is AudioStreamingBody.OutputReady ready && ready.Format == format, "USB changed PCM representation.");
+        Require((await f.Main.Read()).Body is AudioStreamingBody.PlaybackComplete complete &&
+            complete.SourceFrames == pcm.LongLength / format.BytesPerFrame && complete.TrailingPaddingFrames == 0,
             "USB file completion changed source extent.");
         var result = await f.Main.Run!.WaitAsync(f.Token);
         Require(result is AudioPlaybackReceiveReceipt.OriginalFile receipt && receipt.FileBytes == f.Bytes.Length &&
-            receipt.FileSha256Hex == f.Metadata.FileHash && f.Main.Native.Submissions.SelectMany(b => b).SequenceEqual(f.Bytes.Skip(68)),
+            receipt.FileSha256Hex == f.Metadata.FileHash && receipt.Format == format &&
+            receipt.Output.SourceFrames == (ulong)(pcm.LongLength / format.BytesPerFrame) &&
+            f.Main.Native.Submissions.SelectMany(b => b).SequenceEqual(pcm),
             "USB file receipt or rendered PCM changed the exact source bytes.");
         Require(f.Service.Calls == 2 && f.Service.Client!.Released && f.Service.Client.Disposals == 1,
             "USB return did not own exactly one enumeration and stream.");
         f.Released(); f.Main.NativeReleased(); await f.Main.Lan.Barrier();
+    }
+    internal static async Task AlacCapability()
+    {
+        await using var f = await Fixture.Create(bind: false);
+        Require(f.Registry.ReceiveSupportFor(f.Main.Lan.Session) == AudioOriginalFileReceiveSupport.Unavailable,
+            "Native codecs fabricated an uninstalled USB file role.");
+        var registration = f.Registry.BindUsb(f.Main.Lan.Session, f.Service.Connector, f.Root);
+        var support = f.Registry.ReceiveSupportFor(f.Main.Lan.Session);
+        Require(support == AudioOriginalFileReceiveSupport.WaveFlacAndAlac, "Qualified fixture codecs were not available.");
+        using var consumerLifetime = CancellationTokenSource.CreateLinkedTokenSource(f.Token);
+        var consumer = f.Main.Lan.Session.AcceptAudioOfferAsync(consumerLifetime.Token);
+        try
+        {
+            await f.Main.Lan.Session.SetAudioReceiverCapabilitiesAsync(true, support, f.Token, registration);
+            var identity = LanProductControlMessages.Payload<LanProductIdentity>(await f.Main.Lan.Read());
+            Require(identity.FileTransferPort is null && identity.Capabilities!.Contains(LanProductControlSession.AlacFileReceiveCapability) &&
+                identity.Capabilities.Contains(AudioStreamingWire.UsbFileReturnReceiveCapability) &&
+                identity.Capabilities.Contains(ClassicFileTransferWire.ApprovalCapability), "ALAC capability lost its USB return or approval binding.");
+            await f.Registry.UnbindUsbAsync(f.Main.Lan.Session);
+            Require(f.Registry.ReceiveSupportFor(f.Main.Lan.Session) == AudioOriginalFileReceiveSupport.Unavailable &&
+                !f.Main.Lan.Session.LocalIdentity.Capabilities!.Contains(LanProductControlSession.AlacFileReceiveCapability),
+                "USB retirement retained ALAC admission or capability.");
+            await Reject<InvalidOperationException>(() => f.Main.Lan.Session.SetAudioReceiverCapabilitiesAsync(true, support, f.Token, registration));
+            Require(f.Service.Calls == 0, "Capability publication opened a file connection.");
+        }
+        finally { consumerLifetime.Cancel(); await Reject<OperationCanceledException>(() => consumer); }
     }
     private static async Task Metadata()
     {
@@ -168,12 +208,13 @@ internal static class AudioUsbFileReceiveTests
         internal readonly MuxService Service = new();
         internal AudioCaptureReceiveSessionTests.Fixture Main = null!;
         internal readonly Guid Transfer = Guid.NewGuid();
-        internal readonly byte[] Bytes = AudioOriginalFileReceiveSessionTests.Wave(AudioOriginalFileReceiveSessionTests.Pcm(25001));
+        internal byte[] Bytes = AudioOriginalFileReceiveSessionTests.Wave(AudioOriginalFileReceiveSessionTests.Pcm(25001));
+        internal string FileName = "source.wav";
         internal byte[] Key = [];
         internal Exception? ExpectedUnbindFailure;
         internal CancellationToken Token => Main.Lan.Token;
         internal ClassicFileMetadata Metadata => ClassicFileTransferWire.Authenticate(new ClassicFileMetadata(Transfer.ToString("D"),
-            "source.wav", Bytes.Length, Convert.ToHexStringLower(SHA256.HashData(Bytes)), 65536, 2,
+            FileName, Bytes.Length, Convert.ToHexStringLower(SHA256.HashData(Bytes)), 65536, 2,
             SenderDeviceId: Main.Lan.Session.PeerDeviceId, ApprovalProtocol: ClassicFileTransferWire.ApprovalProtocol), Key);
         internal static async Task<Fixture> Create(bool bind = true)
         {

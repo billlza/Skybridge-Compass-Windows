@@ -126,6 +126,37 @@ if (args.SequenceEqual(["--audio-flac-metadata"]))
     return;
 }
 
+if (args.SequenceEqual(["--audio-alac-metadata"]))
+{
+    foreach (var test in AudioAlacFileTests.Cases)
+    { await test.Run(); Console.WriteLine("PASS " + test.Name); }
+    return;
+}
+
+if (args.SequenceEqual(["--audio-alac-decoder"]))
+{
+    foreach (var test in AudioAlacDecoderTests.Cases)
+    { await test.Run(); Console.WriteLine("PASS " + test.Name); }
+    return;
+}
+if (args.SequenceEqual(["--audio-alac-product"]))
+{
+    foreach (var test in AudioAlacReceiveTests.Cases)
+    { await test.Run(); Console.WriteLine("PASS " + test.Name); }
+    return;
+}
+if (args is ["--audio-alac-component", var alacComponentState])
+{
+    await AudioAlacDecoderTests.Component(alacComponentState);
+    return;
+}
+if (args is ["--audio-alac-package", var alacPackageState])
+{
+    await AudioAlacReceiveTests.Package(alacPackageState);
+    Console.WriteLine("PASS ALAC product package " + alacPackageState);
+    return;
+}
+
 if (args.SequenceEqual(["--audio-file-product"]))
 {
     foreach (var test in AudioOriginalFileReceiveSessionTests.Cases)
@@ -525,6 +556,7 @@ var remoteHostTests = Skybridge.WinClient.ContractTests.WindowsRemoteControlAudi
     .Concat(LanConnectionQrCodeTests.Cases)
     .Concat(AudioWavePcmFileTests.Cases)
     .Concat(AudioFlacFileTests.Cases)
+    .Concat(AudioAlacFileTests.Cases)
     .Concat(AudioFlacDecoderTests.Cases)
     .Concat(AudioFlacReceiveTests.Cases)
     .Concat(AudioOriginalFileAdmissionTests.Cases)

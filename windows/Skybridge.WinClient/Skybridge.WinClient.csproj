@@ -119,6 +119,7 @@
 
   <Import Project="..\NativeCore.targets" />
   <Import Project="..\NativeFlac.targets" />
+  <Import Project="..\NativeAlac.targets" />
 
   <!-- ===== Localization resources =====
        Take explicit control of the PRIResource item set so the per-language Resources.resw are

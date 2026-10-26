@@ -1,0 +1,10 @@
+_sbalac_bridge_abi_version
+_sbalac_control_size
+_sbalac_decoder_create
+_sbalac_decoder_decode
+_sbalac_decoder_destroy
+_sbalac_decoder_finish
+_sbalac_linked_version
+_sbalac_provider_contract_version
+_sbalac_result_size
+_sbalac_source_description_size

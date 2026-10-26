@@ -6,7 +6,7 @@ using Skybridge.WinClient.Services.FileTransfer;
 
 namespace Skybridge.WinClient.Services.Audio;
 
-internal enum AudioOriginalFileReceiveSupport { Unavailable, Wave, WaveAndFlac }
+internal enum AudioOriginalFileReceiveSupport { Unavailable, Wave, WaveAndFlac, WaveAndAlac, WaveFlacAndAlac }
 
 /// <summary>One approved playback offer owns its actual classic producer and file.
 /// The shared audio host serializes playback; this registry never grants ordinary
@@ -101,9 +101,18 @@ internal sealed class AudioOriginalFileReceiveRegistry
     internal AudioOriginalFileReceiveSupport ReceiveSupportFor(LanProductControlSession session)
     {
         if (!CanReceiveFor(session)) return AudioOriginalFileReceiveSupport.Unavailable;
-        if (!AudioFlacNative.IsPackaged) return AudioOriginalFileReceiveSupport.Wave;
-        AudioFlacNative.RequireCompatible();
-        return AudioOriginalFileReceiveSupport.WaveAndFlac;
+        bool flac = AudioFlacNative.IsPackaged, alac = AudioAlacNative.IsPackaged;
+        // Absence leaves the other formats available. A present but invalid native
+        // component fails explicitly instead of advertising an unqualified decoder.
+        if (flac) AudioFlacNative.RequireCompatible();
+        if (alac) AudioAlacNative.RequireCompatible();
+        return (flac, alac) switch
+        {
+            (true, true) => AudioOriginalFileReceiveSupport.WaveFlacAndAlac,
+            (true, false) => AudioOriginalFileReceiveSupport.WaveAndFlac,
+            (false, true) => AudioOriginalFileReceiveSupport.WaveAndAlac,
+            _ => AudioOriginalFileReceiveSupport.Wave
+        };
     }
     internal void Unbind(LanProductControlListener listener)
     {

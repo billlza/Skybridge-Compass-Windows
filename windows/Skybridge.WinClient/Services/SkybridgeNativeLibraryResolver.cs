@@ -29,15 +29,17 @@ internal static class SkybridgeNativeLibraryResolver
     private static nint Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
         bool flac = string.Equals(libraryName, "skybridge_flac", StringComparison.Ordinal);
-        if (!flac && !string.Equals(libraryName, LibraryName, StringComparison.Ordinal))
+        bool alac = string.Equals(libraryName, "skybridge_alac", StringComparison.Ordinal);
+        if (!flac && !alac && !string.Equals(libraryName, LibraryName, StringComparison.Ordinal))
         {
             return nint.Zero;
         }
 
-        var libraryPath = Path.Combine(AppContext.BaseDirectory, GetPlatformLibraryFileName(flac));
+        var libraryPath = Path.Combine(AppContext.BaseDirectory, GetPlatformLibraryFileName(flac, alac));
         if (!File.Exists(libraryPath))
         {
             throw new DllNotFoundException(
+                alac ? $"SkyBridge strict ALAC library was not found in the application directory: {libraryPath}" :
                 flac ? $"SkyBridge strict FLAC library was not found in the application directory: {libraryPath}" :
                 $"SkyBridge native Core library was not found in the application directory: {libraryPath}");
         }
@@ -45,18 +47,18 @@ internal static class SkybridgeNativeLibraryResolver
         return NativeLibrary.Load(libraryPath);
     }
 
-    private static string GetPlatformLibraryFileName(bool flac)
+    private static string GetPlatformLibraryFileName(bool flac, bool alac)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            return flac ? "skybridge_flac.dll" : "skybridge_core.dll";
+            return alac ? "skybridge_alac.dll" : flac ? "skybridge_flac.dll" : "skybridge_core.dll";
         }
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
-            return flac ? "libskybridge_flac.dylib" : "libskybridge_core.dylib";
+            return alac ? "libskybridge_alac.dylib" : flac ? "libskybridge_flac.dylib" : "libskybridge_core.dylib";
         }
 
-        return flac ? "libskybridge_flac.so" : "libskybridge_core.so";
+        return alac ? "libskybridge_alac.so" : flac ? "libskybridge_flac.so" : "libskybridge_core.so";
     }
 }

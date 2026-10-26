@@ -1937,6 +1937,8 @@
   <data name="AudioReceiveNoConnectedDevice" xml:space="preserve"><value>接收已启用，请连接已认证的设备以接收音频。</value></data>
   <data name="AudioReceiveDisabled" xml:space="preserve"><value>选择输出设备并启用接收。输出设备必须支持原始捕获格式。</value></data>
   <data name="AudioReceiveUnsupportedOutput" xml:space="preserve"><value>无法按原始音频格式准备所选输出，请检查设备是否可用，或选择兼容的输出设备。</value></data>
+  <data name="AudioReceiveUnsupportedSource" xml:space="preserve"><value>接收端暂时无法解码此音源，请更换受支持的音源。</value></data>
+  <data name="AudioReceiveSourceFailed" xml:space="preserve"><value>音源准备或读取失败，播放已停止。请重新选择音源后重试。</value></data>
   <data name="AudioReceiveAuthorizationEnded" xml:space="preserve"><value>设备授权或本次播放许可已结束。</value></data>
   <data name="AudioReceiveRequestEnded" xml:space="preserve"><value>本次播放请求已结束。</value></data>
   <data name="AudioReceiveContentFailed" xml:space="preserve"><value>音频校验失败，播放已停止。</value></data>

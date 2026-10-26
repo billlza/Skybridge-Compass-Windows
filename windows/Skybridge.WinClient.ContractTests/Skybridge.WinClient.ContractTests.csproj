@@ -37,11 +37,22 @@
     <Compile Include="AudioUsbFileReceiveTests.cs" />
     <Compile Include="AudioWavePcmFileTests.cs" />
     <Compile Include="AudioFlacFileTests.cs" />
+    <Compile Include="AudioAlacFileTests.cs" />
+    <Compile Include="AudioAlacDecoderTests.cs" />
+    <Compile Include="AudioAlacReceiveTests.cs" />
+    <Compile Include="AudioAlacPreparationTests.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAlacNative.cs" Link="Services\Audio\AudioAlacNative.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAlacPcmDecoder.cs" Link="Services\Audio\AudioAlacPcmDecoder.cs" />
+    <None Include="Fixtures\alac-decoder-v1\*" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioAlacFile.cs" Link="Services\Audio\AudioAlacFile.cs" />
+    <None Update="Fixtures\alac-m4a-metadata-v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures\alac-packet-index-v1.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="AudioFlacReceiveTests.cs" />
     <Compile Include="AudioFlacDecoderTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioFlacNative.cs" Link="Services\Audio\AudioFlacNative.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioFlacPcmDecoder.cs" Link="Services\Audio\AudioFlacPcmDecoder.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioPreparedOriginalFile.cs" Link="Services\Audio\AudioPreparedOriginalFile.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioDecodedFileReadSession.cs" Link="Services\Audio\AudioDecodedFileReadSession.cs" />
     <None Include="Fixtures\flac-decoder-v1\*" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioFlacFile.cs" Link="Services\Audio\AudioFlacFile.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\Audio\AudioOriginalFileAdmission.cs" Link="Services\Audio\AudioOriginalFileAdmission.cs" />
@@ -317,4 +328,5 @@
   </ItemGroup>
   <Import Project="..\NativeCore.targets" />
   <Import Project="..\NativeFlac.targets" />
+  <Import Project="..\NativeAlac.targets" />
 </Project>

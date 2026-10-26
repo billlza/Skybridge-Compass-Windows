@@ -272,3 +272,111 @@ and the exact source/output boundary are documented in its
 evidence, not Windows-native execution or phone-to-Windows playback. The real
 Realtek padding/progress failure above is still unresolved; no output mode,
 precision, timeout or failure criterion was changed to obtain these passes.
+
+## ALAC container and packet index, 2026-10-26
+
+`AudioAlacFile` now inspects the same finite, self-contained M4A/MP4 ALAC profile
+as the Apple and Android implementations. It retains the codec sample rate,
+mono/stereo layout and 16/20/24/32 valid bits, and traverses the complete packet
+index without reading compressed media. Legacy sample-entry rate/depth fields
+do not replace the codec configuration. AAC, encrypted entries, external data
+references, edit timelines, fragmented media and ambiguous layouts are rejected.
+
+The source is limited to 2 GiB, four hours, 4,194,304 packets, 4,096 boxes and
+64 MiB of metadata reads. Table pages are at most 64 KiB; no per-song packet array
+is retained. The sequential cursor checks cancellation and live ownership even
+for cached entries and EOF, preserves source failures, retains in-flight reads
+until they finish, and rejects overlapping calls without invalidating an active
+call. A successful index is not a decoded-file witness or playback permission.
+
+The pinned SDK 10.0.402 built the portable contract assembly with warnings as
+errors, zero warnings and zero errors. On the Mac host, `--audio-alac-metadata`
+passed 12 groups covering all 24 shared metadata/packet fixtures, 30 malformed
+declarations, truncation, source errors, cancellation, ownership revocation,
+concurrency, bounded pages, wide offsets, fixed sizes and distinct timing/chunk
+runs. Commands, logs, fixture provenance and source hashes are retained under
+`artifacts/alac-metadata-20261026/`. These are managed component results on macOS,
+not native Windows execution.
+
+Windows ALAC receive capability is still not advertised. It requires the
+source-locked native decoder DLL, complete decode-before-output validation,
+bounded playback reader integration, and native/interoperability qualification.
+The existing Realtek progress failure and physical output acceptance remain open;
+no output policy or authentication rule changed for this parser work.
+
+## ALAC native owner on the contract host, 2026-10-26
+
+`AudioAlacPcmDecoder` now consumes that index through the source-locked native
+boundary in `native/audio-alac`. The binding checks all ten required exports,
+ABI structure sizes, strict-provider contract and version before allocation.
+Packet reads are at most 64 KiB; each native output frame is at most 524,288 bytes.
+The owner preserves source/authorization exceptions across C callbacks, keeps
+errors terminal, rejects overlapping reads, checks cached completion, and defers
+destruction until active I/O and callbacks return. It does not own or reopen the
+source file. Its caller must supply the same verified source and live ownership.
+
+On macOS arm64, 35 focused cases passed, including byte-for-byte PCM equality for
+all 24 shared files and failure at each of 27 observed authorization/cancellation/
+closure checkpoints. Four isolated-process cases reject absent, damaged,
+old-ABI and missing-decode-export libraries. Three negative CMake cases reject
+source changes, an unpatched baseline and the wrong Apple platform. Native and
+managed builds completed without compiler/linker warnings; the native library
+exports exactly ten ABI operations and links only libSystem. The existing 41
+FLAC decoder cases and `verify-windows-ffi-client.ps1` also passed. Evidence is
+under `artifacts/alac-native-owner-20261026/`, with exact commands and source hashes.
+
+These results cover actual C decoding and the Windows code's managed owner on a
+Mac host. They do not establish native Windows behavior, full application file
+reception or physical output. The Windows provider build/packaging, complete-file
+witness, playback reader and capability integration are still open. No Windows
+ALAC receiving capability is advertised by this increment.
+
+## ALAC original-file receiver integration, 2026-10-26
+
+The follow-up connects ALAC to the product original-file receiver. The pinned
+private artifact supplies both container inspection and a complete native decode
+before an output device opens. The resulting witness binds that same artifact,
+sample format and final frame/packet/encoded-byte counts. Playback decodes it
+again through the shared bounded FLAC/ALAC PCM reader and checks the final receipt
+against the prepass. This retains one decoded packet and the existing bounded
+prefetch queue; it does not cache a whole decoded track, reopen a peer pathname,
+resample, change valid bits, add padding samples or infer a codec from `.m4a`.
+
+`audio_alac_file_receive_v1` now depends on the exact live file receiver and the
+packaged native component passing export, ABI and provider checks. FLAC and ALAC
+availability are independent; absence preserves other supported formats, while
+a present invalid library fails explicitly. USB capability additionally requires
+the installed return-stream owner. Disabling or retiring that owner withdraws
+the role. This does not add ALAC to Bluetooth or enable an unqualified Windows DLL.
+
+On the macOS arm64 contract host, 43 ALAC receiver/preparation cases passed. They
+include the 24 shared integer-reference files, full MAIN/classic TCP reception,
+the advertising host, USB mux return flows with 20 and 32 valid bits, corrupt
+final packets, conflicting sample counts, cancellation, revocation, exact tail
+release and failure at each of 154 observed preparation checkpoints. Submitted
+PCM is compared byte for byte with the independent references. Seven isolated
+package states passed: no codecs, FLAC only, ALAC only, both codecs, damaged ALAC,
+old ABI and a missing decode export. Another 109 WAVE/FLAC/file/capture regressions
+and the static FFI gate passed. The portable assembly builds with warnings as
+errors and zero warnings/errors; the native decoder binary and its source lock
+are unchanged from the preceding qualified host build.
+
+Two failing old-path conditions were observed before their fixes: valid ALAC was
+misrouted into WAVE inspection, and an unclassified preparation-task failure was
+reported as output incompatibility even though no output had opened. The latter
+now reports `sourceFailed` and retains its original cause. Source-read failures,
+unsupported sources and incompatible outputs have distinct English, Simplified
+Chinese and Japanese messages. All three resource files parse and contain the
+new keys. Commands, failure attempts, final results and hashes are in
+`artifacts/alac-product-receive-20261026/receipt.json` and its adjacent logs.
+
+These are actual native decoding and managed product-path results with controlled
+account/approval, USB acquisition and output adapters. They are **not Windows
+hardware or full WinUI application acceptance**. The Windows x64/arm64 provider
+build, DLL packaging, WinUI build/launch and physical WASAPI/interoperability
+checks remain open. The ALAC native/product suites are explicit opt-in commands
+(`--audio-alac-decoder`, `--audio-alac-product`, `--audio-alac-package <state>`),
+and fail if their required native component is unavailable; they are not silently
+skipped by a successful default portable suite. Physical Windows testing remains
+deferred, and the existing Realtek stall is still unresolved. No authentication,
+strict-output or Q-Periapt dependency policy was relaxed.

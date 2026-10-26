@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "scope": "Strict ALAC packet decoder boundary and managed ABI inspection; provider qualification and native Windows acceptance are separate.",
+  "bridgeAbi": 1,
+  "files": {
+    "CMakeLists.txt": "6fec4f427f33084910b3888fd54e79685cbe40d2e08beb8b6474d9d77b2525fc",
+    "COPYING.LGPLv2.1": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30",
+    "LICENSE.SkyBridge": "32e4cb968aa8ff27fbdf946102b530020fd150ad38670fab746dd6aa315e5899",
+    "LICENSE.md": "2e1d16c72fd74e12063776371da757322f8b77589386532f4fd8634bde7de1af",
+    "SkyBridgeALAC.def": "6964c15d09f113daee5d48c15097670f819e197acd6e5de9b1a0bfe08f6e5930",
+    "SkyBridgeALACABI.c": "cc7029012a2a82945f28475fe6721421063155eb1a379564ff90cf7f2a27b265",
+    "SkyBridgeALACDecoder.c": "a57fdcebba08c760a00deee349ac9b63fcc4e34c689a8596c69a4545a7fd77be",
+    "exports-macos.txt": "2e25b37d2290607c8a2e9cf11199afe57166b1e20067523761645c218fd60ee9",
+    "ffmpeg-build-probes.patch": "14fad52cb5a9a05f470dcd07056ab7d37128b43d4cd6187a7bf780051f31283d",
+    "ffmpeg-strict-errors.patch": "dcc4b485de545b3233de8e42b7eab31110fee3f06c027212e46c69d7688c3391",
+    "include/SkyBridgeALACDecoder.h": "64937077427af9c918231db0383fcfefaca6fe7edd98c7e82ca11c82f071061c",
+    "provider-source-lock.json": "53c6da34a3abfb5fc19358ce71647b10dcae02f4103dbb96eb9b57e7aadcb074"
+  }
+}

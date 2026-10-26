@@ -1982,6 +1982,8 @@
   <data name="AudioReceiveNoConnectedDevice" xml:space="preserve"><value>Reception is enabled. Connect an authenticated device to receive its audio.</value></data>
   <data name="AudioReceiveDisabled" xml:space="preserve"><value>Choose an output and enable reception. The original capture format must be supported.</value></data>
   <data name="AudioReceiveUnsupportedOutput" xml:space="preserve"><value>The selected output could not be prepared in the original audio format. Check that it is available, or choose a compatible output.</value></data>
+  <data name="AudioReceiveUnsupportedSource" xml:space="preserve"><value>This receiver cannot decode this audio source. Select a supported source.</value></data>
+  <data name="AudioReceiveSourceFailed" xml:space="preserve"><value>The audio source could not be prepared or read. Playback stopped. Select the source again and retry.</value></data>
   <data name="AudioReceiveAuthorizationEnded" xml:space="preserve"><value>Device authorization or playback permission ended.</value></data>
   <data name="AudioReceiveRequestEnded" xml:space="preserve"><value>The playback request ended.</value></data>
   <data name="AudioReceiveContentFailed" xml:space="preserve"><value>Audio verification failed. Playback was stopped.</value></data>

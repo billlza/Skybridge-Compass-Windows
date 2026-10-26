@@ -39,10 +39,12 @@ internal sealed partial class LanProductControlSession : IAsyncDisposable
     private volatile bool _captureReceiverEnabled;
     private volatile bool _originalFileReceiverEnabled;
     private volatile bool _flacFileReceiverEnabled;
+    private volatile bool _alacFileReceiverEnabled;
     private Audio.AudioOriginalFileReceiveRegistry.UsbRegistration? _usbFileReceiver;
     internal const string CaptureReceiveCapability = "audio_capture_receive_v1";
     internal const string OriginalFileReceiveCapability = "audio_file_receive_v1";
     internal const string FlacFileReceiveCapability = "audio_flac_file_receive_v1";
+    internal const string AlacFileReceiveCapability = "audio_alac_file_receive_v1";
     internal ushort? LocalFileTransferPort => _localIdentity.FileTransferPort;
 
     internal LanProductControlSession(ProductControlStreamTransport transport, ProductSessionKeys keys,
@@ -211,7 +213,8 @@ internal sealed partial class LanProductControlSession : IAsyncDisposable
             }
             _audio.SetConsumerAdvertisement(capture || originalFile);
             _captureReceiverEnabled = capture; _originalFileReceiverEnabled = originalFile;
-            _flacFileReceiverEnabled = fileSupport == Audio.AudioOriginalFileReceiveSupport.WaveAndFlac;
+            _flacFileReceiverEnabled = fileSupport is Audio.AudioOriginalFileReceiveSupport.WaveAndFlac or Audio.AudioOriginalFileReceiveSupport.WaveFlacAndAlac;
+            _alacFileReceiverEnabled = fileSupport is Audio.AudioOriginalFileReceiveSupport.WaveAndAlac or Audio.AudioOriginalFileReceiveSupport.WaveFlacAndAlac;
             _usbFileReceiver = originalFile ? usbReceiver : null;
         }
         // A retired session has no peer to notify; disabling is still immediate.
@@ -242,11 +245,12 @@ internal sealed partial class LanProductControlSession : IAsyncDisposable
         bool usbReturn = _originalFileReceiverEnabled && _usbFileReceiver?.IsCurrentFor(this) == true;
         bool file = _originalFileReceiverEnabled && (Carrier is ProductControlCarrier.Network || usbReturn);
         return (_localIdentity.Capabilities ?? [])
-            .Where(value => value != CaptureReceiveCapability && value != OriginalFileReceiveCapability && value != FlacFileReceiveCapability &&
+            .Where(value => value != CaptureReceiveCapability && value != OriginalFileReceiveCapability && value != FlacFileReceiveCapability && value != AlacFileReceiveCapability &&
                 value != Audio.AudioStreamingWire.UsbFileReturnReceiveCapability && value != FileTransfer.ClassicFileTransferWire.ApprovalCapability)
             .Concat(_captureReceiverEnabled ? [CaptureReceiveCapability] : Array.Empty<string>())
             .Concat(file ? [OriginalFileReceiveCapability] : Array.Empty<string>())
             .Concat(file && _flacFileReceiverEnabled ? [FlacFileReceiveCapability] : Array.Empty<string>())
+            .Concat(file && _alacFileReceiverEnabled ? [AlacFileReceiveCapability] : Array.Empty<string>())
             .Concat(usbReturn ? [Audio.AudioStreamingWire.UsbFileReturnReceiveCapability, FileTransfer.ClassicFileTransferWire.ApprovalCapability] : Array.Empty<string>()).ToArray();
     }
 

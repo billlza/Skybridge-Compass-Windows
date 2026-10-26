@@ -1,0 +1,25 @@
+<Project>
+  <PropertyGroup Condition="'$(OS)'=='Windows_NT'">
+    <SkybridgeAlacArchitecture Condition="'$(RuntimeIdentifier)'=='win-arm64' or ('$(RuntimeIdentifier)'=='' and '$(NETCoreSdkRuntimeIdentifier)'=='win-arm64')">ARM64</SkybridgeAlacArchitecture>
+    <SkybridgeAlacArchitecture Condition="'$(RuntimeIdentifier)'=='win-x64' or ('$(RuntimeIdentifier)'=='' and '$(NETCoreSdkRuntimeIdentifier)'=='win-x64')">x64</SkybridgeAlacArchitecture>
+    <SkybridgeAlacWorkDirectory Condition="'$(SkybridgeAlacWorkDirectory)'==''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\artifacts\native-alac\$(SkybridgeAlacArchitecture)'))</SkybridgeAlacWorkDirectory>
+    <SkybridgeAlacMsysRoot Condition="'$(SkybridgeAlacMsysRoot)'==''">$(SKYBRIDGE_MSYS2_ROOT)</SkybridgeAlacMsysRoot>
+    <SkybridgeAlacMsysRoot Condition="'$(SkybridgeAlacMsysRoot)'==''">C:\msys64</SkybridgeAlacMsysRoot>
+    <SkybridgeAlacBuilder>$(MSBuildThisFileDirectory)..\Scripts\build-windows-alac.ps1</SkybridgeAlacBuilder>
+    <SkybridgeAlacPackage>$(SkybridgeAlacWorkDirectory)\package</SkybridgeAlacPackage>
+    <SkybridgeAlacDll>$(SkybridgeAlacPackage)\skybridge_alac.dll</SkybridgeAlacDll>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(OS)'=='Windows_NT'">
+    <Content Include="$(SkybridgeAlacDll)" Link="skybridge_alac.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    <Content Include="$(SkybridgeAlacPackage)\Licenses\ALAC-COPYING.LGPLv2.1" Link="Licenses\ALAC-COPYING.LGPLv2.1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(SkybridgeAlacPackage)\Licenses\ALAC-LICENSE.md" Link="Licenses\ALAC-LICENSE.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(SkybridgeAlacPackage)\Licenses\ALAC-LICENSE.SkyBridge" Link="Licenses\ALAC-LICENSE.SkyBridge" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(SkybridgeAlacPackage)\Licenses\ALAC-provider-source-lock.json" Link="Licenses\ALAC-provider-source-lock.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(SkybridgeAlacPackage)\Licenses\ALAC-source-lock.json" Link="Licenses\ALAC-source-lock.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="BuildSkybridgeAlacNativeDll" BeforeTargets="PrepareForBuild" Condition="'$(OS)'=='Windows_NT' and '$(DesignTimeBuild)'!='true'">
+    <Error Condition="'$(SkybridgeAlacArchitecture)'=='' or '$(PlatformTarget)'=='x86'" Text="Strict ALAC requires an explicit supported Windows x64 or ARM64 target." />
+    <Exec Command="pwsh -NoProfile -File &quot;$(SkybridgeAlacBuilder)&quot; -Architecture $(SkybridgeAlacArchitecture) -WorkDirectory &quot;$(SkybridgeAlacWorkDirectory)&quot; -MsysRoot &quot;$(SkybridgeAlacMsysRoot)&quot;" />
+    <Error Condition="!Exists('$(SkybridgeAlacDll)')" Text="The qualified ALAC native build did not produce its decoder DLL." />
+  </Target>
+</Project>

@@ -138,6 +138,8 @@ public sealed partial class MainWindow
         return RemoteControlText(reason switch
         {
             AudioStreamingStopReason.UnsupportedOutput => "AudioReceiveUnsupportedOutput",
+            AudioStreamingStopReason.UnsupportedSource => "AudioReceiveUnsupportedSource",
+            AudioStreamingStopReason.SourceFailed => "AudioReceiveSourceFailed",
             AudioStreamingStopReason.AccountRevoked or AudioStreamingStopReason.PermissionRevoked => "AudioReceiveAuthorizationEnded",
             AudioStreamingStopReason.ReceiverDeclined or AudioStreamingStopReason.UserStopped => "AudioReceiveRequestEnded",
             AudioStreamingStopReason.ContentMismatch or AudioStreamingStopReason.ProtocolViolation => "AudioReceiveContentFailed",

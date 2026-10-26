@@ -1,0 +1,111 @@
+name: Windows ALAC qualification
+
+on:
+  push:
+    branches: [feature/windows-audio-qr]
+    paths:
+      - '.github/workflows/windows-alac.yml'
+      - 'Scripts/*windows-alac*'
+      - 'native/audio-alac/**'
+      - 'windows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-alac-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-x64:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Pin Windows repository remote
+        shell: pwsh
+        run: |
+          git remote set-url origin git@github.com:billlza/Skybridge-Compass-Windows.git
+          git remote set-url --push origin git@github.com:billlza/Skybridge-Compass-Windows.git
+      - uses: actions/setup-dotnet@v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Set up source build shell
+        id: msys
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: MSYS
+          path-type: inherit
+          install: make diffutils patch gnupg
+      - name: Select the explicit shell and Rust toolchain
+        shell: pwsh
+        env:
+          MSYS_ROOT: ${{ steps.msys.outputs.msys2-location }}
+        run: |
+          "SKYBRIDGE_MSYS2_ROOT=$env:MSYS_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          rustup toolchain install 1.97.1 --profile minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain preparation failed.' }
+          rustup default 1.97.1
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain selection failed.' }
+          python --version
+      - name: Check build-input rejection
+        shell: pwsh
+        run: |
+          python Scripts/test-windows-alac-build.py
+          if ($LASTEXITCODE -ne 0) { throw 'ALAC build-boundary checks failed.' }
+      - name: Build qualified Windows decoder
+        shell: pwsh
+        run: |
+          .\Scripts\build-windows-alac.ps1 -Architecture x64 -WorkDirectory "$pwd\artifacts\native-alac\x64" -MsysRoot $env:SKYBRIDGE_MSYS2_ROOT
+      - name: Build and execute native decoder and product contracts
+        shell: pwsh
+        run: |
+          $project = 'windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj'
+          dotnet build $project -c Release -warnaserror -p:UseSharedCompilation=false -m:1 --nologo 2>&1 | Tee-Object artifacts/alac-contract-build.log
+          if ($LASTEXITCODE -ne 0) { throw 'Windows contract build failed.' }
+          $assembly = 'windows/Skybridge.WinClient.ContractTests/bin/Release/net10.0/win-x64/Skybridge.WinClient.ContractTests.dll'
+          foreach ($suite in @('--audio-alac-metadata', '--audio-alac-decoder', '--audio-alac-product', '--audio-flac-product', '--audio-file-product')) {
+            dotnet $assembly $suite 2>&1 | Tee-Object "artifacts/$($suite.TrimStart('-')).log"
+            if ($LASTEXITCODE -ne 0) { throw "Windows qualification failed: $suite" }
+          }
+      - name: Build actual WinUI application and check packaged decoder
+        shell: pwsh
+        run: |
+          dotnet build windows/Skybridge.WinClient/Skybridge.WinClient.csproj -c Debug -warnaserror -p:UseSharedCompilation=false -m:1 --nologo 2>&1 | Tee-Object artifacts/alac-winui-build.log
+          if ($LASTEXITCODE -ne 0) { throw 'The WinUI application did not build.' }
+          $output = 'windows/Skybridge.WinClient/bin/Debug/net10.0-windows10.0.22621.0/win-x64'
+          $qualified = (Get-FileHash artifacts/native-alac/x64/package/skybridge_alac.dll -Algorithm SHA256).Hash
+          $packaged = (Get-FileHash "$output/skybridge_alac.dll" -Algorithm SHA256).Hash
+          if ($qualified -ne $packaged) { throw 'Packaged ALAC differs from the qualified native output.' }
+          foreach ($file in @('ALAC-COPYING.LGPLv2.1', 'ALAC-LICENSE.md', 'ALAC-LICENSE.SkyBridge', 'ALAC-provider-source-lock.json', 'ALAC-source-lock.json')) {
+            if (-not (Test-Path "$output/Licenses/$file" -PathType Leaf)) { throw "Missing ALAC attribution: $file" }
+          }
+          @{ commit = $env:GITHUB_SHA; architecture = 'x64'; nativeDecoder = 'passed'; managedProductReceiver = 'passed'; applicationBuild = 'passed'; decoderSha256 = $packaged.ToLowerInvariant(); interactiveLaunch = 'not-run'; deviceAudioPlayback = 'not-run' } |
+            ConvertTo-Json | Set-Content -Encoding utf8 artifacts/windows-alac-qualification.json
+      - name: Verify the built WinUI shell in the disposable runner
+        shell: pwsh
+        run: |
+          $assembly = 'windows/Skybridge.WinClient/bin/Debug/net10.0-windows10.0.22621.0/win-x64/Skybridge.WinClient.dll'
+          $hash = (Get-FileHash $assembly -Algorithm SHA256).Hash
+          .\Scripts\invoke-windows-ui-smoke-ci.ps1 -Configuration Debug -EvidenceDir artifacts/alac-winui-smoke -ExistingAssemblySha256 $hash
+          $receipt = Get-Content artifacts/windows-alac-qualification.json -Raw | ConvertFrom-Json
+          $receipt.interactiveLaunch = 'passed-ci-shell-smoke'
+          $receipt | ConvertTo-Json | Set-Content -Encoding utf8 artifacts/windows-alac-qualification.json
+      - name: Retain exact qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: windows-alac-x64-${{ github.sha }}
+          path: |
+            artifacts/*.log
+            artifacts/windows-alac-qualification.json
+            artifacts/alac-winui-smoke/**
+            artifacts/native-alac/x64/logs/**
+            artifacts/native-alac/x64/objects/ffbuild/config.log
+            artifacts/native-alac/x64/provider-receipt.json
+            artifacts/native-alac/x64/receipt.json
+            artifacts/native-alac/x64/package/**
+            artifacts/native-alac/x64/source-materials/**
+          if-no-files-found: error
+          retention-days: 7

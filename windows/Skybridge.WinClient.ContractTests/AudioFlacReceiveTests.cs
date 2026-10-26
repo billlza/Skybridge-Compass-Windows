@@ -85,7 +85,7 @@ internal static class AudioFlacReceiveTests
             !capabilities.Contains("file_transfer"), "FLAC role did not bind the exact listener or overstated authority.");
         await host.DisableAsync();
         var disabled = Skybridge.WinClient.Services.LanProductControlMessages.Payload<Skybridge.WinClient.Services.LanProductIdentity>(await f.Main.Lan.Read());
-        Require(disabled.Capabilities?.Any(value => value is "audio_file_receive_v1" or "audio_flac_file_receive_v1" or "audio_capture_receive_v1") != true,
+        Require(disabled.Capabilities?.Any(value => value is "audio_file_receive_v1" or "audio_flac_file_receive_v1" or "audio_alac_file_receive_v1" or "audio_capture_receive_v1") != true,
             "Disabled receiver retained a published audio role.");
     }
     internal static async Task UnavailableComponent(bool malformed)
@@ -103,8 +103,9 @@ internal static class AudioFlacReceiveTests
             }
             throw new Exception("Malformed decoder was treated as an available or silently absent role.");
         }
-        Require(f.Registry.ReceiveSupportFor(f.Main.Lan.Session) == AudioOriginalFileReceiveSupport.Wave,
-            "A missing FLAC component was advertised or disabled existing WAVE support.");
+        var expected = AudioAlacNative.IsPackaged ? AudioOriginalFileReceiveSupport.WaveAndAlac : AudioOriginalFileReceiveSupport.Wave;
+        Require(f.Registry.ReceiveSupportFor(f.Main.Lan.Session) == expected,
+            "A missing FLAC component was advertised or disabled other available formats.");
         f.Bytes = AudioFlacDecoderTests.Bytes("golden-24-2"); await f.Offer(); await f.Transfer();
         var failure = await f.Main.Failure();
         Require(failure.Reason == AudioStreamingStopReason.UnsupportedSource && f.Main.Device.OwnerThread == 0,

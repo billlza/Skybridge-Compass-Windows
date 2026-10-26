@@ -492,8 +492,9 @@ internal static class AudioCaptureReceiveSessionTests
     {
         private long _ticks;
         private int _authorizationReads;
+        internal Action? TimestampRead;
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-        public override long GetTimestamp() => Interlocked.Read(ref _ticks);
+        public override long GetTimestamp() { TimestampRead?.Invoke(); return Interlocked.Read(ref _ticks); }
         internal int AuthorizationReads => Volatile.Read(ref _authorizationReads);
         internal void Advance(TimeSpan elapsed) => Interlocked.Add(ref _ticks, elapsed.Ticks);
         internal AudioAuthorizationTime AuthorizationNow()
@@ -525,8 +526,10 @@ internal static class AudioCaptureReceiveSessionTests
     {
         internal readonly ManualResetEventSlim PrepareRelease = new(), ProgressRelease = new(), DisposeRelease = new();
         internal readonly TaskCompletionSource PrepareEntered = Signal(), ProgressEntered = Signal(), DisposeEntered = Signal();
+        internal readonly TaskCompletionSource RenderingProgressEntered = Signal();
         internal readonly List<byte[]> Submissions = [];
         internal volatile bool AllowRetirement, BlockPrepare, BlockProgress, BlockDispose;
+        internal volatile bool BlockRenderingProgress;
         internal int StartCalls, WaitCalls, DisposeCalls;
         internal Exception? PrepareFailure, DisposeFailure;
         internal Action? PrepareAction;
@@ -590,7 +593,9 @@ internal static class AudioCaptureReceiveSessionTests
         }
         public void WaitForProgress(TimeSpan delay, CancellationToken cancellationToken)
         {
-            owner.Touch(); WaitCalls++; ProgressEntered.TrySetResult(); if (BlockProgress) ProgressRelease.Wait();
+            owner.Touch(); WaitCalls++; ProgressEntered.TrySetResult();
+            if (_running) RenderingProgressEntered.TrySetResult();
+            if (BlockProgress || (BlockRenderingProgress && _running)) ProgressRelease.Wait();
             cancellationToken.ThrowIfCancellationRequested();
             uint queuedBefore = _queued;
             int gen0Before = GC.CollectionCount(0), gen1Before = GC.CollectionCount(1), gen2Before = GC.CollectionCount(2);

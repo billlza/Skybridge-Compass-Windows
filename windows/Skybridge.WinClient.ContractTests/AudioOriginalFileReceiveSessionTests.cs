@@ -43,9 +43,10 @@ internal static class AudioOriginalFileReceiveSessionTests
         internal readonly LanProductControlListener Listener;
         internal IPEndPoint Endpoint => (IPEndPoint)Listener.RequireLiveListener().LocalEndpoint;
         internal byte[] Bytes = Wave(Pcm(17));
+        internal string FileName = "music.wav";
         internal byte[] Key = [];
         internal ClassicFileMetadata Metadata => ClassicFileTransferWire.Authenticate(new ClassicFileMetadata(
-            TransferId.ToString("D"), "music.wav", Bytes.Length, Convert.ToHexStringLower(SHA256.HashData(Bytes)),
+            TransferId.ToString("D"), FileName, Bytes.Length, Convert.ToHexStringLower(SHA256.HashData(Bytes)),
             65536, 2, SenderDeviceId: Main.Lan.Session.PeerDeviceId), Key);
         private Fixture()
         {

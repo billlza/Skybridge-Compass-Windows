@@ -1937,6 +1937,8 @@
   <data name="AudioReceiveNoConnectedDevice" xml:space="preserve"><value>受信は有効です。認証済みのデバイスを接続してください。</value></data>
   <data name="AudioReceiveDisabled" xml:space="preserve"><value>出力を選び、受信を有効にしてください。元のキャプチャ形式に対応する出力が必要です。</value></data>
   <data name="AudioReceiveUnsupportedOutput" xml:space="preserve"><value>選んだ出力を元の音声形式で準備できませんでした。デバイスが使用可能か確認するか、対応する出力を選んでください。</value></data>
+  <data name="AudioReceiveUnsupportedSource" xml:space="preserve"><value>受信側でこの音源をデコードできません。対応する音源を選んでください。</value></data>
+  <data name="AudioReceiveSourceFailed" xml:space="preserve"><value>音源を準備または読み取れなかったため、再生を停止しました。音源を選び直して再試行してください。</value></data>
   <data name="AudioReceiveAuthorizationEnded" xml:space="preserve"><value>デバイスの認証または再生の許可が終了しました。</value></data>
   <data name="AudioReceiveRequestEnded" xml:space="preserve"><value>再生リクエストが終了しました。</value></data>
   <data name="AudioReceiveContentFailed" xml:space="preserve"><value>音声の検証に失敗したため、再生を停止しました。</value></data>
