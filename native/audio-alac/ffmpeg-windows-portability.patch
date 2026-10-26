@@ -1,0 +1,46 @@
+--- a/configure
++++ b/configure
+@@ -1479,12 +1479,12 @@
+         done
+         echo "#include <stdint.h>"
+         for func in $funcs; do
+-            echo "long check_$func(void) { return (long) $func; }"
++            echo "intptr_t check_$func(void) { return (intptr_t) $func; }"
+         done
+         echo "int main(void) { int ret = 0;"
+         # LTO could optimize out the test functions without this
+         for func in $funcs; do
+-            echo " ret |= ((intptr_t)check_$func) & 0xFFFF;"
++            echo " ret |= (int)(((intptr_t)check_$func) & 0xFFFF);"
+         done
+         echo "return ret; }"
+     } | test_ld "cc" "$@" && enable $funcs && enable_sanitized $headers
+--- a/libavcodec/vlc.c
++++ b/libavcodec/vlc.c
+@@ -72,7 +72,7 @@
+             vlc->table_size = 0;
+             return AVERROR(ENOMEM);
+         }
+-        memset(vlc->table + vlc->table_allocated - (1 << vlc->bits), 0, sizeof(*vlc->table) << vlc->bits);
++        memset(vlc->table + vlc->table_allocated - ((size_t)1 << vlc->bits), 0, sizeof(*vlc->table) << vlc->bits);
+     }
+     return index;
+ }
+@@ -337,7 +337,7 @@
+             av_log(logctx, AV_LOG_ERROR, "Invalid VLC (length %u)\n", len);
+             goto fail;
+         }
+-        code += 1U << (32 - len);
++        code += 1ULL << (32 - len);
+         if (code > UINT32_MAX + 1ULL) {
+             av_log(logctx, AV_LOG_ERROR, "Overdetermined VLC tree\n");
+             goto fail;
+@@ -552,7 +552,7 @@
+             av_log(logctx, AV_LOG_ERROR, "Invalid VLC (length %u)\n", len);
+             goto fail;
+         }
+-        code += 1U << (32 - len);
++        code += 1ULL << (32 - len);
+         if (code > UINT32_MAX + 1ULL) {
+             av_log(logctx, AV_LOG_ERROR, "Overdetermined VLC tree\n");
+             goto fail;

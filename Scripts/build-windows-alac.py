@@ -245,7 +245,9 @@ def main():
     cflags = re.search(r'^CFLAGS=(.*)$', configuration, re.M)
     if not cflags or not re.search(r'(?:^|\s)[/-]MT(?:\s|$)', cflags[1]) or re.search(r'(?:^|\s)[/-]MDd?(?:\s|$)', cflags[1]):
         raise ValueError('Provider was not compiled with the required static release CRT')
-    shell('build', ['make', '-j1'], objects, 1200)
+    # Collect independent compiler failures in one serial attempt. make still
+    # returns failure, and no install/qualification runs if any object fails.
+    shell('build', ['make', '-k', '-j1'], objects, 1200)
     shell('install', ['make', '-j1', 'install'], objects, 180)
     libraries = sorted((install / 'lib').glob('*.lib'))
     if [p.name for p in libraries] != ['avcodec.lib', 'avutil.lib']:

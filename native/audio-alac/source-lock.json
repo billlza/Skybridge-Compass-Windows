@@ -13,8 +13,8 @@
     "exports-macos.txt": "2e25b37d2290607c8a2e9cf11199afe57166b1e20067523761645c218fd60ee9",
     "ffmpeg-build-probes.patch": "14fad52cb5a9a05f470dcd07056ab7d37128b43d4cd6187a7bf780051f31283d",
     "ffmpeg-strict-errors.patch": "dcc4b485de545b3233de8e42b7eab31110fee3f06c027212e46c69d7688c3391",
-    "ffmpeg-windows-probes.patch": "f8012c06ee46fe12ffba56a50fa8785e9c158189145939446d27c0729335a368",
+    "ffmpeg-windows-portability.patch": "54227265022afcc7fbbe0381964a08012113358946bfe1a22ffbacf07ceaf5a5",
     "include/SkyBridgeALACDecoder.h": "64937077427af9c918231db0383fcfefaca6fe7edd98c7e82ca11c82f071061c",
-    "provider-source-lock.json": "af93a7dc6fcc92044063dee99b69e701032ce6684d6fc56f182f64c5e8617d8f"
+    "provider-source-lock.json": "88c99a23a5d779b2875a5f9d16ed4ca565e271d532544896f60316fcc2a3076b"
   }
 }

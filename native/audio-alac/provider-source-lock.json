@@ -56,13 +56,18 @@
     "source_archive_sha256": "801838344d51651d45ab3ce6502a2627da7746492475711ff2adfb723aeaf7b6"
   },
   "windowsBuildPatch": {
-    "path": "ffmpeg-windows-probes.patch",
-    "sha256": "f8012c06ee46fe12ffba56a50fa8785e9c158189145939446d27c0729335a368",
+    "path": "ffmpeg-windows-portability.patch",
+    "sha256": "54227265022afcc7fbbe0381964a08012113358946bfe1a22ffbacf07ceaf5a5",
     "files": [
       {
         "path": "configure",
         "originalSha256": "4832339d26d453301e7c949ff29a566f9adca658563516db8a95de151c8d135d",
         "patchedSha256": "802fd7772286a76013329464515160e55a49303365bb1b3758b74e8bc583e0ea"
+      },
+      {
+        "path": "libavcodec/vlc.c",
+        "originalSha256": "8b44e56d86e0a781aac29aff5fe54e8aec82e923477358e439d619698806f82c",
+        "patchedSha256": "4b9210ed5e0708ad532e0c021df1ce5773fdd2a8458558dc91e689bf3a28c089"
       }
     ]
   }
