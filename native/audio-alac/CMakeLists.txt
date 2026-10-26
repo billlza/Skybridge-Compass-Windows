@@ -115,7 +115,7 @@ if(MSVC)
     # Static provider code is linked here; no FFmpeg/MSYS runtime DLL is admitted.
     target_link_libraries(skybridge_alac PRIVATE bcrypt user32)
     target_compile_options(skybridge_alac PRIVATE /W4 /WX /sdl /guard:cf)
-    target_link_options(skybridge_alac PRIVATE /guard:cf /DYNAMICBASE /NXCOMPAT)
+    target_link_options(skybridge_alac PRIVATE /WX /guard:cf /DYNAMICBASE /NXCOMPAT)
     target_sources(skybridge_alac PRIVATE SkyBridgeALAC.def)
 elseif(APPLE)
     target_compile_options(skybridge_alac PRIVATE -Wall -Wextra -Werror -fstack-protector-strong)

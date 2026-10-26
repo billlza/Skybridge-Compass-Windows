@@ -57,7 +57,7 @@
   },
   "windowsBuildPatch": {
     "path": "ffmpeg-windows-portability.patch",
-    "sha256": "54227265022afcc7fbbe0381964a08012113358946bfe1a22ffbacf07ceaf5a5",
+    "sha256": "38f8cd2e580c534d9190bf99a325b42fba9e14d2b4323d3079ada9312aa1a629",
     "files": [
       {
         "path": "configure",
@@ -68,6 +68,16 @@
         "path": "libavcodec/vlc.c",
         "originalSha256": "8b44e56d86e0a781aac29aff5fe54e8aec82e923477358e439d619698806f82c",
         "patchedSha256": "4b9210ed5e0708ad532e0c021df1ce5773fdd2a8458558dc91e689bf3a28c089"
+      },
+      {
+        "path": "libavutil/log.c",
+        "originalSha256": "0b0c949a1124bbfc0af710b7c6c63b7f767d5bd38857e41dd75c6b9c5199cfa5",
+        "patchedSha256": "dd9adfad9fd6d44cef7b2a7bab2f161f42bd68920473af5e4348d75bfd550bbf"
+      },
+      {
+        "path": "libavutil/ripemd.c",
+        "originalSha256": "a523761001f4d45da1f13a573753d438a0c95cdf6ae0ed57e3a61c3384bbd50d",
+        "patchedSha256": "a3e707318d2d6bed40cb88903226c06846816b5f04a0c6de51ab9ac417b19536"
       }
     ]
   }

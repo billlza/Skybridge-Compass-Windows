@@ -1,46 +1,59 @@
 --- a/configure
 +++ b/configure
-@@ -1479,12 +1479,12 @@
-         done
-         echo "#include <stdint.h>"
-         for func in $funcs; do
+@@ -1482 +1482 @@
 -            echo "long check_$func(void) { return (long) $func; }"
 +            echo "intptr_t check_$func(void) { return (intptr_t) $func; }"
-         done
-         echo "int main(void) { int ret = 0;"
-         # LTO could optimize out the test functions without this
-         for func in $funcs; do
+@@ -1487 +1487 @@
 -            echo " ret |= ((intptr_t)check_$func) & 0xFFFF;"
 +            echo " ret |= (int)(((intptr_t)check_$func) & 0xFFFF);"
-         done
-         echo "return ret; }"
-     } | test_ld "cc" "$@" && enable $funcs && enable_sanitized $headers
 --- a/libavcodec/vlc.c
 +++ b/libavcodec/vlc.c
-@@ -72,7 +72,7 @@
-             vlc->table_size = 0;
-             return AVERROR(ENOMEM);
-         }
+@@ -75 +75 @@
 -        memset(vlc->table + vlc->table_allocated - (1 << vlc->bits), 0, sizeof(*vlc->table) << vlc->bits);
 +        memset(vlc->table + vlc->table_allocated - ((size_t)1 << vlc->bits), 0, sizeof(*vlc->table) << vlc->bits);
-     }
-     return index;
- }
-@@ -337,7 +337,7 @@
-             av_log(logctx, AV_LOG_ERROR, "Invalid VLC (length %u)\n", len);
-             goto fail;
-         }
+@@ -340 +340 @@
 -        code += 1U << (32 - len);
 +        code += 1ULL << (32 - len);
-         if (code > UINT32_MAX + 1ULL) {
-             av_log(logctx, AV_LOG_ERROR, "Overdetermined VLC tree\n");
-             goto fail;
-@@ -552,7 +552,7 @@
-             av_log(logctx, AV_LOG_ERROR, "Invalid VLC (length %u)\n", len);
-             goto fail;
-         }
+@@ -555 +555 @@
 -        code += 1U << (32 - len);
 +        code += 1ULL << (32 - len);
-         if (code > UINT32_MAX + 1ULL) {
-             av_log(logctx, AV_LOG_ERROR, "Overdetermined VLC tree\n");
-             goto fail;
+--- a/libavutil/log.c
++++ b/libavutil/log.c
+@@ -191,0 +192,2 @@
++    const uint32_t level_color = color[level];
++
+@@ -195,2 +197,2 @@
+-                (color[level] >> 4) & 15,
+-                color[level] & 15,
++                (level_color >> 4) & 15,
++                level_color & 15,
+@@ -201 +203 @@
+-                (color[level] >> 16) & 0xff,
++                (level_color >> 16) & 0xff,
+@@ -207,2 +209,2 @@
+-                (color[level] >> 16) & 0xff,
+-                (color[level] >> 8) & 0xff,
++                (level_color >> 16) & 0xff,
++                (level_color >> 8) & 0xff,
+--- a/libavutil/ripemd.c
++++ b/libavutil/ripemd.c
+@@ -139 +139 @@
+-    uint32_t a, b, c, d, e, f, g, h, t av_unused;
++    uint32_t a, b, c, d, e, f, g, h;
+@@ -152,0 +153 @@
++    uint32_t t;
+@@ -196 +197 @@
+-    uint32_t a, b, c, d, e, f, g, h, t av_unused;
++    uint32_t a, b, c, d, e, f, g, h;
+@@ -207,0 +209 @@
++    uint32_t t;
+@@ -321 +323 @@
+-    uint32_t a, b, c, d, e, f, g, h, i, j, t av_unused;
++    uint32_t a, b, c, d, e, f, g, h, i, j;
+@@ -335,0 +338 @@
++    uint32_t t;
+@@ -393 +396 @@
+-    uint32_t a, b, c, d, e, f, g, h, i, j, t av_unused;
++    uint32_t a, b, c, d, e, f, g, h, i, j;
+@@ -404,0 +408 @@
++    uint32_t t;

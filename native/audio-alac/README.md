@@ -2,8 +2,10 @@
 
 This directory imports the unchanged `SkyBridgeALACDecoder.c` and public header
 qualified by the Apple audio implementation. `provider-source-lock.json` retains
-the official FFmpeg 8.1.3 archive/signature/key, strict-error patch, build patch,
-license hashes and source revision. `source-lock.json` additionally binds this
+the official FFmpeg 8.1.3 archive/signature/key, strict-error patch, build patches,
+license hashes and source revision. The Windows-only patch corrects LLP64
+function probes and explicit-width arithmetic without suppressing diagnostics
+or changing the shared ALAC decoder boundary. `source-lock.json` additionally binds this
 repository's C boundary, ABI exports, linker exports, build inputs and licenses.
 The receipt is a local byte/configuration record, not a release attestation.
 
@@ -44,23 +46,47 @@ cases and the native resolver static gate also pass.
 
 Exact commands, input snapshots, binary hashes, negative fixtures and results
 are retained in `artifacts/alac-native-owner-20261026/`. The focused tests require
-the qualified native library and fail if it is unavailable. They are not yet
-part of the default Windows test aggregate because the Windows provider build
-and application packaging remain unfinished; no tests were run and skipped as
-a substitute for native qualification.
+the qualified native library and fail if it is unavailable. They remain explicit
+entry points rather than part of the portable default aggregate. The Windows
+ALAC workflow invokes the native and product suites as required gates; a missing
+or failed native build does not substitute skipped cases for qualification.
 
-## Build boundary and remaining integration
+## Windows build and package boundary
 
 CMake consumes `SKYBRIDGE_ALAC_PROVIDER_RECEIPT`, validates its pinned version,
 archive hash, minimal components, patched files, installed codec header and two
 static-library hashes, then builds only the SkyBridge boundary. An Apple host
 build requires an explicit `CMAKE_OSX_ARCHITECTURES=arm64` and a macOS provider.
 A Windows build requires a qualified receipt naming `windows-x64` or
-`windows-arm64`, matching an explicit MSVC generator platform. The Windows branch
-has not executed and this repository does not yet produce that provider receipt.
+`windows-arm64`, matching an explicit MSVC generator platform.
 
-The future Windows provider recipe must use the same source/patch contract with
-the actual Windows compiler and runtime. FFmpeg documents its MSVC/MSYS2 build
+`Scripts/build-windows-alac.ps1` selects the installed MSVC target environment and
+invokes the source-locked Python recipe. It requires Visual Studio 2026 C/C++
+tools for the selected target, CMake, native Python 3.12 or newer, and an explicit
+MSYS2 root with make, patch, diffutils and GnuPG. For example, from the repo root:
+
+```powershell
+.\Scripts\build-windows-alac.ps1 -Architecture x64 -WorkDirectory C:\SkyBridgeBuild\alac-x64 -MsysRoot C:\msys64
+```
+
+Use a fresh work directory without spaces. Incomplete builds are retained for
+diagnosis and are never silently cleaned or reused. The recipe verifies the
+archive, signature and signing key, applies only pinned patches without fuzz,
+requires the minimal ALAC component set and Windows thread/runtime support,
+builds static release CRT libraries serially, then checks the DLL's PE target,
+ten exports and allowed system imports. Compiler warning failures stay enabled.
+A cache hit rechecks the exact recipe, target and all bound output bytes.
+
+`windows/NativeAlac.targets` runs this gate before the Windows app and contract
+builds, then copies the decoder DLL and attribution files into output/publish.
+The work directory defaults to `artifacts/native-alac/<architecture>` and the
+MSYS2 path to `SKYBRIDGE_MSYS2_ROOT` or `C:\msys64`; callers can override the
+`SkybridgeAlacWorkDirectory` and `SkybridgeAlacMsysRoot` build properties.
+
+The separate `source-materials` directory preserves the archive, signature, key,
+patches, licenses and build scripts. Its `-InputDirectory`/`--inputs-dir` option
+accepts those pinned download inputs for an offline rebuild; the compiler and
+MSYS2 tools must already exist. FFmpeg documents its MSVC/MSYS2 build
 environment and static runtime linkage in the [official platform guide](https://ffmpeg.org/platform.html#Microsoft-Visual-C_002b_002b-or-Intel-C_002b_002b-Compiler-for-Windows).
 Mac binaries or an unpatched host FFmpeg installation cannot qualify a Windows
 package. Source archives, patches and the upstream license notices must accompany
@@ -72,7 +98,9 @@ receiver advertises `audio_alac_file_receive_v1` only after its packaged native
 component passes qualification. Host product-path evidence, package rejection
 cases and their limits are recorded in
 [`docs/windows-audio-native-output.md`](../../docs/windows-audio-native-output.md#alac-original-file-receiver-integration-2026-10-26)
-and `artifacts/alac-product-receive-20261026/`. Native Windows provider/DLL
-packaging, WinUI build/launch and phone/hardware interoperability remain required.
+and `artifacts/alac-product-receive-20261026/`. Current Windows build/run results
+and failure evidence are tracked in the same document and
+`artifacts/alac-windows-build-20261026/`. A recipe or successful DLL build alone
+does not establish WinUI launch, phone interoperability or hardware playback.
 Current physical Realtek playback failures are independent and still open. The
 host tests do not open output hardware.
