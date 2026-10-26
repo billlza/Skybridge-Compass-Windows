@@ -60,6 +60,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force artifacts | Out-Null
           .\Scripts\build-windows-alac.ps1 -Architecture x64 -WorkDirectory "$pwd\artifacts\native-alac\x64" -MsysRoot $env:SKYBRIDGE_MSYS2_ROOT 2>&1 | Tee-Object artifacts/alac-native-build.log
+          ctest --test-dir artifacts/native-alac/x64/bridge -C Release --verbose --no-tests=error 2>&1 | Tee-Object artifacts/alac-provider-arithmetic.log
+          if ($LASTEXITCODE -ne 0) { throw 'Windows provider arithmetic checks failed.' }
       - name: Build and execute native decoder and product contracts
         shell: pwsh
         run: |
@@ -83,7 +85,7 @@ jobs:
           foreach ($file in @('ALAC-COPYING.LGPLv2.1', 'ALAC-LICENSE.md', 'ALAC-LICENSE.SkyBridge', 'ALAC-provider-source-lock.json', 'ALAC-source-lock.json')) {
             if (-not (Test-Path "$output/Licenses/$file" -PathType Leaf)) { throw "Missing ALAC attribution: $file" }
           }
-          @{ commit = $env:GITHUB_SHA; architecture = 'x64'; nativeDecoder = 'passed'; managedProductReceiver = 'passed'; applicationBuild = 'passed'; decoderSha256 = $packaged.ToLowerInvariant(); interactiveLaunch = 'not-run'; deviceAudioPlayback = 'not-run' } |
+          @{ commit = $env:GITHUB_SHA; architecture = 'x64'; providerArithmetic = 'passed'; nativeDecoder = 'passed'; managedProductReceiver = 'passed'; applicationBuild = 'passed'; decoderSha256 = $packaged.ToLowerInvariant(); interactiveLaunch = 'not-run'; deviceAudioPlayback = 'not-run' } |
             ConvertTo-Json | Set-Content -Encoding utf8 artifacts/windows-alac-qualification.json
       - name: Verify the built WinUI shell in the disposable runner
         shell: pwsh

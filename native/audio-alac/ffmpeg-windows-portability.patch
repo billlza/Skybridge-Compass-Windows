@@ -57,3 +57,25 @@
 +    uint32_t a, b, c, d, e, f, g, h, i, j;
 @@ -404,0 +408 @@
 +    uint32_t t;
+--- a/libavutil/common.h
++++ b/libavutil/common.h
+@@ -212,2 +212,2 @@
+-    if (a&(~0xFF)) return (~a)>>31;
+-    else           return a;
++    if (a&(~0xFF)) return (uint8_t)((~a)>>31);
++    else           return (uint8_t)a;
+@@ -223,2 +223,2 @@
+-    if ((a+0x80U) & ~0xFF) return (a>>31) ^ 0x7F;
+-    else                  return a;
++    if ((a+0x80U) & ~0xFF) return (int8_t)((a>>31) ^ 0x7F);
++    else                  return (int8_t)a;
+@@ -234,2 +234,2 @@
+-    if (a&(~0xFFFF)) return (~a)>>31;
+-    else             return a;
++    if (a&(~0xFFFF)) return (uint16_t)((~a)>>31);
++    else             return (uint16_t)a;
+@@ -245,2 +245,2 @@
+-    if ((a+0x8000U) & ~0xFFFF) return (a>>31) ^ 0x7FFF;
+-    else                      return a;
++    if ((a+0x8000U) & ~0xFFFF) return (int16_t)((a>>31) ^ 0x7FFF);
++    else                      return (int16_t)a;

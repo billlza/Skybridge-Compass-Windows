@@ -64,7 +64,9 @@ class BuildBoundaryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve(); inputs = {'recipe.py': 'input-hash'}
             paths = ['provider-receipt.json', 'package/skybridge_alac.dll', 'bridge/Release/skybridge_alac.dll',
+                     'bridge/Release/skybridge_alac_provider_checks.exe',
                      'install/lib/avcodec.lib', 'install/lib/avutil.lib', 'install/include/libavcodec/avcodec.h',
+                     'install/include/libavutil/common.h',
                      'objects/config.h', 'objects/config_components.h', 'objects/ffbuild/config.mak']
             for name in paths:
                 path = root / name; path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,7 +75,8 @@ class BuildBoundaryTests(unittest.TestCase):
                            files={name: builder.sha(root / name) for name in paths})
             manifest = root / 'receipt.json'
             manifest.write_text(json.dumps(receipt)); builder.verify_cached(root, 'x64', inputs)
-            for changes in [dict(status='failed'), dict(target='windows-arm64'), dict(recipeInputs={}), dict(files={})]:
+            missing_header = {name: digest for name, digest in receipt['files'].items() if name != 'install/include/libavutil/common.h'}
+            for changes in [dict(status='failed'), dict(target='windows-arm64'), dict(recipeInputs={}), dict(files={}), dict(files=missing_header)]:
                 manifest.write_text(json.dumps(dict(receipt, **changes)))
                 with self.assertRaises(ValueError): builder.verify_cached(root, 'x64', inputs)
             manifest.write_text(json.dumps(receipt)); (root / paths[1]).write_bytes(image(0xaa64))

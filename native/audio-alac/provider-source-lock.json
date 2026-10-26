@@ -57,7 +57,7 @@
   },
   "windowsBuildPatch": {
     "path": "ffmpeg-windows-portability.patch",
-    "sha256": "38f8cd2e580c534d9190bf99a325b42fba9e14d2b4323d3079ada9312aa1a629",
+    "sha256": "2048da477b8f0ee748296d153a6ee3a8142bf4da57560b21715b297aa293d41c",
     "files": [
       {
         "path": "configure",
@@ -78,6 +78,11 @@
         "path": "libavutil/ripemd.c",
         "originalSha256": "a523761001f4d45da1f13a573753d438a0c95cdf6ae0ed57e3a61c3384bbd50d",
         "patchedSha256": "a3e707318d2d6bed40cb88903226c06846816b5f04a0c6de51ab9ac417b19536"
+      },
+      {
+        "path": "libavutil/common.h",
+        "originalSha256": "c882e2a3e53721474e1370523c555af5315bd6d23c19998bed9f0b5b55c3f99c",
+        "patchedSha256": "bbae525105e796a5e20a64d898a229bef9426f16924948ce35bccc9e4a32b040"
       }
     ]
   }

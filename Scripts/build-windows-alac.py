@@ -103,7 +103,9 @@ def verify_cached(work, architecture, inputs):
         raise ValueError('Existing ALAC build does not match this recipe and target; choose a new work directory')
     files = receipt.get('files')
     required = {'provider-receipt.json', 'package/skybridge_alac.dll', 'bridge/Release/skybridge_alac.dll',
+                'bridge/Release/skybridge_alac_provider_checks.exe',
                 'install/lib/avcodec.lib', 'install/lib/avutil.lib', 'install/include/libavcodec/avcodec.h',
+                'install/include/libavutil/common.h',
                 'objects/config.h', 'objects/config_components.h', 'objects/ffbuild/config.mak'}
     if not isinstance(files, dict) or not required.issubset(files):
         raise ValueError('Existing ALAC receipt has no bound files')
@@ -252,7 +254,11 @@ def main():
     libraries = sorted((install / 'lib').glob('*.lib'))
     if [p.name for p in libraries] != ['avcodec.lib', 'avutil.lib']:
         raise ValueError('Expected only the two minimal static provider libraries')
-    checked(install / 'include/libavcodec/avcodec.h', sha(source / 'libavcodec/avcodec.h'))
+    patched_headers = sorted({item['path'] for kind in ['buildPatch', 'patch', 'windowsBuildPatch']
+                              for item in lock[kind]['files'] if item['path'].endswith('.h')})
+    installed_headers = [install / 'include' / name for name in patched_headers]
+    for name, header in zip(patched_headers, installed_headers):
+        checked(header, sha(source / name))
     provider = dict(status='built', baseline=False, providerContract=lock['providerContract'], version=lock['version'],
                     archiveSha256=lock['archiveSha256'], source=str(source), install=str(install), components=components,
                     target='windows-' + args.architecture.lower(),
@@ -286,7 +292,7 @@ def main():
     (relink / 'Scripts').mkdir()
     shutil.copy2(Path(__file__), relink / 'Scripts' / Path(__file__).name)
     shutil.copy2(Path(__file__).with_suffix('.ps1'), relink / 'Scripts' / Path(__file__).with_suffix('.ps1').name)
-    bound = [provider_path, dll, *libraries, install / 'include/libavcodec/avcodec.h',
+    bound = [provider_path, dll, bridge / 'Release/skybridge_alac_provider_checks.exe', *libraries, *installed_headers,
              objects / 'config.h', objects / 'config_components.h', objects / 'ffbuild/config.mak']
     for patch in [lock['buildPatch'], lock['patch'], lock['windowsBuildPatch']]:
         bound += [source / item['path'] for item in patch['files']]

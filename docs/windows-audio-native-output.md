@@ -380,3 +380,41 @@ and fail if their required native component is unavailable; they are not silentl
 skipped by a successful default portable suite. Physical Windows testing remains
 deferred, and the existing Realtek stall is still unresolved. No authentication,
 strict-output or Q-Periapt dependency policy was relaxed.
+
+## Windows ALAC build and package qualification, 2026-10-26
+
+The Windows repository now contains an MSVC/MSYS2 provider recipe and imports
+`windows/NativeAlac.targets` in both the actual WinUI application and the native
+contract executable. It verifies the pinned official archive, detached signature,
+signing key, patch inputs/results and licenses; admits only ALAC decoding; checks
+Windows thread/runtime support and static release CRT linkage; and records the
+DLL target, exports, imports and output hashes. An interrupted or mismatched
+cache is rejected. Runtime DLL and attribution copying is explicit, including
+files which do not exist at initial MSBuild evaluation.
+
+The dedicated Windows workflow requires actual DLL construction, an independent
+integer-clipping reference check in a native executable, native decoding
+of the shared integer-reference files, product receiver regression suites, the
+real WinUI build, exact packaged-DLL equality and an interactive CI shell smoke.
+Its source/relinking materials are retained separately from the runtime package.
+These gates are serial, and a failed native build prevents subsequent acceptance.
+The existing full portability workflow keeps its separate smoke and freshness
+requirements. Neither workflow can establish physical WASAPI playback.
+
+Native attempts exposed failures that were not observable in the Mac host run:
+
+| Run | Observed failure and correction |
+| --- | --- |
+| [40270929282](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/40270929282) | Windows checkout converted pinned source to CRLF. Exact source and decoder fixture bytes now use explicit Git attributes; a checkout with `core.autocrlf=true` verified all locked files. |
+| [40271378271](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/40271378271) | Function probes truncated 64-bit function pointers to Windows' 32-bit `long`, producing MSVC C4311 and false absence of `getenv` and Win32 threads. Pointer-sized probes and explicit post-mask conversion preserve strict warning failures. |
+| [40272511063](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/40272511063) | Both corrected runtime probes passed; three public utility shift expressions then failed C4334. Windows-only source patches use the intended pointer/64-bit arithmetic widths. |
+| [40273123058](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/40273123058) | A complete serial compile exposed C4333 in log-color extraction and C4101 for variables used only in a disabled compact implementation. The patches promote the selected color to its consumed 32-bit representation and declare temporary variables only in the branch using them. |
+| [40274025266](https://github.com/billlza/Skybridge-Compass-Windows/actions/runs/40274025266) | Both static libraries built and installed without compiler warnings. Bridge compilation then exposed four C4244 diagnostics in public integer-clipping helpers. Their bounded conversions are explicit, installed patched headers are also hash-checked, and CTest compares the bitwise saturation functions against comparison-based references over boundaries and a continuous interval. |
+
+The Windows patch does not change the shared decoder C boundary or its ABI.
+Every patched provider file has exact before/after hashes. No warning suppression,
+authentication downgrade or audio-format conversion was added. The three retained
+failure archives match GitHub's SHA-256 digests, and their extracted files were
+compared with the verified ZIP contents. Attempt IDs, compiler/configuration logs,
+local input checks and artifact checksums are in
+`artifacts/alac-windows-build-20261026/`.
