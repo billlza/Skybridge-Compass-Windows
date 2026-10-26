@@ -104,7 +104,10 @@ jobs:
             artifacts/windows-alac-qualification.json
             artifacts/alac-winui-smoke/**
             artifacts/native-alac/x64/logs/**
+            artifacts/native-alac/x64/objects/config.h
+            artifacts/native-alac/x64/objects/config_components.h
             artifacts/native-alac/x64/objects/ffbuild/config.log
+            artifacts/native-alac/x64/objects/ffbuild/config.mak
             artifacts/native-alac/x64/provider-receipt.json
             artifacts/native-alac/x64/receipt.json
             artifacts/native-alac/x64/package/**

@@ -27,6 +27,7 @@ SOURCE = ROOT / 'native/audio-alac'
 TARGETS = {'x64': ('x86_64', 0x8664), 'ARM64': ('aarch64', 0xaa64)}
 DISABLED = ['NETWORK', 'GPL', 'NONFREE', 'VERSION3', 'AVFORMAT', 'AVDEVICE',
             'AVFILTER', 'SWRESAMPLE', 'SWSCALE']
+REQUIRED_RUNTIME = ['GETENV', 'W32THREADS']
 EXPORTS = {'sbalac_bridge_abi_version', 'sbalac_source_description_size',
            'sbalac_control_size', 'sbalac_result_size', 'sbalac_provider_contract_version',
            'sbalac_linked_version', 'sbalac_decoder_create', 'sbalac_decoder_decode',
@@ -60,6 +61,9 @@ def validate_components(config):
     for name in DISABLED:
         if not re.search(r'^#define CONFIG_' + name + r' 0$', config, re.M):
             raise ValueError(f'Unconfirmed disabled component: {name}')
+    for name in REQUIRED_RUNTIME:
+        if not re.search(r'^#define HAVE_' + name + r' 1$', config, re.M):
+            raise ValueError(f'Required Windows runtime probe failed: {name}')
     return enabled
 
 
@@ -218,7 +222,7 @@ def main():
     source = work / prefix
     for name, digest in lock['licenses'].items():
         checked(source / name, digest)
-    for kind in ['buildPatch', 'patch']:
+    for kind in ['buildPatch', 'patch', 'windowsBuildPatch']:
         patch = lock[kind]; checked(SOURCE / patch['path'], patch['sha256'])
         for item in patch['files']:
             checked(source / item['path'], item['originalSha256'])
@@ -235,14 +239,14 @@ def main():
     if args.architecture == 'ARM64':
         flags.append('--enable-cross-compile')
     shell('configure', ['sh', posix(source / 'configure'), *flags], objects, 300)
-    shell('build', ['make', '-j1'], objects, 1200)
-    shell('install', ['make', '-j1', 'install'], objects, 180)
     config = (objects / 'config.h').read_text() + (objects / 'config_components.h').read_text()
     components = validate_components(config)
     configuration = (objects / 'ffbuild/config.mak').read_text()
     cflags = re.search(r'^CFLAGS=(.*)$', configuration, re.M)
     if not cflags or not re.search(r'(?:^|\s)[/-]MT(?:\s|$)', cflags[1]) or re.search(r'(?:^|\s)[/-]MDd?(?:\s|$)', cflags[1]):
         raise ValueError('Provider was not compiled with the required static release CRT')
+    shell('build', ['make', '-j1'], objects, 1200)
+    shell('install', ['make', '-j1', 'install'], objects, 180)
     libraries = sorted((install / 'lib').glob('*.lib'))
     if [p.name for p in libraries] != ['avcodec.lib', 'avutil.lib']:
         raise ValueError('Expected only the two minimal static provider libraries')
@@ -282,7 +286,7 @@ def main():
     shutil.copy2(Path(__file__).with_suffix('.ps1'), relink / 'Scripts' / Path(__file__).with_suffix('.ps1').name)
     bound = [provider_path, dll, *libraries, install / 'include/libavcodec/avcodec.h',
              objects / 'config.h', objects / 'config_components.h', objects / 'ffbuild/config.mak']
-    for patch in [lock['buildPatch'], lock['patch']]:
+    for patch in [lock['buildPatch'], lock['patch'], lock['windowsBuildPatch']]:
         bound += [source / item['path'] for item in patch['files']]
     bound += [p for d in [package, relink] for p in d.rglob('*') if p.is_file()]
     if inputs != recipe_inputs():

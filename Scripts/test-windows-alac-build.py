@@ -39,10 +39,15 @@ class BuildBoundaryTests(unittest.TestCase):
 
     def test_only_minimal_alac_components_are_admitted(self):
         good = '#define CONFIG_ALAC_DECODER 1\n' + ''.join(f'#define CONFIG_{name} 0\n' for name in builder.DISABLED)
+        good += ''.join(f'#define HAVE_{name} 1\n' for name in builder.REQUIRED_RUNTIME)
         self.assertEqual(builder.validate_components(good), ['CONFIG_ALAC_DECODER'])
         for config in [good + '#define CONFIG_AAC_DECODER 1\n', good.replace('CONFIG_NETWORK 0', 'CONFIG_NETWORK 1'),
                        good.replace('CONFIG_ALAC_DECODER 1', 'CONFIG_ALAC_DECODER 0')]:
             with self.assertRaises(ValueError): builder.validate_components(config)
+        for name in builder.REQUIRED_RUNTIME:
+            for replacement in [f'#define HAVE_{name} 0\n', '']:
+                with self.assertRaises(ValueError):
+                    builder.validate_components(good.replace(f'#define HAVE_{name} 1\n', replacement))
 
     def test_pe_architecture_and_truncation_are_observed_from_bytes(self):
         with tempfile.TemporaryDirectory() as temp:
