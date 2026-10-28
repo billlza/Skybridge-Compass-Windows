@@ -58,7 +58,8 @@ internal static class AudioCaptureReceiveSessionTests
         internal uint Window;
         private AudioCaptureReceiveException? _observedFailure;
 
-        private Fixture(LanProductControlSessionTests.Fixture lan, AudioOriginalFileReceiveRegistry? originalFiles = null, bool enableRenewal = false)
+        private Fixture(LanProductControlSessionTests.Fixture lan, AudioOriginalFileReceiveRegistry? originalFiles = null, bool enableRenewal = false,
+            bool reportFileOutputProgress = false)
         {
             Lan = lan; Device = new(Clock);
             Approvals = new(new Presenter((request, token) => Decide(request, token)), Clock.AuthorizationNow);
@@ -67,13 +68,13 @@ internal static class AudioCaptureReceiveSessionTests
                 enableRenewal ? (inbox, lease, token) => (Renew ?? throw new InvalidOperationException("Missing fixture renewal port."))(inbox, lease, token) : null,
                 token => SelectOutput?.Invoke(token) ?? Task.FromResult(Endpoint), Approvals,
                 endpoint => { Require(endpoint == Endpoint, "Native open substituted the approved endpoint."); Device.Touch(); return Device; }, Clock, originalFiles,
-                Clock.AuthorizationNow, (duration, token) => RenewalDelay?.Invoke(duration, token) ?? Task.Delay(duration, token));
+                Clock.AuthorizationNow, (duration, token) => RenewalDelay?.Invoke(duration, token) ?? Task.Delay(duration, token), reportFileOutputProgress);
         }
         internal static async Task<Fixture> Create(AudioOriginalFileReceiveRegistry? originalFiles = null, ushort? localFilePort = 8080, bool enableRenewal = false,
-            ProductControlCarrier? carrier = null)
+            ProductControlCarrier? carrier = null, bool reportFileOutputProgress = false)
         {
             var lan = await LanProductControlSessionTests.Fixture.ConnectForAudio(localFilePort, generalFiles: originalFiles is null, carrier: carrier);
-            try { await lan.Admit(); return new(lan, originalFiles, enableRenewal); }
+            try { await lan.Admit(); return new(lan, originalFiles, enableRenewal, reportFileOutputProgress); }
             catch { await lan.DisposeAsync(); throw; }
         }
         internal AccountAudioMembershipLease Lease(ILanAudioStreamInbox inbox, long ageMilliseconds = 0)

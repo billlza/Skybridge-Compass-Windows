@@ -5,6 +5,9 @@ internal static class AudioReceiverControlWriterTests
 {
     internal static readonly (string Name, Func<Task> Run)[] Cases =
     [
+        ("file progress coalesces at one hertz and never substitutes for completion", FileProgress),
+        ("file progress requires both roles and an original-file stream", FileProgressRoles),
+        ("file progress rechecks peer compatibility after shared writer admission", FileProgressRoleChanged),
         ("audio control writer preserves foreign cancellation and nested errors during cleanup", CancellationCause),
         ("audio control writer enforces owner deadline after shared TCP writer admission", OwnerDeadline),
         ("audio control writer preserves order freezes hashes and coalesces cumulative credits", Ordered),
@@ -72,15 +75,23 @@ internal static class AudioReceiverControlWriterTests
         internal AudioReceiverControlWriter Writer { get; }
         private Exception? _observedFailure;
         private Fixture(LanProductControlSessionTests.Fixture lan, ILanAudioStreamInbox inbox,
-            AudioPlaybackApprovalService approvals, AudioPlaybackPermission permission)
+            AudioPlaybackApprovalService approvals, AudioPlaybackPermission permission, TimeProvider? time = null)
         {
             Lan = lan; Inbox = inbox; Approvals = approvals; Permission = permission;
-            Writer = new(lan.Session, inbox, permission, Caller.Token);
+            Writer = new(lan.Session, inbox, permission, Caller.Token, time: time);
         }
-        internal static async Task<Fixture> Create()
+        internal static async Task<Fixture> Create(bool originalFile = false, bool reportFileProgress = false,
+            bool receiveFileProgress = false, TimeProvider? time = null)
         {
             var lan = await LanProductControlSessionTests.Fixture.ConnectForAudio(); await lan.Admit();
-            var inbox = await lan.OpenAudioInbox();
+            var inbox = await lan.OpenAudioInbox(originalFile);
+            await lan.Session.SetAudioReceiverCapabilitiesAsync(true,
+                originalFile ? AudioOriginalFileReceiveSupport.Wave : AudioOriginalFileReceiveSupport.Unavailable,
+                lan.Token, reportFileOutputProgress: reportFileProgress);
+            var published = LanProductControlMessages.Payload<LanProductIdentity>(await lan.Read());
+            Require((published.Capabilities?.Contains(AudioStreamingWire.FileOutputProgressReportCapability) == true) ==
+                (originalFile && reportFileProgress), "Reporter role did not reflect the installed original-file consumer.");
+            await lan.PublishPeerFileOutputProgress(receiveFileProgress); await lan.Barrier();
             var auth = AudioAccountMembershipTests.Authentication(); var epoch = new AccountAudioAuthorization(AudioAccountScope.From(auth));
             var local = AudioAccountMembershipTests.Local(inbox.Binding); var peer = AudioAccountMembershipTests.Peer(inbox.Binding);
             AudioAuthorizationTime Clock() => new(1_800_000_000_000, 1000);
@@ -90,7 +101,7 @@ internal static class AudioReceiverControlWriterTests
             var lease = new AccountAudioMembershipLease(AudioAccountMembershipEvidence.Create(observation, local, peer), epoch, inbox, Clock);
             var approvals = new AudioPlaybackApprovalService(new Presenter(), Clock);
             var permission = await approvals.RequestAsync(inbox, lease, "exact-output", lan.Token);
-            return new(lan, inbox, approvals, permission);
+            return new(lan, inbox, approvals, permission, time);
         }
         internal async Task<T> ExpectFailure<T>() where T : Exception
         {
@@ -107,6 +118,69 @@ internal static class AudioReceiverControlWriterTests
             }
             finally { await Approvals.DisposeAsync(); Inbox.Dispose(); await Lan.DisposeAsync(); Caller.Dispose(); }
         }
+    }
+    private sealed class ProgressClock : TimeProvider
+    {
+        private long _ticks;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => Interlocked.Read(ref _ticks);
+        internal void Advance() => Interlocked.Add(ref _ticks, TimeSpan.TicksPerSecond);
+    }
+    private static async Task FileProgress()
+    {
+        var clock = new ProgressClock();
+        await using var f = await Fixture.Create(true, true, true, clock);
+        await f.Writer.Queue(new AudioStreamingBody.OutputReady(Format));
+        Require((await f.Lan.ReadAudio()).Body is AudioStreamingBody.OutputReady, "Progress preceded exact-output readiness.");
+        f.Writer.ObserveFileOutputProgress(0); await f.Lan.Barrier();
+        await using (var held = f.Lan.HoldWriter())
+        {
+            await held.Entered.WaitAsync(f.Lan.Token);
+            f.Writer.ObserveFileOutputProgress(1); await Until(() => f.Writer.PendingCount.Sending);
+            for (int n = 2; n <= 1000; n++) f.Writer.ObserveFileOutputProgress(n);
+            Require(f.Writer.PendingCount == (0, true), "Progress allocated a queued control per observation.");
+            held.Release(); await held.Completion; await f.Lan.ReadWriterBarrier();
+            Require((await f.Lan.ReadAudio()).Body is AudioStreamingBody.FileOutputProgress { SourceFrames: 1 }, "In-flight progress changed.");
+        }
+        await Until(() => !f.Writer.PendingCount.Sending);
+        f.Writer.ObserveFileOutputProgress(1000); await f.Lan.Barrier(); // No second report inside the interval.
+        clock.Advance(); f.Writer.ObserveFileOutputProgress(1000);
+        Require((await f.Lan.ReadAudio()).Body is AudioStreamingBody.FileOutputProgress { SourceFrames: 1000 }, "Latest native progress was lost.");
+        await Until(() => !f.Writer.PendingCount.Sending);
+        Require(!f.Writer.Completion.IsCompleted, "Progress was treated as native drain completion.");
+        await Throws<InvalidDataException>(() => Call(() => f.Writer.ObserveFileOutputProgress(999)));
+        clock.Advance();
+        await using (var held = f.Lan.HoldWriter())
+        {
+            await held.Entered.WaitAsync(f.Lan.Token);
+            f.Writer.ObserveFileOutputProgress(1001); await Until(() => f.Writer.PendingCount.Sending);
+            f.Writer.ObserveFileOutputProgress(1002);
+            var final = f.Writer.Queue(new AudioStreamingBody.PlaybackComplete(1002, 0));
+            held.Release(); await held.Completion; await f.Lan.ReadWriterBarrier();
+            Require((await f.Lan.ReadAudio()).Body is AudioStreamingBody.FileOutputProgress { SourceFrames: 1001 }, "Already owned progress was discarded.");
+            Require((await f.Lan.ReadAudio()).Body is AudioStreamingBody.PlaybackComplete { SourceFrames: 1002 }, "Advisory progress delayed final completion.");
+            await final; await f.Writer.Completion;
+        }
+        await f.Lan.Barrier(); // No stale progress may follow the terminal reply.
+    }
+    private static async Task FileProgressRoles()
+    {
+        foreach (var (file, report, receive) in new[] { (false, true, true), (true, false, true), (true, true, false) })
+        {
+            await using var f = await Fixture.Create(file, report, receive);
+            await Throws<InvalidOperationException>(() => Call(() => f.Writer.ObserveFileOutputProgress(1)));
+            await f.Writer.DrainAsync(); await f.Lan.Barrier();
+        }
+    }
+    private static async Task FileProgressRoleChanged()
+    {
+        await using var f = await Fixture.Create(true, true, true);
+        await using var held = f.Lan.HoldWriter(); await held.Entered.WaitAsync(f.Lan.Token);
+        f.Writer.ObserveFileOutputProgress(1); await Until(() => f.Writer.PendingCount.Sending);
+        await f.Lan.PublishPeerFileOutputProgress(false);
+        await Until(() => !f.Lan.Session.CanReportFileOutputProgress);
+        held.Release(); await held.Completion; await f.Lan.ReadWriterBarrier();
+        await f.ExpectFailure<InvalidOperationException>(); await f.Lan.Barrier();
     }
     private static async Task Ordered()
     {

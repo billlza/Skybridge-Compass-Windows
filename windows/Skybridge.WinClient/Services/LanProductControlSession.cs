@@ -40,6 +40,7 @@ internal sealed partial class LanProductControlSession : IAsyncDisposable
     private volatile bool _originalFileReceiverEnabled;
     private volatile bool _flacFileReceiverEnabled;
     private volatile bool _alacFileReceiverEnabled;
+    private volatile bool _fileOutputProgressEnabled;
     private Audio.AudioOriginalFileReceiveRegistry.UsbRegistration? _usbFileReceiver;
     internal const string CaptureReceiveCapability = "audio_capture_receive_v1";
     internal const string OriginalFileReceiveCapability = "audio_file_receive_v1";
@@ -107,6 +108,9 @@ internal sealed partial class LanProductControlSession : IAsyncDisposable
     internal long UnavailableAudioFrames => Interlocked.Read(ref _unavailableAudioFrames);
     internal long AudioQueueOverflows => Interlocked.Read(ref _audioQueueOverflows);
     internal string PeerDisplayName => Volatile.Read(ref _remoteIdentity)?.DeviceName ?? _peer.PeerDeviceId;
+    internal bool CanReportFileOutputProgress => _fileOutputProgressEnabled &&
+        (Volatile.Read(ref _remoteIdentity)?.Capabilities?.Contains(Audio.AudioStreamingWire.FileOutputProgressReceiveCapability,
+            StringComparer.Ordinal) ?? false);
 
     internal static async Task<LanProductControlSession> ConnectAsync(ProductPeerAuthentication authentication,
         ushort? localFileTransferPort, CancellationToken cancellationToken)
@@ -198,7 +202,7 @@ internal sealed partial class LanProductControlSession : IAsyncDisposable
             Audio.AudioOriginalFileReceiveSupport.Unavailable, cancellationToken);
 
     internal async Task SetAudioReceiverCapabilitiesAsync(bool capture, Audio.AudioOriginalFileReceiveSupport fileSupport, CancellationToken cancellationToken,
-        Audio.AudioOriginalFileReceiveRegistry.UsbRegistration? usbReceiver = null)
+        Audio.AudioOriginalFileReceiveRegistry.UsbRegistration? usbReceiver = null, bool reportFileOutputProgress = false)
     {
         if (!Enum.IsDefined(fileSupport)) throw new ArgumentOutOfRangeException(nameof(fileSupport));
         bool originalFile = fileSupport != Audio.AudioOriginalFileReceiveSupport.Unavailable;
@@ -215,6 +219,7 @@ internal sealed partial class LanProductControlSession : IAsyncDisposable
             _captureReceiverEnabled = capture; _originalFileReceiverEnabled = originalFile;
             _flacFileReceiverEnabled = fileSupport is Audio.AudioOriginalFileReceiveSupport.WaveAndFlac or Audio.AudioOriginalFileReceiveSupport.WaveFlacAndAlac;
             _alacFileReceiverEnabled = fileSupport is Audio.AudioOriginalFileReceiveSupport.WaveAndAlac or Audio.AudioOriginalFileReceiveSupport.WaveFlacAndAlac;
+            _fileOutputProgressEnabled = originalFile && reportFileOutputProgress;
             _usbFileReceiver = originalFile ? usbReceiver : null;
         }
         // A retired session has no peer to notify; disabling is still immediate.
@@ -246,11 +251,13 @@ internal sealed partial class LanProductControlSession : IAsyncDisposable
         bool file = _originalFileReceiverEnabled && (Carrier is ProductControlCarrier.Network || usbReturn);
         return (_localIdentity.Capabilities ?? [])
             .Where(value => value != CaptureReceiveCapability && value != OriginalFileReceiveCapability && value != FlacFileReceiveCapability && value != AlacFileReceiveCapability &&
+                value != Audio.AudioStreamingWire.FileOutputProgressReportCapability &&
                 value != Audio.AudioStreamingWire.UsbFileReturnReceiveCapability && value != FileTransfer.ClassicFileTransferWire.ApprovalCapability)
             .Concat(_captureReceiverEnabled ? [CaptureReceiveCapability] : Array.Empty<string>())
             .Concat(file ? [OriginalFileReceiveCapability] : Array.Empty<string>())
             .Concat(file && _flacFileReceiverEnabled ? [FlacFileReceiveCapability] : Array.Empty<string>())
             .Concat(file && _alacFileReceiverEnabled ? [AlacFileReceiveCapability] : Array.Empty<string>())
+            .Concat(file && _fileOutputProgressEnabled ? [Audio.AudioStreamingWire.FileOutputProgressReportCapability] : Array.Empty<string>())
             .Concat(usbReturn ? [Audio.AudioStreamingWire.UsbFileReturnReceiveCapability, FileTransfer.ClassicFileTransferWire.ApprovalCapability] : Array.Empty<string>()).ToArray();
     }
 
@@ -279,8 +286,18 @@ internal sealed partial class LanProductControlSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(requireEffectAuthorization);
         ArgumentNullException.ThrowIfNull(message);
         if (message.Body is not (Audio.AudioStreamingBody.Accept or Audio.AudioStreamingBody.Credit or
-            Audio.AudioStreamingBody.ContentVerified or Audio.AudioStreamingBody.OutputReady or Audio.AudioStreamingBody.PlaybackComplete))
+            Audio.AudioStreamingBody.ContentVerified or Audio.AudioStreamingBody.OutputReady or Audio.AudioStreamingBody.PlaybackComplete or
+            Audio.AudioStreamingBody.FileOutputProgress))
             throw new InvalidDataException("This interface accepts only authorized audio receiver replies.");
+        if (message.Body is Audio.AudioStreamingBody.FileOutputProgress)
+            return SendAudioAsync(inbox, message, () =>
+            {
+                requireEffectAuthorization();
+                // Recheck at actual shared-writer admission, after any wait. Roles
+                // describe compatibility only; they never replace permission/owner checks.
+                if (inbox.Source is not Audio.AudioPlaybackSource.OriginalFile || !CanReportFileOutputProgress)
+                    throw new InvalidOperationException("File output progress requires both installed peer roles.");
+            }, cancellationToken);
         return SendAudioAsync(inbox, message, requireEffectAuthorization, cancellationToken);
     }
 

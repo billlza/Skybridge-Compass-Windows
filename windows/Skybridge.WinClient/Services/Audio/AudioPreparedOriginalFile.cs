@@ -12,7 +12,7 @@ internal abstract class AudioPreparedOriginalFile
     internal long FrameCount { get; }
     private AudioPreparedOriginalFile(AudioStreamingPcmFormat format, long frames) { Format = format; FrameCount = frames; }
     internal abstract ExclusivePcmPlaybackReceipt Play(ExclusivePcmOutput output, Action requireAuthorization,
-        CancellationToken token, TimeProvider time, Action onStarted);
+        CancellationToken token, TimeProvider time, Action onStarted, Action<long>? onOutputProgress = null);
 
     internal static Task<AudioPreparedOriginalFile> PrepareAsync(AudioOriginalFileArtifact artifact,
         Action requireAuthorization, CancellationToken token, TimeProvider time)
@@ -81,31 +81,31 @@ internal abstract class AudioPreparedOriginalFile
         : AudioPreparedOriginalFile(metadata.Format, metadata.FrameCount)
     {
         internal override ExclusivePcmPlaybackReceipt Play(ExclusivePcmOutput output, Action requireAuthorization,
-            CancellationToken token, TimeProvider time, Action onStarted) =>
-            AudioFilePcmPlayback.Play(artifact, metadata, output, requireAuthorization, token, time, onStarted);
+            CancellationToken token, TimeProvider time, Action onStarted, Action<long>? onOutputProgress = null) =>
+            AudioFilePcmPlayback.Play(artifact, metadata, output, requireAuthorization, token, time, onStarted, onOutputProgress);
     }
     private sealed class Flac(AudioOriginalFileArtifact artifact, AudioFlacMetadata metadata, AudioFlacDecodeReceipt receipt)
         : AudioPreparedOriginalFile(metadata.DecodedFormat, checked((long)receipt.SourceFrames))
     {
         internal override ExclusivePcmPlaybackReceipt Play(ExclusivePcmOutput output, Action requireAuthorization,
-            CancellationToken token, TimeProvider time, Action onStarted) =>
+            CancellationToken token, TimeProvider time, Action onStarted, Action<long>? onOutputProgress = null) =>
             AudioFilePcmPlayback.PlaySource(Format, FrameCount,
                 cancellation =>
                 {
                     cancellation.ThrowIfCancellationRequested(); requireAuthorization();
                     return Task.FromResult<IAudioFilePcmReader>(AudioDecodedFileReadSession.Flac(artifact, metadata, receipt, requireAuthorization));
-                }, output, requireAuthorization, token, time, onStarted);
+                }, output, requireAuthorization, token, time, onStarted, onOutputProgress);
     }
     private sealed class Alac(AudioOriginalFileArtifact artifact, AudioAlacMetadata metadata, AudioAlacDecodeReceipt receipt)
         : AudioPreparedOriginalFile(metadata.DecodedFormat, checked((long)receipt.SourceFrames))
     {
         internal override ExclusivePcmPlaybackReceipt Play(ExclusivePcmOutput output, Action requireAuthorization,
-            CancellationToken token, TimeProvider time, Action onStarted) =>
+            CancellationToken token, TimeProvider time, Action onStarted, Action<long>? onOutputProgress = null) =>
             AudioFilePcmPlayback.PlaySource(Format, FrameCount,
                 cancellation =>
                 {
                     cancellation.ThrowIfCancellationRequested(); requireAuthorization();
                     return Task.FromResult<IAudioFilePcmReader>(AudioDecodedFileReadSession.Alac(artifact, metadata, receipt, requireAuthorization));
-                }, output, requireAuthorization, token, time, onStarted);
+                }, output, requireAuthorization, token, time, onStarted, onOutputProgress);
     }
 }

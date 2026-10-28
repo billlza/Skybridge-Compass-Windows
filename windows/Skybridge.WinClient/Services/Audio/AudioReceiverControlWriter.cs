@@ -14,6 +14,7 @@ internal sealed class AudioReceiverControlWriter : IAsyncDisposable
     private readonly ILanAudioStreamInbox _inbox;
     private readonly AudioPlaybackPermission _permission;
     private readonly Action? _requireSessionEffect;
+    private readonly TimeProvider _time;
     private readonly CancellationTokenSource _lifetime;
     private readonly CancellationToken _token;
     private readonly CancellationToken _callerToken;
@@ -26,14 +27,18 @@ internal sealed class AudioReceiverControlWriter : IAsyncDisposable
     private OperationCanceledException? _disposeReason;
     private long _lastRequestedCredit = -1;
     private Task? _lastCreditReceipt;
+    private long _latestFileProgress, _sentFileProgress;
+    private long? _fileProgressSentAt;
 
     internal AudioReceiverControlWriter(LanProductControlSession session, ILanAudioStreamInbox inbox,
-        AudioPlaybackPermission permission, CancellationToken cancellationToken, Action? requireSessionEffect = null)
+        AudioPlaybackPermission permission, CancellationToken cancellationToken, Action? requireSessionEffect = null,
+        TimeProvider? time = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _inbox = inbox ?? throw new ArgumentNullException(nameof(inbox));
         _permission = permission ?? throw new ArgumentNullException(nameof(permission));
         _requireSessionEffect = requireSessionEffect;
+        _time = time ?? TimeProvider.System;
         _callerToken = cancellationToken;
         cancellationToken.ThrowIfCancellationRequested();
         RequireEffect();
@@ -44,6 +49,27 @@ internal sealed class AudioReceiverControlWriter : IAsyncDisposable
     internal Task Completion => _run;
     internal (int Queued, bool Sending) PendingCount
     { get { lock (_gate) return (_queue.Count, _sending is not null); } }
+
+    // Called by the native owner after a validated observation. A single latest
+    // counter coalesces without one task/waiter per sample block. It is advisory:
+    // terminal controls supersede it and no delivery promise is returned.
+    internal void ObserveFileOutputProgress(long frames)
+    {
+        if (_inbox.Source is not AudioPlaybackSource.OriginalFile || !_session.CanReportFileOutputProgress)
+            throw new InvalidOperationException("File output progress was not negotiated for this stream.");
+        RequireEffect(); _token.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            if (_failure is { } failure) ExceptionDispatchInfo.Capture(failure).Throw();
+            if (_sealed || _finished) throw new InvalidOperationException("The audio control writer has ended.");
+            if (frames < _latestFileProgress) throw new InvalidDataException("Native file progress cannot move backwards.");
+            _latestFileProgress = frames;
+            if (_sending is null && _queue.Count == 0 && FileProgressDue()) WakeLocked();
+        }
+    }
+
+    private bool FileProgressDue() => !_sealed && _latestFileProgress > _sentFileProgress &&
+        (_fileProgressSentAt is not { } sent || _time.GetElapsedTime(sent) >= TimeSpan.FromSeconds(1));
 
     // The returned task confirms delivery of this control, or (for coalesced credit)
     // an equal/higher absolute value. It does not mean the entire writer has drained.
@@ -114,8 +140,11 @@ internal sealed class AudioReceiverControlWriter : IAsyncDisposable
                     if (_failure is { } failure) ExceptionDispatchInfo.Capture(failure).Throw();
                     _token.ThrowIfCancellationRequested();
                     if (_queue.Count == 0 && _sealed) { _finished = true; return; }
-                    item = _queue.Count == 0 ? null : _queue[0];
-                    if (item is not null) { _queue.RemoveAt(0); _sending = item; }
+                    // Required controls always precede advisory progress. The same
+                    // worker and actual transport admission own both kinds of frame.
+                    if (_queue.Count != 0) { item = _queue[0]; _queue.RemoveAt(0); }
+                    else item = FileProgressDue() ? new(new AudioStreamingBody.FileOutputProgress(_latestFileProgress)) : null;
+                    if (item is not null) _sending = item;
                     changed = _changed.Task;
                 }
                 if (item is null) { await changed.WaitAsync(_token).ConfigureAwait(false); continue; }
@@ -126,6 +155,11 @@ internal sealed class AudioReceiverControlWriter : IAsyncDisposable
                 {
                     if (_failure is { } failure) ExceptionDispatchInfo.Capture(failure).Throw();
                     _sending = null;
+                    if (item.Body is AudioStreamingBody.FileOutputProgress progress)
+                    {
+                        _sentFileProgress = progress.SourceFrames;
+                        _fileProgressSentAt = _time.GetTimestamp();
+                    }
                     item.Sent.TrySetResult();
                 }
             }

@@ -27,11 +27,11 @@ internal static class AudioFilePcmPlayback
 
     public static ExclusivePcmPlaybackReceipt Play(AudioOriginalFileArtifact artifact,
         AudioWavePcmMetadata metadata, ExclusivePcmOutput output, Action requireAuthorization,
-        CancellationToken token, TimeProvider? time = null, Action? onStarted = null)
+        CancellationToken token, TimeProvider? time = null, Action? onStarted = null, Action<long>? onOutputProgress = null)
     {
         ArgumentNullException.ThrowIfNull(artifact);
         return PlayCore(artifact.Length, artifact.InspectWaveAsync, artifact.ReadAsync,
-            metadata, output, requireAuthorization, token, time ?? TimeProvider.System, onStarted);
+            metadata, output, requireAuthorization, token, time ?? TimeProvider.System, onStarted, onOutputProgress);
     }
 
     // Controlled read boundary for contract tests. Each read transfers one exact, owned
@@ -40,17 +40,18 @@ internal static class AudioFilePcmPlayback
     internal static ExclusivePcmPlaybackReceipt Play(long fileSize,
         Func<long, int, CancellationToken, Task<byte[]>> read, AudioWavePcmMetadata metadata,
         ExclusivePcmOutput output, Action requireAuthorization, CancellationToken token, TimeProvider? time = null,
-        Action? onStarted = null)
+        Action? onStarted = null, Action<long>? onOutputProgress = null)
     {
         ArgumentNullException.ThrowIfNull(read);
         return PlayCore(fileSize, cancellation => AudioWavePcmFile.InspectAsync(fileSize, read, cancellation),
-            read, metadata, output, requireAuthorization, token, time ?? TimeProvider.System, onStarted);
+            read, metadata, output, requireAuthorization, token, time ?? TimeProvider.System, onStarted, onOutputProgress);
     }
 
     private static ExclusivePcmPlaybackReceipt PlayCore(long fileSize,
         Func<CancellationToken, Task<AudioWavePcmMetadata>> inspect,
         Func<long, int, CancellationToken, Task<byte[]>> read, AudioWavePcmMetadata metadata,
-        ExclusivePcmOutput output, Action requireAuthorization, CancellationToken token, TimeProvider time, Action? onStarted)
+        ExclusivePcmOutput output, Action requireAuthorization, CancellationToken token, TimeProvider time, Action? onStarted,
+        Action<long>? onOutputProgress)
     {
         ArgumentNullException.ThrowIfNull(metadata); ArgumentNullException.ThrowIfNull(metadata.Format);
         if (fileSize < 0 || metadata.PcmByteOffset < 0 || metadata.PcmByteCount < 0 ||
@@ -62,12 +63,12 @@ internal static class AudioFilePcmPlayback
             var actual = await inspect(cancellation).ConfigureAwait(false);
             if (actual != metadata) throw new InvalidDataException("The file declaration does not belong to this verified source.");
             return new WaveReader(read, metadata.PcmByteOffset);
-        }, output, requireAuthorization, token, time, onStarted);
+        }, output, requireAuthorization, token, time, onStarted, onOutputProgress);
     }
 
     internal static ExclusivePcmPlaybackReceipt PlaySource(AudioStreamingPcmFormat format, long frameCount,
         Func<CancellationToken, Task<IAudioFilePcmReader>> openSource, ExclusivePcmOutput output,
-        Action requireAuthorization, CancellationToken token, TimeProvider time, Action? onStarted)
+        Action requireAuthorization, CancellationToken token, TimeProvider time, Action? onStarted, Action<long>? onOutputProgress = null)
     {
         ArgumentNullException.ThrowIfNull(format); ArgumentNullException.ThrowIfNull(openSource);
         ArgumentNullException.ThrowIfNull(output); ArgumentNullException.ThrowIfNull(requireAuthorization);
@@ -212,6 +213,10 @@ internal static class AudioFilePcmPlayback
                 if (playing && progress.QueuedFrames == 0 && accepted < totalBytes)
                     throw new AudioFilePcmPlaybackException(AudioStreamingStopReason.OutputLost,
                         "The output queue exhausted before the remaining file samples arrived.");
+                // Native retirement, never queued/submitted bytes or an elapsed-time
+                // estimate. The observer only records one counter; no network I/O
+                // runs on the WASAPI owner. Final drain still has its own receipt.
+                if (playing) onOutputProgress?.Invoke(checked((long)progress.RetiredSourceFrames));
                 if (current is null && TryRead(out var next))
                 {
                     RequireFinite(next, format); current = next; position = 0;

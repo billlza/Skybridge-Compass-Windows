@@ -12,6 +12,8 @@ internal static class AudioStreamingWireTests
         Case("audio wire enforces signed counters file windows and message limits", Limits),
         Case("audio wire unknown layout cannot become a native default", LayoutBoundary),
         Case("audio wire owns decoded buffers and preserves low sample bits", ArrayOwnership),
+        Case("optional file output progress preserves independent counters and network order", FileOutputProgressVectors),
+        Case("optional file output progress rejects malformed extents and counters", FileOutputProgressCorruption),
         ..AudioOpusWireTests.Cases
     ];
     private static (string, Func<Task>) Case(string name, Action action) => (name, () => { action(); return Task.CompletedTask; });
@@ -19,6 +21,38 @@ internal static class AudioStreamingWireTests
     private static Guid StreamId => Guid.Parse("00112233-4455-6677-8899-aabbccddeeff");
     private static byte[] Hash => Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
     private static AudioStreamingPcmFormat Format => new(44100, 2, AudioStreamingEncoding.Signed24, 24, 3);
+
+    private static void FileOutputProgressVectors()
+    {
+        const string prefix = "534241550113000000112233445566778899aabbccddeeff00000008";
+        (long Frames, string Payload)[] rows = [(0, "0000000000000000"), (1, "0000000000000001"),
+            (48000, "000000000000bb80"), (9007199254740993, "0020000000000001"),
+            (long.MaxValue, "7fffffffffffffff")];
+        foreach (var row in rows)
+        {
+            var expected = new AudioStreamingMessage(StreamId, new AudioStreamingBody.FileOutputProgress(row.Frames));
+            var bytes = Convert.FromHexString(prefix + row.Payload);
+            Equal(expected, AudioStreamingWire.Decode(bytes));
+            Bytes(bytes, AudioStreamingWire.Encode(expected));
+        }
+    }
+
+    private static void FileOutputProgressCorruption()
+    {
+        var bytes = Convert.FromHexString("534241550113000000112233445566778899aabbccddeeff00000008000000000000bb80");
+        for (int size = 0; size < bytes.Length; size++) Reject(() => AudioStreamingWire.Decode(bytes.AsSpan(0, size)));
+        Reject(() => AudioStreamingWire.Decode([.. bytes, 0]));
+        byte[] longBody = [.. bytes, 0]; longBody[27] = 9;
+        Reject(() => AudioStreamingWire.Decode(longBody));
+        var shortBody = bytes[..^1]; shortBody[27] = 7;
+        Reject(() => AudioStreamingWire.Decode(shortBody));
+        foreach (var (index, value) in new (int, byte)[] { (28, 0x80), (6, 1), (5, 20) })
+        {
+            var changed = bytes.ToArray(); changed[index] = value; Reject(() => AudioStreamingWire.Decode(changed));
+        }
+        var zero = bytes.ToArray(); zero.AsSpan(8, 16).Clear(); Reject(() => AudioStreamingWire.Decode(zero));
+        Reject(() => AudioStreamingWire.Encode(new(StreamId, new AudioStreamingBody.FileOutputProgress(-1))));
+    }
 
     private static void GoldenVectors()
     {

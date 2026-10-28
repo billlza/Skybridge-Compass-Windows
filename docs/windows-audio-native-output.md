@@ -454,3 +454,57 @@ Windows ARM64 native execution, physical WASAPI playback and the Realtek stall,
 authenticated phone interoperability, and the full portability/freshness workflow
 at this revision remain separate open gates. Physical Windows testing is still
 deferred; the strict-output and Q-Periapt policies are unchanged.
+
+### Optional original-file output progress codec (2026-10-26)
+
+The portable C# codec now recognizes opcode 19, `FileOutputProgress`, with one
+eight-byte network-order source-frame counter in the signed 64-bit range. Swift
+and Kotlin use the same bytes. This is preparatory work: neither the reporter nor
+consumer capability was advertised by that codec-only increment. The runtime
+integration described below installs the separate reporting role.
+Both installed roles and the exact admitted original-file stream are required
+before a runtime may use it. Output-pipeline progress cannot replace native drain,
+file integrity, authorization, or the final playback receipt.
+
+The existing isolated SDK 10.0.402 compiled the portable contract project on Mac
+with warnings as errors: zero warnings and errors. All 13 audio/Opus wire cases
+passed, including the unchanged 31 base vectors, 21 Opus vectors, and the new
+counter/extent checks. This does not qualify WinUI, WASAPI, physical playback or
+phone interoperability. No dependency version or native output policy changed.
+Commands, input hashes and results are in
+`artifacts/audio-file-playback-progress-20261026/windows-host-green-01/`.
+
+### Native progress reporter and cancellable control waits, 2026-10-26
+
+The installed original-file receive host now publishes the optional reporting role
+only with its actual file route/consumer. The WAVE, FLAC and ALAC prepared sources
+feed the same pump observer, using validated native `RetiredSourceFrames` after
+native start. Queued/submitted bytes and assumed elapsed playback never become
+progress. This observer stores one latest counter in the existing control writer;
+it creates neither a network worker nor a task for each native observation.
+Successful reports are spaced by at least one second. Required controls take
+priority, final completion supersedes pending observations, and an already admitted
+frame remains owned through actual completion. The LAN write admission checks the
+current peer's receiving role, exact original-file inbox and playback permission.
+
+Original-file OutputReady/final reply waits now continue observing the existing
+single MAIN reader and finite authorization. Native output is closed before joining
+a blocked control write; the write still must settle before final Stop and owner
+release. Reconstructing only the previous blocking OutputReady wait makes the new
+peer-Stop test fail with `Native output remained owned while OutputReady waited for
+MAIN after peer Stop`. The first red run's fixture cleanup obscured that primary
+timing assertion; the second run explicitly observes the expected stream failure
+before asserting timing, retaining both causes/evidence. Neither run changes the
+required native-release condition.
+
+The portable Mac-host contract lane passes 132 cases across control writing,
+file PCM, original-file/USB reception, capture reception, host installation,
+inbox ownership and wire encoding. Tests cover role withdrawal while waiting for
+the real shared TCP writer, at most one latest progress observation, one-second
+cadence, completion priority, legacy peers, original PCM byte preservation and
+native Stop handling. This is controlled-native, real-loopback protocol evidence;
+the existing Realtek physical failure, full Windows WinUI build/launch at this
+revision and real mobile-to-Windows playback remain open. Physical Windows work
+is still deferred by the user. No strict-output policy or SDK dependency changed.
+Raw commands, source hashes, the failed variants and final verification are in
+`artifacts/audio-output-progress-runtime-20261026/`.

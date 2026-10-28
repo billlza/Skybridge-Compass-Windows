@@ -553,11 +553,16 @@ internal static class LanProductControlSessionTests
         internal async Task<AudioStreamingMessage> ReadAudio() => AudioStreamingLanEnvelope.DecodeIfPresent(
             WebRtcControlChannelCodec.DecryptAppleLegacyAppPayload(ProductControlTrafficPadding.Unwrap((await Remote.ReadAsync(Token)).ToArray()), _remoteKeys))
             ?? throw new Exception("Expected an encrypted SBE1 audio reply.");
-        internal async Task<ILanAudioStreamInbox> OpenAudioInbox()
+        internal Task PublishPeerFileOutputProgress(bool enabled) => Send(LanControlMessageKind.Identity,
+            Identity() with { Capabilities = enabled ? [AudioStreamingWire.FileOutputProgressReceiveCapability] : [] });
+        internal async Task<ILanAudioStreamInbox> OpenAudioInbox(bool originalFile = false)
         {
             var accepting = Session.AcceptAudioOfferAsync(Token); var id = Guid.NewGuid();
-            await SendAudio(AudioOffer(id)); var inbox = await accepting;
-            Require((await inbox.ReadAsync(Token)).Body is AudioStreamingBody.CaptureOffer, "The inbox did not begin with its offer.");
+            await SendAudio(originalFile ? new(id, new AudioStreamingBody.FileOffer(Guid.NewGuid(), 4096, new byte[32])) : AudioOffer(id));
+            var inbox = await accepting;
+            var body = (await inbox.ReadAsync(Token)).Body;
+            Require(originalFile ? body is AudioStreamingBody.FileOffer : body is AudioStreamingBody.CaptureOffer,
+                "The inbox did not begin with its offered mode.");
             return inbox;
         }
         internal TcpProductControlTransportTests.HeldWriter HoldWriter()

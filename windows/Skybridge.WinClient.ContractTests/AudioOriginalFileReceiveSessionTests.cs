@@ -11,6 +11,8 @@ internal static class AudioOriginalFileReceiveSessionTests
 {
     internal static readonly (string Name, Func<Task> Run)[] Cases =
     [
+        ("file product reports actual native progress only to a negotiated consumer", NativeProgress),
+        ("file product processes peer Stop while exact-output reply waits for MAIN", StopBeforeReadyDelivery),
         ("file product receives real classic TCP after MAIN approval and completes exact native frames", Complete),
         ("file product continues its admitted transfer and exact native frames after membership renewal", RenewedFile),
         ("file product does not turn transfer receipt into playback completion before native release", Tail),
@@ -57,11 +59,12 @@ internal static class AudioOriginalFileReceiveSessionTests
                 catch (Exception error) { ReceiveFailures.Enqueue(error); throw; }
             }, () => true);
         }
-        internal static async Task<Fixture> Create(bool enableRenewal = false)
+        internal static async Task<Fixture> Create(bool enableRenewal = false, bool reportFileOutputProgress = false)
         {
             var f = new Fixture(); Directory.CreateDirectory(f.Root);
             f.Listener.Start(IPAddress.Loopback, CancellationToken.None); f.Registry.Bind(f.Listener, f.Root);
-            f.Main = await AudioCaptureReceiveSessionTests.Fixture.Create(f.Registry, checked((ushort)f.Endpoint.Port), enableRenewal);
+            f.Main = await AudioCaptureReceiveSessionTests.Fixture.Create(f.Registry, checked((ushort)f.Endpoint.Port), enableRenewal,
+                reportFileOutputProgress: reportFileOutputProgress);
             f.Key = ClassicFileTransferWire.DeriveTransferKey(f.Main.Lan.Keys, f.TransferId.ToString("D"));
             return f;
         }
@@ -132,6 +135,66 @@ internal static class AudioOriginalFileReceiveSessionTests
         }
     }
 
+    private static async Task NativeProgress()
+    {
+        foreach (bool receivingRole in new[] { false, true })
+        {
+            await using var f = await Fixture.Create(reportFileOutputProgress: true);
+            f.Bytes = Wave(Pcm(25001)); f.Main.Native.AllowRetirement = true;
+            await f.Offer();
+            await f.Main.Lan.Session.SetAudioReceiverCapabilitiesAsync(true, AudioOriginalFileReceiveSupport.Wave,
+                f.Main.Lan.Token, reportFileOutputProgress: true);
+            var identity = LanProductControlMessages.Payload<LanProductIdentity>(await f.Main.Lan.Read());
+            Require(identity.Capabilities?.Contains(AudioStreamingWire.FileOutputProgressReportCapability) == true,
+                "Installed reporter did not publish its actual role.");
+            await f.Main.Lan.PublishPeerFileOutputProgress(receivingRole); await f.Main.Lan.Barrier();
+            await f.Transfer(); await f.Ready();
+            long previous = 0; int count = 0;
+            while (true)
+            {
+                var body = (await f.Main.Read()).Body;
+                if (body is AudioStreamingBody.PlaybackComplete { SourceFrames: 25001, TrailingPaddingFrames: 0 }) break;
+                Require(body is AudioStreamingBody.FileOutputProgress && receivingRole, "Unexpected or unnegotiated file progress.");
+                var current = ((AudioStreamingBody.FileOutputProgress)body).SourceFrames;
+                Require(current > previous && current <= 25001, "File progress exceeded or regressed from the native source extent.");
+                previous = current; count++;
+            }
+            Require(receivingRole ? count > 0 : count == 0, "Peer role did not govern native progress delivery.");
+            Require(await f.Main.Run! is AudioPlaybackReceiveReceipt.OriginalFile { Output.SourceFrames: 25001 }, "Native completion receipt changed.");
+            f.Released(); f.Main.NativeReleased(); await f.Main.Lan.Barrier();
+        }
+    }
+    private static async Task StopBeforeReadyDelivery()
+    {
+        await using var f = await Fixture.Create(); f.Main.Native.BlockPrepare = true;
+        await f.Offer();
+        await using var held = f.Main.Lan.HoldWriter(); await held.Entered.WaitAsync(f.Main.Lan.Token);
+        TimeoutException? releaseTimeout = null;
+        try
+        {
+            await f.Transfer(); await f.Main.Native.PrepareEntered.Task.WaitAsync(f.Main.Lan.Token);
+            f.Main.Native.PrepareRelease.Set();
+            // Observe the existing writer's admission state, without introducing a
+            // production test hook or assuming a delay means the frame was queued.
+            var writerField = typeof(AudioCaptureReceiveSession).GetField("_writer",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Receiver control owner is unavailable to the test.");
+            await Until(() => writerField.GetValue(f.Main.Receiver) is AudioReceiverControlWriter writer && writer.PendingCount.Sending,
+                f.Main.Lan.Token);
+            await f.Main.Lan.SendAudio(new(f.Main.StreamId, new AudioStreamingBody.Stop(AudioStreamingStopReason.UserStopped)));
+            try { await f.Main.Native.DisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(2)); }
+            catch (TimeoutException error) { releaseTimeout = error; }
+            Require(!f.Main.Device.WrongThread, "Stop moved native cleanup off its owner.");
+        }
+        finally { f.Main.Native.PrepareRelease.Set(); held.Release(); await held.Completion; }
+        await f.Main.Lan.ReadWriterBarrier();
+        await f.Main.Failure(); f.Released(); f.Main.NativeReleased();
+        // Assert after observing the expected stream failure so fixture disposal
+        // cannot obscure the original timing failure with an unobserved Stop.
+        if (releaseTimeout is not null)
+            throw new InvalidOperationException("Native output remained owned while OutputReady waited for MAIN after peer Stop.", releaseTimeout);
+        await f.Main.Lan.Barrier();
+    }
     private static async Task Complete()
     {
         await using var f = await Fixture.Create(); f.Main.Native.AllowRetirement = true; f.Bytes = Wave(Pcm(25001));

@@ -72,6 +72,8 @@ internal abstract record AudioStreamingBody
     internal sealed record ContentVerified(long TotalBytes, byte[] Sha256) : AudioStreamingBody;
     internal sealed record OutputReady(AudioStreamingPcmFormat Format) : AudioStreamingBody;
     internal sealed record PlaybackComplete(long SourceFrames, uint TrailingPaddingFrames) : AudioStreamingBody;
+    // Negotiated native output progress, not completion, flow credit or playback authorization.
+    internal sealed record FileOutputProgress(long SourceFrames) : AudioStreamingBody;
     internal sealed record Stop(AudioStreamingStopReason Reason) : AudioStreamingBody;
     internal sealed record OpusOffer(AudioStreamingOpusSource Source, AudioStreamingOpusFormat Format) : AudioStreamingBody;
     internal sealed record OpusConfiguration(ushort PreSkipFrames) : AudioStreamingBody;
@@ -92,6 +94,9 @@ internal static class AudioStreamingWire
     public const long MaximumFileBytes = 16L * 1024 * 1024 * 1024;
     public const string FileReceiveCapability = "audio_file_receive_v1";
     public const string CaptureReceiveCapability = "audio_capture_receive_v1";
+    // Codec availability does not install or advertise these separately negotiated roles.
+    public const string FileOutputProgressReportCapability = "audio_file_output_progress_report_v1";
+    public const string FileOutputProgressReceiveCapability = "audio_file_output_progress_receive_v1";
     public const string UsbFileReturnReceiveCapability = "audio_file_usb_return_receive_v1";
     // Structural codec availability does not install or advertise a receiving consumer.
     public const string OpusReceiveCapability = "audio_opus_bluetooth_receive_v1";
@@ -109,6 +114,7 @@ internal static class AudioStreamingWire
             AudioStreamingBody.Credit => (5, 8), AudioStreamingBody.End => (6, 40),
             AudioStreamingBody.ContentVerified => (7, 40), AudioStreamingBody.OutputReady => (8, 16),
             AudioStreamingBody.PlaybackComplete => (9, 12), AudioStreamingBody.Stop => (10, 4),
+            AudioStreamingBody.FileOutputProgress => (19, 8),
             AudioStreamingBody.OpusOffer => (11, 16), AudioStreamingBody.OpusConfiguration => (12, 4),
             AudioStreamingBody.OpusData data => (13, 8 + data.Bytes.Length), AudioStreamingBody.OpusEnd => (14, 56),
             AudioStreamingBody.OpusOutputReady => (15, 0),
@@ -129,6 +135,7 @@ internal static class AudioStreamingWire
             case AudioStreamingBody.ContentVerified m: writer.Counter(m.TotalBytes); writer.Bytes(m.Sha256); break;
             case AudioStreamingBody.OutputReady m: writer.Format(m.Format); break;
             case AudioStreamingBody.PlaybackComplete m: writer.Counter(m.SourceFrames); writer.U32(m.TrailingPaddingFrames); break;
+            case AudioStreamingBody.FileOutputProgress m: writer.Counter(m.SourceFrames); break;
             case AudioStreamingBody.Stop m: writer.U16((ushort)m.Reason); writer.U16(0); break;
             case AudioStreamingBody.OpusOffer m:
                 writer.U8(1); writer.U8((byte)m.Source); writer.U8(m.Format.Channels); writer.U8(0);
@@ -190,6 +197,7 @@ internal static class AudioStreamingWire
                 var port = reader.U16();
                 if (reader.U16() != 0) throw new InvalidDataException("Nonzero USB file-route reserved bits.");
                 body = new AudioStreamingBody.UsbFileRoute(port); break;
+            case 19: body = new AudioStreamingBody.FileOutputProgress(reader.Counter()); break;
             default: throw new InvalidDataException("Unknown audio opcode.");
         }
         if (reader.Remaining != 0) throw new InvalidDataException("Trailing audio body bytes.");
@@ -219,6 +227,7 @@ internal static class AudioStreamingWire
             case AudioStreamingBody.Credit m: Counter(m.RetiredBytes); break;
             case AudioStreamingBody.End m: Counter(m.TotalBytes); Hash(m.Sha256); break;
             case AudioStreamingBody.ContentVerified m: Counter(m.TotalBytes); Hash(m.Sha256); break;
+            case AudioStreamingBody.FileOutputProgress m: Counter(m.SourceFrames); break;
             case AudioStreamingBody.PlaybackComplete m:
                 if (m.SourceFrames < 0 || m.SourceFrames > long.MaxValue - m.TrailingPaddingFrames)
                     throw new InvalidDataException("Invalid audio completion extent.");

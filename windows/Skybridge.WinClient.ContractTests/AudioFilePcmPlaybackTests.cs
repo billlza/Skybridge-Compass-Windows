@@ -9,6 +9,7 @@ internal static class AudioFilePcmPlaybackTests
 {
     internal static readonly (string Name, Func<Task> Run)[] Cases =
     [
+        ("file progress reports native retirement after start without counting queued samples", NativeProgress),
         ("file PCM submits original integer bytes and a short final frame without padding", IntegerBytes),
         ("file PCM preserves finite float negative zero and subnormal bit patterns", FloatBytes),
         ("file PCM completes empty input without starting a device timeline", Empty),
@@ -29,6 +30,22 @@ internal static class AudioFilePcmPlaybackTests
         ("file PCM bounds prefetch to two blocks plus the current native block", BoundedPrefetch),
         ("file PCM prefetch remains available while shared workers are occupied", SharedWorkerPressure)
     ];
+    private static async Task NativeProgress()
+    {
+        var rig = await Rig.Create(IntegerFormat(24), new byte[2001 * 6]);
+        var observations = new List<long>();
+        rig.OnOutputProgress = frames =>
+        {
+            Require(rig.Native.Starts == 1, "Progress preceded native Start.");
+            long submitted = rig.Native.Submissions.Sum(bytes => (long)bytes.Length / 6);
+            Require(frames >= 0 && frames < submitted, "Queued native samples were reported as retired.");
+            observations.Add(frames);
+        };
+        var receipt = await rig.Run();
+        Require(observations.Count != 0 && observations.Any(frames => frames > 0), "No actual native retirement was observed.");
+        Require(observations.SequenceEqual(observations.Order()), "Native progress regressed.");
+        Equal(2001UL, receipt.SourceFrames); Bytes(rig.Pcm, rig.Native.Submissions.SelectMany(bytes => bytes).ToArray());
+    }
     private static AudioStreamingPcmFormat IntegerFormat(ushort bits = 16) => new(48000, 2,
         bits switch { 8 => AudioStreamingEncoding.Unsigned8, 16 => AudioStreamingEncoding.Signed16,
             24 => AudioStreamingEncoding.Signed24, 32 => AudioStreamingEncoding.Signed32, 64 => AudioStreamingEncoding.Signed64,
@@ -470,6 +487,7 @@ internal static class AudioFilePcmPlaybackTests
         internal Func<long, int, CancellationToken, Task<byte[]>> Read = null!;
         internal Action Authorization = () => { };
         internal Action? OnStarted;
+        internal Action<long>? OnOutputProgress;
         internal Action<ExclusivePcmOutput>? BeforePlay;
         private Rig() { Device = new(Clock); }
         internal static async Task<Rig> Create(AudioStreamingPcmFormat format, byte[] pcm)
@@ -491,10 +509,10 @@ internal static class AudioFilePcmPlaybackTests
                 {
                     BeforePlay?.Invoke(output);
                     return artifact is not null
-                        ? AudioFilePcmPlayback.Play(artifact, Metadata, output, Authorization, token, Clock, OnStarted)
+                        ? AudioFilePcmPlayback.Play(artifact, Metadata, output, Authorization, token, Clock, OnStarted, OnOutputProgress)
                         : AudioFilePcmPlayback.Play(Wave.Length, (offset, count, cancellation) =>
                         { Interlocked.Increment(ref ReadCalls); return Read(offset, count, cancellation); },
-                            Metadata, output, Authorization, token, Clock, OnStarted);
+                            Metadata, output, Authorization, token, Clock, OnStarted, OnOutputProgress);
                 }
                 catch (Exception error) { primary = error; throw; }
                 finally

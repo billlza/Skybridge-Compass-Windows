@@ -66,6 +66,7 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
     private AudioPlaybackPermission? _permission;
     private AudioCaptureReceiveFlow? _flow;
     private AudioReceiverControlWriter? _writer;
+    private readonly bool _reportFileOutputProgress;
     private Task<AudioStreamingMessage>? _read;
     private Task? _admission;
     private Task? _creditDelivery;
@@ -81,7 +82,7 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
         Func<CancellationToken, Task<string>> selectOutput, AudioPlaybackApprovalService approvals,
         Func<string, IExclusivePcmDevice>? openDevice = null, TimeProvider? time = null,
         AudioOriginalFileReceiveRegistry? originalFiles = null, Func<AudioAuthorizationTime>? membershipClock = null,
-        Func<TimeSpan, CancellationToken, Task>? renewalDelay = null)
+        Func<TimeSpan, CancellationToken, Task>? renewalDelay = null, bool reportFileOutputProgress = false)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _authorize = authorize ?? throw new ArgumentNullException(nameof(authorize));
@@ -91,6 +92,7 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
         _openDevice = openDevice ?? OpenNative;
         _time = time ?? TimeProvider.System;
         _originalFiles = originalFiles;
+        _reportFileOutputProgress = reportFileOutputProgress;
     }
     internal AudioCaptureReceivePhase Phase => (AudioCaptureReceivePhase)Volatile.Read(ref _phase);
     internal bool NativeReleaseConfirmed => Volatile.Read(ref _nativeReleaseConfirmed);
@@ -172,13 +174,15 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
             }
             if (_read is { } read) Try(() => read.GetAwaiter().GetResult(), expectedCancellation: true);
             if (_fileInspection is { } inspection) Try(() => inspection.GetAwaiter().GetResult(), expectedCancellation: true);
-            if (_writer is { } writer) Try(() => writer.DisposeAsync().AsTask().GetAwaiter().GetResult());
             if (_flow is { } flow) Try(flow.Dispose);
             if (_output is { } output)
             {
                 Try(output.Dispose);
                 Volatile.Write(ref _nativeReleaseConfirmed, output.CleanupFailure is null);
             }
+            // Close native output before joining a noncooperative admitted control
+            // write. The frame remains owned and must settle before Stop/owner release.
+            if (_writer is { } writer) Try(() => writer.DisposeAsync().AsTask().GetAwaiter().GetResult());
             bool uncertainOpen = Contains<ExclusivePcmOpenCleanupException>(primary) || cleanup.Any(Contains<ExclusivePcmOpenCleanupException>);
             Volatile.Write(ref _nativeReleaseConfirmed, !uncertainOpen && (_output is null || _output.CleanupFailure is null));
             if (_fileTicket is { } ticket) Try(() => ticket.CloseAsync().GetAwaiter().GetResult());
@@ -316,7 +320,7 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
         _fileTicket = (_originalFiles ?? throw new InvalidOperationException("No file receiver is installed.")).Register(
             new AudioOriginalFileAdmission(_session, _inbox!, _permission!, _endpoint!));
         StartRenewal(membership);
-        _writer = new(_session, _inbox!, _permission!, Token, RequireControlDeadline);
+        _writer = new(_session, _inbox!, _permission!, Token, RequireControlDeadline, _time);
         AwaitAdmissionControl(_writer.Queue(new AudioStreamingBody.Accept(0)));
         Volatile.Write(ref _admissionPending, 0);
         PhaseIs(AudioCaptureReceivePhase.ReceivingFile);
@@ -346,18 +350,30 @@ internal sealed class AudioCaptureReceiveSession : IAsyncDisposable
         Volatile.Write(ref _nativeReleaseConfirmed, false);
         _output = ExclusivePcmOutput.Open(_openDevice(_endpoint!), exact, Math.Max(1, requested), _time);
         RequireFileEffect(); Deadline(preparing, TimeSpan.FromSeconds(10));
-        _writer.Queue(new AudioStreamingBody.OutputReady(format)).GetAwaiter().GetResult();
+        AwaitFileControl(_writer.Queue(new AudioStreamingBody.OutputReady(format)));
         PhaseIs(AudioCaptureReceivePhase.Buffering);
         var rendered = prepared.Play(_output, RequireFileEffect, Token, _time,
-            () => PhaseIs(AudioCaptureReceivePhase.Playing));
+            () => PhaseIs(AudioCaptureReceivePhase.Playing),
+            _reportFileOutputProgress && _session.CanReportFileOutputProgress ? _writer.ObserveFileOutputProgress : null);
         RequireFileEffect(); PhaseIs(AudioCaptureReceivePhase.Finishing);
         if (rendered.SourceFrames != (ulong)prepared.FrameCount)
             throw new StreamFailure(AudioStreamingStopReason.OutputLost, "File output extent differs from its declared source.");
         _fileTicket.CloseAsync().GetAwaiter().GetResult(); RequireFileEffect();
         if (!FileReleaseConfirmed) throw new IOException("Private file release is unconfirmed.");
-        _writer.Queue(new AudioStreamingBody.PlaybackComplete(prepared.FrameCount, 0)).GetAwaiter().GetResult();
+        AwaitFileControl(_writer.Queue(new AudioStreamingBody.PlaybackComplete(prepared.FrameCount, 0)));
         _writer.DrainAsync().GetAwaiter().GetResult();
         return new AudioPlaybackReceiveReceipt.OriginalFile(_inbox!.StreamId, format, source.Length, source.Sha256Hex, rendered);
+    }
+    private void AwaitFileControl(Task delivery)
+    {
+        // Keep the existing single reader live while a shared MAIN writer is busy.
+        // Peer Stop and finite authorization must also apply to pre-playback replies.
+        while (!delivery.IsCompleted)
+        {
+            RequireFileEffect();
+            Task.WhenAny(delivery, _read!, Task.Delay(TimeSpan.FromMilliseconds(25), Token)).GetAwaiter().GetResult();
+        }
+        delivery.GetAwaiter().GetResult(); RequireFileEffect();
     }
     private void RequireFileEffect()
     {

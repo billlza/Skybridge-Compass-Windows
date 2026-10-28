@@ -15,6 +15,7 @@ internal sealed class AudioReceiveHost : IAsyncDisposable
     private readonly Dictionary<LanProductControlSession, Entry> _sessions = [];
     private readonly Func<LanProductControlSession, string, AudioCaptureReceiveSession> _create;
     private readonly AudioOriginalFileReceiveRegistry? _originalFiles;
+    private readonly bool _reportFileOutputProgress;
     private CancellationTokenSource? _enabled;
     private string? _endpoint;
     private Active? _active;
@@ -22,8 +23,11 @@ internal sealed class AudioReceiveHost : IAsyncDisposable
     private bool _stopping, _closed;
 
     internal AudioReceiveHost(Func<LanProductControlSession, string, AudioCaptureReceiveSession> create,
-        AudioOriginalFileReceiveRegistry? originalFiles = null)
-    { _create = create ?? throw new ArgumentNullException(nameof(create)); _originalFiles = originalFiles; }
+        AudioOriginalFileReceiveRegistry? originalFiles = null, bool reportFileOutputProgress = false)
+    {
+        _create = create ?? throw new ArgumentNullException(nameof(create)); _originalFiles = originalFiles;
+        _reportFileOutputProgress = reportFileOutputProgress;
+    }
 
     internal AudioReceiveHostSnapshot ReadSnapshot()
     {
@@ -117,7 +121,7 @@ internal sealed class AudioReceiveHost : IAsyncDisposable
                 {
                     await entry.Session.SetAudioReceiverCapabilitiesAsync(true,
                         _originalFiles?.ReceiveSupportFor(entry.Session) ?? AudioOriginalFileReceiveSupport.Unavailable, token,
-                        _originalFiles?.UsbReceiverFor(entry.Session)).ConfigureAwait(false);
+                        _originalFiles?.UsbReceiverFor(entry.Session), _reportFileOutputProgress).ConfigureAwait(false);
                     published = true; entry.Ready!.TrySetResult();
                 }
                 ILanAudioStreamInbox inbox;

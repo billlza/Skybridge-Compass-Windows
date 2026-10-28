@@ -30,7 +30,8 @@ public sealed partial class MainWindow
         _audioApprovals = new(new NativeAudioApproval(this));
         _audioReceiveHost = new((session, endpoint) => new(session,
             (inbox, token) => membership.LeaseAsync(inbox, token), membership.RenewAsync, _ => Task.FromResult(endpoint), _audioApprovals,
-            originalFiles: _remoteControlWorkspace.OriginalAudioFiles), _remoteControlWorkspace.OriginalAudioFiles);
+            originalFiles: _remoteControlWorkspace.OriginalAudioFiles, reportFileOutputProgress: true),
+            _remoteControlWorkspace.OriginalAudioFiles, reportFileOutputProgress: true);
         _remoteControlWorkspace.ConfigureAudioReception(_audioReceiveHost);
         AutomationProperties.SetName(AudioOutputPicker, RemoteControlText("AudioReceiveOutputLabel"));
         AutomationProperties.SetName(AudioNetworkPicker, RemoteControlText("AudioReceiveNetworkLabel"));
