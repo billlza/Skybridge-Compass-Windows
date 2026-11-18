@@ -50,7 +50,7 @@ jobs:
           git remote set-url --push origin git@github.com:billlza/Skybridge-Compass-Windows.git
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v6.0.0
+        uses: actions/setup-dotnet@v6.1.0
         with:
           global-json-file: global.json
 
@@ -58,9 +58,9 @@ jobs:
         id: rust-tooling
         shell: pwsh
         run: |
-          rustup toolchain install 1.97.1 --profile minimal --component clippy --component llvm-tools-preview --component rustfmt
-          rustup default 1.97.1
-          cargo install cargo-llvm-cov --version 0.8.7 --locked
+          rustup toolchain install 1.100.0 --profile minimal --component clippy --component llvm-tools-preview --component rustfmt
+          rustup default 1.100.0
+          cargo install cargo-llvm-cov --version 0.9.1 --locked
 
       - name: Build native WinUI client
         id: native-client
@@ -132,7 +132,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-dotnet@v6.0.0
+      - uses: actions/setup-dotnet@v6.1.0
         with:
           global-json-file: global.json
       - name: Assemble and verify Release client

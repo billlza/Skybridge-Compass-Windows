@@ -87,12 +87,13 @@
     <Content Include="Assets\**\*.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="Assets\SkyBridgeCompass.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="ThirdPartyNotices\*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="ThirdPartyNotices\Q-Periapt-0.2.0-notices.zip" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.3.1" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2526" PrivateAssets="all" />
-    <PackageReference Include="QRCoder" Version="1.8.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" PrivateAssets="all" />
+    <PackageReference Include="QRCoder" Version="1.8.1" />
     <!-- Vortice.Windows: native DirectX 12 + DXGI + WinUI SwapChainPanel interop — the Windows
          equivalent of Mac's Metal. The cinematic weather backdrop is a hand-written HLSL raymarch
          shader rendered into a SwapChainPanel. Chosen over ComputeSharp: ComputeSharp's source
@@ -114,7 +115,7 @@
     <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
     <!-- DPAPI (ProtectedData) for at-rest encryption of the persisted account session
          (Services/SessionStore.cs, DataProtectionScope.CurrentUser). -->
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.10" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="11.0.0" />
   </ItemGroup>
 
   <Import Project="..\NativeCore.targets" />

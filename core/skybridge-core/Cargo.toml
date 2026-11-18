@@ -13,24 +13,26 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 q-periapt-ffi-abi2 = { package = "q-periapt-ffi", version = "=0.2.0" }
-thiserror = "2.0.20"
+thiserror = "2.0.21"
 async-trait = "0.1.92"
-tokio = { version = "1.53.1", features = ["macros", "rt", "time"] }
+tokio = { version = "1.54.1", features = ["macros", "rt", "time"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+serde_json = "1.0.154"
 time = { version = "0.3.55", features = ["formatting", "parsing", "serde", "serde-well-known"] }
 p256 = { version = "0.14.0", features = ["ecdh"] }
 getrandom = "0.4.3"
-aes-gcm = "0.11.0"
+aes-gcm = "0.11.1"
 hkdf = "0.13.0"
-sha2 = "0.11.0"
-zeroize = { version = "1.9.0", features = ["zeroize_derive"] }
+# The SDK host store pins registry sha2 0.11.0. Keep the client's 0.11.1
+# fixes at the RustCrypto commit recorded in that release's .cargo_vcs_info.json.
+sha2 = { version = "0.11.1", git = "https://github.com/RustCrypto/hashes.git", rev = "138dc5a05b93f8e49cda177fc6cfd7cc43673e5d" }
+zeroize = { version = "1.9.2", features = ["zeroize_derive"] }
 # Post-quantum cryptography (pure Rust, no C/liboqs — keeps the CI hermetic/offline).
 # ML-KEM-768 (FIPS 203) for the pure-PQC suite, X-Wing (X25519+ML-KEM-768 IETF hybrid)
 # for the preferred hybrid suite, ML-DSA-65 (FIPS 204) for PQC handshake signatures.
-ml-kem = { version = "0.3.2", features = ["getrandom", "zeroize"] }
-ml-dsa = { version = "0.1.1", features = ["getrandom", "zeroize"] }
-x-wing = { version = "0.1.0", features = ["getrandom", "zeroize"] }
+ml-kem = { version = "0.3.4", features = ["getrandom", "zeroize"] }
+ml-dsa = { version = "0.1.2", features = ["getrandom", "zeroize"] }
+x-wing = { version = "0.1.1", features = ["getrandom", "zeroize"] }
 
 # Shared X25519 primitive already used transitively by X-Wing.
 x25519-dalek = { version = "3.0.0", features = ["static_secrets", "zeroize"] }
