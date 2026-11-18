@@ -177,7 +177,7 @@ fn metadata_uses_all_five_forwarded_functions() {
     assert_eq!(bridge::skybridge_q_periapt_abi_version(), 2);
     assert_eq!(
         unsafe { CStr::from_ptr(bridge::skybridge_q_periapt_version()) }.to_bytes(),
-        b"0.1.5"
+        b"0.2.0"
     );
     assert_eq!(bridge::skybridge_q_periapt_fixed_suite_id_len(), 17);
     assert_eq!(

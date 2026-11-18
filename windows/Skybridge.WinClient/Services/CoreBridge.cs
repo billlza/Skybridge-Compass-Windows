@@ -69,7 +69,7 @@ public sealed partial class CoreBridge
         {
             throw new CryptographicException("Native Q-Periapt ABI or fixed-suite length does not match ABI 2.");
         }
-        RequireQPeriaptText(QPeriaptVersion(), "0.1.5", "version");
+        RequireQPeriaptText(QPeriaptVersion(), "0.2.0", "version");
         RequireQPeriaptText(QPeriaptFixedSuiteId(), QPeriaptFixedSuite, "fixed suite");
         for (var code = 0; code >= -8; code--) { _ = QPeriaptStatusText(code); }
         _ = QPeriaptStatusText(int.MaxValue);

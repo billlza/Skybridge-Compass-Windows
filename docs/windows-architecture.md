@@ -4,7 +4,7 @@ The WinUI client is organized to keep UI binding, engine integration, and platfo
 
 ## Q-Periapt native primitive boundary
 
-The existing `skybridge_core` library links Q-Periapt 0.1.5 ABI 2 from the exact official source revision `7ed1f96a7ec33732f02a989dd5a4669cdcce39ad`. `Cargo.lock` binds its resolved dependency graph, and `NativeCore.targets` builds with `--locked`. The client ships one Core library; no separate Q DLL or alternative handshake implementation is introduced.
+The existing `skybridge_core` library links Q-Periapt 0.2.0 ABI 2 from the exact `q-periapt-ffi = 0.2.0` crate. Its registry checksum `66c9d32802fddc4234deea082919ae84ba54118f1c1da0549fe16df0c2719d51` matches the upstream platform release. `Cargo.lock` binds its resolved dependency graph, and `NativeCore.targets` builds with `--locked`. The client ships one Core library; no separate Q DLL or alternative handshake implementation is introduced.
 
 The vendored C sources use UTF-8. The repository-root `.cargo/config.toml` gives the existing x86, x64 and ARM64 Windows MSVC targets a `/utf-8` default through their target-specific `CFLAGS` variables. This declares source encoding while retaining C11 and the existing `/W4` and `/WX` checks; it does not change the machine code page. Direct Cargo commands run from `core/skybridge-core` discover this file, and `NativeCore.targets` explicitly selects the same file with `--config`. The MSBuild command keeps its working directory and output-directory rules, including relative `SkybridgeCoreTargetDir` overrides.
 
