@@ -79,6 +79,7 @@ Assert-True -Condition ($ExpectedFingerprint -match '^[0-9a-f]{64}$') -Message "
 
 $cargoArguments = @(
     "run",
+    "--locked",
     "--manifest-path",
     $manifestPath,
     "--bin",

@@ -31,6 +31,11 @@ $proofPath = Join-Path $tempRoot "proof.json"
 try {
     New-Item -ItemType Directory -Path $tempRoot | Out-Null
 
+    # A cold Rust build can outlast the fixture's 60-second acceptance window.
+    $manifestPath = Join-Path $RepoRoot "core/skybridge-core/Cargo.toml"
+    & cargo build --locked --manifest-path $manifestPath --bin skybridge
+    Assert-True -Condition ($LASTEXITCODE -eq 0) -Message "Could not prepare the Rust WebRTC proof validator."
+
     $proof = [ordered]@{
         helperName = "schema-smoke-webrtc-helper"
         peerDeviceId = $expectedDeviceId
