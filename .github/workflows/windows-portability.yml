@@ -10,6 +10,11 @@ on:
       - main
       - Bill/windows-portability
   workflow_dispatch:
+    inputs:
+      assemble_release_client:
+        description: Build and exercise the unpackaged Windows x64 release
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -116,5 +121,55 @@ jobs:
             artifacts/*.log
             artifacts/*.json
             artifacts/*.vcxproj
+          if-no-files-found: error
+          retention-days: 14
+
+  release-client:
+    if: github.event_name == 'workflow_dispatch' && inputs.assemble_release_client
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-dotnet@v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Assemble and verify Release client
+        shell: pwsh
+        run: |
+          $project = 'windows/Skybridge.WinClient/Skybridge.WinClient.csproj'
+          $contracts = 'windows/Skybridge.WinClient.ContractTests/Skybridge.WinClient.ContractTests.csproj'
+          dotnet build $project -c Release /p:TreatWarningsAsErrors=true
+          if ($LASTEXITCODE -ne 0) { throw 'Release client build failed' }
+          dotnet build $contracts -c Release /p:TreatWarningsAsErrors=true
+          if ($LASTEXITCODE -ne 0) { throw 'Release contracts build failed' }
+          $bundle = 'windows/Skybridge.WinClient/bin/Release/net10.0-windows10.0.22621.0/win-x64'
+          $contractDir = 'windows/Skybridge.WinClient.ContractTests/bin/Release/net10.0'
+          $core = Join-Path $bundle 'skybridge_core.dll'
+          Copy-Item -LiteralPath $core -Destination $contractDir -Force
+          if ((Get-FileHash $core).Hash -ne (Get-FileHash (Join-Path $contractDir 'skybridge_core.dll')).Hash) {
+            throw 'The contracts must exercise the native library from the application'
+          }
+          dotnet run --project $contracts -c Release --no-build --no-restore -- --native-qperiapt
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged Q-Periapt runtime validation failed' }
+          $client = Start-Process -FilePath (Join-Path $bundle 'Skybridge.WinClient.exe') -WorkingDirectory $bundle -PassThru
+          try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(90)
+            do {
+              Start-Sleep -Milliseconds 500
+              $client.Refresh()
+              if ($client.HasExited) { throw "Release client exited during startup: $($client.ExitCode)" }
+            } until ($client.MainWindowHandle -ne [IntPtr]::Zero -or [DateTime]::UtcNow -ge $deadline)
+            if ($client.MainWindowHandle -eq [IntPtr]::Zero) { throw 'Release client did not open a window' }
+            Write-Host "Release window ready: $($client.MainWindowTitle)"
+          } finally {
+            if (!$client.HasExited) { $client.Kill(); $client.WaitForExit() }
+            $client.Dispose()
+          }
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: skybridge-windows-x64-qperiapt-0.2.0
+          path: windows/Skybridge.WinClient/bin/Release/net10.0-windows10.0.22621.0/win-x64/
           if-no-files-found: error
           retention-days: 14
