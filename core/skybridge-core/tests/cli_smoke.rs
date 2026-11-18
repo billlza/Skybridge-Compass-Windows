@@ -4250,3 +4250,67 @@ fn cli_rejects_too_small_sbp2_frame_smoke() {
     assert!(stderr.contains("frame encode failed"));
     assert!(stderr.contains("TargetTooSmall"));
 }
+
+#[test]
+fn cli_code_current_rejects_unusable_snapshot_files_without_echoing_their_contents() {
+    let dir = make_operator_state_dir("unusable-code-snapshot");
+    let path = dir.join("private-pairing.json");
+    let private_code = "PAIRING-TEST-VALUE";
+    for (name, input, expected_code) in [
+        ("absent", None, "connection_code_snapshot_missing"),
+        (
+            "invalid UTF-8",
+            Some(vec![0xff]),
+            "connection_code_snapshot_unreadable",
+        ),
+        (
+            "oversize",
+            Some(vec![b'x'; 65_537]),
+            "connection_code_snapshot_too_large",
+        ),
+        (
+            "malformed JSON",
+            Some(private_code.as_bytes().to_vec()),
+            "connection_code_snapshot_invalid",
+        ),
+        (
+            "unknown schema",
+            Some(br#"{"schemaVersion":2}"#.to_vec()),
+            "connection_code_snapshot_invalid",
+        ),
+        (
+            "missing code",
+            Some(br#"{"schemaVersion":1,"code":"  "}"#.to_vec()),
+            "connection_code_snapshot_invalid",
+        ),
+        (
+            "invalid expiry",
+            Some(
+                serde_json::to_vec(&serde_json::json!({
+                    "schemaVersion": 1, "code": private_code, "sessionId": "private-session", "expiresAt": "invalid-date"
+                }))
+                .unwrap(),
+            ),
+            "connection_code_snapshot_invalid_expiry",
+        ),
+    ] {
+        if let Some(bytes) = input {
+            std::fs::write(&path, bytes).unwrap();
+        }
+        let output = skybridge()
+            .args(["code", "current", "--snapshot"])
+            .arg(&path)
+            .arg("--json")
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{name}");
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(!error.contains(private_code));
+        assert!(!error.contains("private-pairing.json"));
+        let json: serde_json::Value = serde_json::from_str(&error).unwrap();
+        assert_eq!(json["error"]["code"], expected_code, "{name}");
+        assert_eq!(json["code_present"], false);
+        assert_eq!(json["live_runtime_started"], false);
+    }
+}
