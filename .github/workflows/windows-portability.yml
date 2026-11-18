@@ -145,13 +145,19 @@ jobs:
           dotnet build $contracts -c Release /p:TreatWarningsAsErrors=true
           if ($LASTEXITCODE -ne 0) { throw 'Release contracts build failed' }
           $bundle = 'windows/Skybridge.WinClient/bin/Release/net10.0-windows10.0.22621.0/win-x64'
-          $contractDir = 'windows/Skybridge.WinClient.ContractTests/bin/Release/net10.0'
+          $contractAssembly = dotnet msbuild $contracts -nologo -property:Configuration=Release -getProperty:TargetPath
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $contractAssembly -PathType Leaf)) {
+            throw 'Could not resolve the built Release contract runner'
+          }
           $core = Join-Path $bundle 'skybridge_core.dll'
-          Copy-Item -LiteralPath $core -Destination $contractDir -Force
-          if ((Get-FileHash $core).Hash -ne (Get-FileHash (Join-Path $contractDir 'skybridge_core.dll')).Hash) {
+          $contractCore = Join-Path (Split-Path -Parent $contractAssembly) 'skybridge_core.dll'
+          Copy-Item -LiteralPath $core -Destination $contractCore -Force
+          $coreHash = (Get-FileHash -LiteralPath $core -Algorithm SHA256).Hash
+          if ($coreHash -ne (Get-FileHash -LiteralPath $contractCore -Algorithm SHA256).Hash) {
             throw 'The contracts must exercise the native library from the application'
           }
-          dotnet run --project $contracts -c Release --no-build --no-restore -- --native-qperiapt
+          Write-Output "Packaged native core SHA256: $coreHash"
+          dotnet $contractAssembly --native-qperiapt
           if ($LASTEXITCODE -ne 0) { throw 'Packaged Q-Periapt runtime validation failed' }
           $client = Start-Process -FilePath (Join-Path $bundle 'Skybridge.WinClient.exe') -WorkingDirectory $bundle -PassThru
           try {
