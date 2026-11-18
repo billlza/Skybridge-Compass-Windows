@@ -98,6 +98,7 @@ $script:RustCoverageCommandResults = [System.Collections.Generic.List[object]]::
 $script:RustCoverageText = ""
 $script:RustTotalLineCoverage = $null
 $script:RustCliLineCoverage = $null
+$script:RustCliEntrypointLineCoverage = $null
 $script:RustNativeLibraryPath = ""
 
 function Add-CoverageCommandResult {
@@ -144,6 +145,7 @@ function Write-CoverageEvidence {
         minimumLineCoverage = $MinimumLineCoverage
         totalLineCoverage = $script:RustTotalLineCoverage
         cliLineCoverage = $script:RustCliLineCoverage
+        cliEntrypointLineCoverage = $script:RustCliEntrypointLineCoverage
         nativeLibraryPath = $script:RustNativeLibraryPath
         coverageSummary = $script:RustCoverageText
         commandResults = @($script:RustCoverageCommandResults)
@@ -307,6 +309,9 @@ foreach ($signal in @(
     Assert-True -Condition ($transport.Contains($signal)) -Message "Transport Apple interop invariant missing signal: $signal"
 }
 
+if (-not [string]::IsNullOrWhiteSpace($EvidencePath) -and -not [System.IO.Path]::IsPathRooted($EvidencePath)) {
+    $EvidencePath = Join-Path (Resolve-Path -LiteralPath $RepoRoot).Path $EvidencePath
+}
 Push-Location $coreRoot
 try {
     $fmtResult = Invoke-NativeCommand -FilePath "cargo" -Arguments @("fmt", "--all", "--", "--check")
@@ -349,12 +354,17 @@ try {
     $coverageText = $coverageResult.Text
     $script:RustCoverageText = $coverageText
     Write-Output $coverageText
-    Assert-True -Condition ($coverageResult.ExitCode -eq 0) -Message "cargo llvm-cov failed or total line coverage is below $MinimumLineCoverage%."
+    if ($coverageResult.ExitCode -ne 0 -and $coverageText -notmatch '(?m)^\s*TOTAL\s+') {
+        throw "cargo llvm-cov exited with code $($coverageResult.ExitCode) before producing a coverage report."
+    }
 
     $totalLineCoverage = Get-LineCoverage -CoverageText $coverageText -RowName "TOTAL"
     $cliLineCoverage = Get-LineCoverage -CoverageText $coverageText -RowName "cli.rs"
     $script:RustTotalLineCoverage = $totalLineCoverage
     $script:RustCliLineCoverage = $cliLineCoverage
+    $script:RustCliEntrypointLineCoverage = Get-LineCoverage -CoverageText $coverageText -RowName (Join-Path "bin" "skybridge.rs")
+    Assert-True -Condition ($script:RustCliEntrypointLineCoverage -gt 0) -Message "CLI subprocesses did not record any executable entrypoint lines."
+    Assert-True -Condition ($coverageResult.ExitCode -eq 0) -Message "cargo llvm-cov exited with code $($coverageResult.ExitCode). Total line coverage: $totalLineCoverage% (minimum $MinimumLineCoverage%)."
     Assert-True -Condition ($totalLineCoverage -ge $MinimumLineCoverage) -Message "Total line coverage $totalLineCoverage% is below $MinimumLineCoverage%."
     Assert-True -Condition ($cliLineCoverage -ge $MinimumLineCoverage) -Message "cli.rs line coverage $cliLineCoverage% is below $MinimumLineCoverage%."
     Write-CoverageEvidence -Status "passed"
