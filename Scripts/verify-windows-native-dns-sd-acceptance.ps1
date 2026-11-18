@@ -85,6 +85,7 @@ $sourceFiles = @(
     "windows/Skybridge.WinClient/Services/DiscoveryClient.cs",
     "windows/Skybridge.WinClient/Services/DiscoveryBrowserClient.cs",
     "windows/Skybridge.WinClient/Services/DiscoveryPeerRoutes.cs",
+    "windows/Skybridge.WinClient/Services/RemoteControlHandshakeBinding.DeviceId.cs",
     "windows/Skybridge.WinClient/Services/ProductSessionActionTargetProjection.cs",
     "windows/Skybridge.WinClient/Services/SkyBridgeProtocolConstants.cs",
     "windows/Skybridge.WinClient/Services/NativeWindowsDnsSdBrowseClient.cs",

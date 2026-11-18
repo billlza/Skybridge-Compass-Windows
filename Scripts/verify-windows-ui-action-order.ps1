@@ -28,14 +28,8 @@ function Assert-WindowsHostForWinUiBuild {
 
 Assert-WindowsHostForWinUiBuild -ScriptName "windows UI action-order smoke"
 
+$servicesProject = [System.Security.SecurityElement]::Escape((Resolve-Path -LiteralPath (Join-Path $RepoRoot "windows/WinClientSmokeServices.props")).Path)
 $sourceFiles = @()
-$sourceFiles += Get-ChildItem -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/Services") -Filter "*.cs" |
-    Sort-Object Name |
-    ForEach-Object { $_.FullName }
-$sourceFiles += Get-ChildItem -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/Audio") -Filter "*.cs" |
-    Sort-Object Name |
-    ForEach-Object { $_.FullName }
-$sourceFiles += Join-Path $RepoRoot "windows/Skybridge.WinClient/Converters/LabelKeyToLocalizedConverter.cs"
 $sourceFiles += Join-Path $RepoRoot "windows/Skybridge.WinClient/ViewModels/WorkspaceItemViews.cs"
 
 foreach ($sourceFile in $sourceFiles) {
@@ -69,16 +63,12 @@ try {
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
 $compileItemText
   </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" PrivateAssets="all" />
-    <PackageReference Include="QRCoder" Version="1.8.1" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="11.0.0" />
-  </ItemGroup>
+  <Import Project="$servicesProject" />
 </Project>
 "@
 

@@ -211,6 +211,7 @@
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductHandshakeSessionKeys.cs" Link="Services\WebRtcProductHandshakeSessionKeys.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\ProductSecureEnvelope.cs" Link="Services\ProductSecureEnvelope.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\RemoteControlHandshakeBinding.cs" Link="Services\RemoteControlHandshakeBinding.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\RemoteControlHandshakeBinding.DeviceId.cs" Link="Services\RemoteControlHandshakeBinding.DeviceId.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\RemoteControlSecureEnvelope.cs" Link="Services\RemoteControlSecureEnvelope.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\RealtimeMediaPacketCodec.cs" Link="Services\RealtimeMediaPacketCodec.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductPqcHandshakeCryptoProvider.cs" Link="Services\WebRtcProductPqcHandshakeCryptoProvider.cs" />

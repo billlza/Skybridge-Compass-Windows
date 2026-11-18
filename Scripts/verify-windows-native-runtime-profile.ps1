@@ -29,13 +29,8 @@ function Assert-WindowsHostForWinUiBuild {
 
 Assert-WindowsHostForWinUiBuild -ScriptName "Windows native runtime profile"
 
+$servicesProject = [System.Security.SecurityElement]::Escape((Resolve-Path -LiteralPath (Join-Path $RepoRoot "windows/WinClientSmokeServices.props")).Path)
 $sourceFiles = @()
-$sourceFiles += Get-ChildItem -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/Services") -Filter "*.cs" -Recurse |
-    Sort-Object Name |
-    ForEach-Object { $_.FullName }
-$sourceFiles += Get-ChildItem -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/Converters") -Filter "*.cs" |
-    Sort-Object Name |
-    ForEach-Object { $_.FullName }
 $sourceFiles += (Resolve-Path -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/ViewModels/SessionViewModelDependencies.cs")).Path
 $sourceFiles += (Resolve-Path -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/SessionViewModelDependencyFactory.cs")).Path
 $sourceFiles += (Resolve-Path -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/WindowsNativeRuntimeDependencyFactory.cs")).Path
@@ -77,15 +72,7 @@ try {
   <ItemGroup>
 $compileItemText
   </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" PrivateAssets="all" />
-    <PackageReference Include="QRCoder" Version="1.8.1" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="11.0.0" />
-    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
-    <PackageReference Include="Vortice.MediaFoundation" Version="3.8.3" />
-    <PackageReference Include="Concentus" Version="2.2.2" />
-  </ItemGroup>
+  <Import Project="$servicesProject" />
 </Project>
 "@
 
@@ -1075,7 +1062,7 @@ async Task VerifyCurrentPathSignalingContractsAsync()
     }
 
     var joinEnvelope = new CurrentPathWebRtcSignalingEnvelope(
-        "session-1",
+        "SESSION-1",
         "windows-device-01",
         to: null,
         CurrentPathWebRtcSignalingMessageType.Join,
@@ -1100,21 +1087,21 @@ async Task VerifyCurrentPathSignalingContractsAsync()
     AssertEqual(expectedFingerprint, parsedJoin.Envelope.Payload!.ProtocolPublicKeyFingerprint, "current-path parsed join fingerprint");
 
     var offerEnvelope = new CurrentPathWebRtcSignalingEnvelope(
-        "session-1",
+        "SESSION-1",
         "windows-device-01",
         "mac-device-00001",
         CurrentPathWebRtcSignalingMessageType.Offer,
         new CurrentPathWebRtcSignalingPayload(sdp: "v=0\r\n"),
         sentAt: 1_700_000_001d);
     var answerEnvelope = new CurrentPathWebRtcSignalingEnvelope(
-        "session-1",
+        "SESSION-1",
         "windows-device-01",
         "mac-device-00001",
         CurrentPathWebRtcSignalingMessageType.Answer,
         new CurrentPathWebRtcSignalingPayload(sdp: "v=0\r\n"),
         sentAt: 1_700_000_002d);
     var iceEnvelope = new CurrentPathWebRtcSignalingEnvelope(
-        "session-1",
+        "SESSION-1",
         "windows-device-01",
         "mac-device-00001",
         CurrentPathWebRtcSignalingMessageType.IceCandidate,
@@ -1125,14 +1112,14 @@ async Task VerifyCurrentPathSignalingContractsAsync()
             usernameFragment: "ICEU1"),
         sentAt: 1_700_000_003d);
     var leaveEnvelope = new CurrentPathWebRtcSignalingEnvelope(
-        "session-1",
+        "SESSION-1",
         "windows-device-01",
         "mac-device-00001",
         CurrentPathWebRtcSignalingMessageType.Leave,
         sentAt: 1_700_000_004d);
     ExpectThrows<InvalidDataException>(
         () => new CurrentPathWebRtcSignalingEnvelope(
-            "session-1",
+            "SESSION-1",
             "windows-device-01",
             "mac-device-00001",
             CurrentPathWebRtcSignalingMessageType.Leave,
@@ -1140,7 +1127,7 @@ async Task VerifyCurrentPathSignalingContractsAsync()
             sentAt: 1_700_000_004d),
         "must not carry authToken");
     AssertEqual(false, CurrentPathSignalingFrameCodec.EncodeEnvelope(leaveEnvelope).Contains("authToken", StringComparison.Ordinal), "current-path envelope JSON must not carry authToken");
-    AssertEqual(false, leaveEnvelope.ToString().Contains("session-1", StringComparison.OrdinalIgnoreCase), "current-path envelope ToString must redact session id");
+    AssertEqual(false, leaveEnvelope.ToString().Contains("SESSION-1", StringComparison.OrdinalIgnoreCase), "current-path envelope ToString must redact session id");
     AssertEqual(CurrentPathWebRtcSignalingMessageType.Offer, CurrentPathSignalingFrameCodec.DecodeEnvelope(CurrentPathSignalingFrameCodec.EncodeEnvelope(offerEnvelope)).Type, "current-path offer round trip");
     AssertEqual(CurrentPathWebRtcSignalingMessageType.Answer, CurrentPathSignalingFrameCodec.DecodeEnvelope(CurrentPathSignalingFrameCodec.EncodeEnvelope(answerEnvelope)).Type, "current-path answer round trip");
     var iceRoundTrip = CurrentPathSignalingFrameCodec.DecodeEnvelope(CurrentPathSignalingFrameCodec.EncodeEnvelope(iceEnvelope));
@@ -1149,7 +1136,7 @@ async Task VerifyCurrentPathSignalingContractsAsync()
     AssertEqual(CurrentPathWebRtcSignalingMessageType.Leave, CurrentPathSignalingFrameCodec.DecodeEnvelope(CurrentPathSignalingFrameCodec.EncodeEnvelope(leaveEnvelope)).Type, "current-path leave round trip");
     ExpectThrows<InvalidDataException>(
         () => new CurrentPathWebRtcSignalingEnvelope(
-            "session-1",
+            "SESSION-1",
             "windows-device-01",
             null,
             CurrentPathWebRtcSignalingMessageType.Offer,
@@ -1157,7 +1144,7 @@ async Task VerifyCurrentPathSignalingContractsAsync()
         "require non-empty SDP");
     ExpectThrows<InvalidDataException>(
         () => new CurrentPathWebRtcSignalingEnvelope(
-            "session-1",
+            "SESSION-1",
             "windows-device-01",
             null,
             CurrentPathWebRtcSignalingMessageType.IceCandidate,
@@ -1210,7 +1197,7 @@ async Task VerifyCurrentPathSignalingContractsAsync()
         new CurrentPathWebSocketSignalingClientOptions(
             "https://api.nebula-technologies.net",
             "/ws/current",
-            "session-1",
+            "SESSION-1",
             "session-token",
             "windows-device-01",
             "1.2.3",
@@ -1241,7 +1228,7 @@ async Task VerifyCurrentPathSignalingContractsAsync()
         new CurrentPathWebSocketSignalingClientOptions(
             "https://api.nebula-technologies.net",
             "/ws/current",
-            "session-1",
+            "SESSION-1",
             "session-token",
             "windows-device-01")))
     {
@@ -1266,7 +1253,7 @@ async Task VerifyCurrentPathSignalingContractsAsync()
         new CurrentPathWebSocketSignalingClientOptions(
             "https://api.nebula-technologies.net",
             "/ws/current",
-            "session-1",
+            "SESSION-1",
             "session-token",
             "windows-device-01")))
     {
@@ -1370,7 +1357,7 @@ async Task VerifyCurrentPathSignalingContractsAsync()
             """
             {
               "code": "ABC234",
-              "sessionId": "session-1",
+              "sessionId": "SESSION-1",
               "sessionToken": "session-token",
               "turnAdmissionToken": "turn-token",
               "mediaAdmissionToken": "media-token",
@@ -1389,7 +1376,7 @@ async Task VerifyCurrentPathSignalingContractsAsync()
             $$"""
             {
               "found": true,
-              "sessionId": "session-1",
+              "sessionId": "SESSION-1",
               "sessionToken": "session-token",
               "turnAdmissionToken": "turn-token",
               "mediaAdmissionToken": null,
@@ -1420,7 +1407,7 @@ async Task VerifyCurrentPathSignalingContractsAsync()
     AssertEqual("ABC234", lease.Code, "registered connection code");
     AssertEqual("/ws/current", lease.WsPath, "registered connection code ws path");
     AssertEqual(false, lease.ToString().Contains("ABC234", StringComparison.Ordinal), "connection code lease ToString must redact connection code");
-    AssertEqual(false, lease.ToString().Contains("session-1", StringComparison.Ordinal), "connection code lease ToString must redact session id");
+    AssertEqual(false, lease.ToString().Contains("SESSION-1", StringComparison.Ordinal), "connection code lease ToString must redact session id");
     AssertEqual(false, lease.ToString().Contains("session-token", StringComparison.Ordinal), "connection code lease ToString must redact session token");
     AssertEqual(false, lease.ToString().Contains("turn-token", StringComparison.Ordinal), "connection code lease ToString must redact turn token");
     AssertEqual(false, lease.ToString().Contains("media-token", StringComparison.Ordinal), "connection code lease ToString must redact media token");
@@ -1428,7 +1415,7 @@ async Task VerifyCurrentPathSignalingContractsAsync()
     var lookup = await signalClient.LookupConnectionCodeAsync(admission.Token, "abc234");
     AssertEqual(CurrentPathProtocolSigningAlgorithm.Ed25519, lookup.InitiatorProtocolSigningAlgorithm, "lookup protocol algorithm");
     AssertEqual(expectedFingerprint, lookup.InitiatorProtocolPublicKeyFingerprint, "lookup initiator fingerprint");
-    AssertEqual(false, lookup.ToString().Contains("session-1", StringComparison.Ordinal), "connection code lookup ToString must redact session id");
+    AssertEqual(false, lookup.ToString().Contains("SESSION-1", StringComparison.Ordinal), "connection code lookup ToString must redact session id");
     AssertEqual(false, lookup.ToString().Contains("session-token", StringComparison.Ordinal), "connection code lookup ToString must redact session token");
     AssertEqual(false, lookup.ToString().Contains("turn-token", StringComparison.Ordinal), "connection code lookup ToString must redact turn token");
     handler.AssertDrained();
@@ -1521,7 +1508,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         "{\"type\":\"bound\",\"sessionId\":\"BRIDGE-SESSION-1\",\"role\":\"initiator\",\"clientId\":\"client-bridge\"}"));
     bridgeTransport.EnqueueReceive(CurrentPathWebSocketReceiveResult.TextMessage(
         CurrentPathSignalingFrameCodec.EncodeEnvelope(new CurrentPathWebRtcSignalingEnvelope(
-            "bridge-session-1",
+            "BRIDGE-SESSION-1",
             "mac-device-00001",
             "windows-device-01",
             CurrentPathWebRtcSignalingMessageType.IceCandidate,
@@ -1533,7 +1520,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
             sentAt: 1_700_100_001d))));
     bridgeTransport.EnqueueReceive(CurrentPathWebSocketReceiveResult.TextMessage(
         CurrentPathSignalingFrameCodec.EncodeEnvelope(new CurrentPathWebRtcSignalingEnvelope(
-            "bridge-session-1",
+            "BRIDGE-SESSION-1",
             "mac-device-00001",
             "windows-device-01",
             CurrentPathWebRtcSignalingMessageType.Answer,
@@ -1545,7 +1532,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         new CurrentPathWebSocketSignalingClientOptions(
             "https://api.nebula-technologies.net",
             "/ws/current",
-            "bridge-session-1",
+            "BRIDGE-SESSION-1",
             "session-token",
             "windows-device-01",
             connectTimeout: TimeSpan.FromSeconds(5))))
@@ -1553,7 +1540,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         await wsClient.ConnectAndBindAsync();
         var bridge = new CurrentPathWebRtcHelperSignalingBridge();
         var bridgeOptions = new CurrentPathWebRtcHelperSignalingBridgeOptions(
-            "bridge-session-1",
+            "BRIDGE-SESSION-1",
             "windows-device-01",
             "mac-device-00001",
             localOfferPath,
@@ -1581,7 +1568,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
 
         bridgeTransport.EnqueueReceive(CurrentPathWebSocketReceiveResult.TextMessage(
             CurrentPathSignalingFrameCodec.EncodeEnvelope(new CurrentPathWebRtcSignalingEnvelope(
-                "bridge-session-1",
+                "BRIDGE-SESSION-1",
                 "mac-device-00001",
                 "windows-device-01",
                 CurrentPathWebRtcSignalingMessageType.IceCandidate,
@@ -1593,7 +1580,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
                 sentAt: 1_700_100_003d))));
         bridgeTransport.EnqueueReceive(CurrentPathWebSocketReceiveResult.TextMessage(
             CurrentPathSignalingFrameCodec.EncodeEnvelope(new CurrentPathWebRtcSignalingEnvelope(
-                "bridge-session-1",
+                "BRIDGE-SESSION-1",
                 "mac-device-00001",
                 "windows-device-01",
                 CurrentPathWebRtcSignalingMessageType.IceCandidate,
@@ -1631,7 +1618,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         "{\"type\":\"bound\",\"sessionId\":\"BRIDGE-SESSION-2\",\"role\":\"initiator\"}"));
     wrongPeerTransport.EnqueueReceive(CurrentPathWebSocketReceiveResult.TextMessage(
         CurrentPathSignalingFrameCodec.EncodeEnvelope(new CurrentPathWebRtcSignalingEnvelope(
-            "bridge-session-2",
+            "BRIDGE-SESSION-2",
             "mac-device-99999",
             "windows-device-01",
             CurrentPathWebRtcSignalingMessageType.Answer,
@@ -1643,7 +1630,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         new CurrentPathWebSocketSignalingClientOptions(
             "https://api.nebula-technologies.net",
             "/ws/current",
-            "bridge-session-2",
+            "BRIDGE-SESSION-2",
             "session-token",
             "windows-device-01",
             connectTimeout: TimeSpan.FromSeconds(5))))
@@ -1654,7 +1641,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
             () => bridge.ExchangeOffererAsync(
                 wrongPeerClient,
                 new CurrentPathWebRtcHelperSignalingBridgeOptions(
-                    "bridge-session-2",
+                    "BRIDGE-SESSION-2",
                     "windows-device-01",
                     "mac-device-00001",
                     localOfferPath,
@@ -1671,7 +1658,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         "{\"type\":\"bound\",\"sessionId\":\"BRIDGE-SESSION-3\",\"role\":\"initiator\"}"));
     noCandidateTransport.EnqueueReceive(CurrentPathWebSocketReceiveResult.TextMessage(
         CurrentPathSignalingFrameCodec.EncodeEnvelope(new CurrentPathWebRtcSignalingEnvelope(
-            "bridge-session-3",
+            "BRIDGE-SESSION-3",
             "mac-device-00001",
             "windows-device-01",
             CurrentPathWebRtcSignalingMessageType.Answer,
@@ -1679,7 +1666,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
             sentAt: 1_700_100_004d))));
     var noCandidateIce = CurrentPathWebSocketReceiveResult.TextMessage(
         CurrentPathSignalingFrameCodec.EncodeEnvelope(new CurrentPathWebRtcSignalingEnvelope(
-            "bridge-session-3",
+            "BRIDGE-SESSION-3",
             "mac-device-00001",
             "windows-device-01",
             CurrentPathWebRtcSignalingMessageType.IceCandidate,
@@ -1697,7 +1684,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         new CurrentPathWebSocketSignalingClientOptions(
             "https://api.nebula-technologies.net",
             "/ws/current",
-            "bridge-session-3",
+            "BRIDGE-SESSION-3",
             "session-token",
             "windows-device-01",
             connectTimeout: TimeSpan.FromSeconds(5))))
@@ -1707,7 +1694,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         var result = await bridge.ExchangeOffererAsync(
                 noCandidateClient,
                 new CurrentPathWebRtcHelperSignalingBridgeOptions(
-                    "bridge-session-3",
+                    "BRIDGE-SESSION-3",
                     "windows-device-01",
                     "mac-device-00001",
                     localOfferPath,
@@ -1732,7 +1719,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         var relayedCandidates = await bridge.RelayRemoteIceCandidatesUntilAsync(
             noCandidateClient,
             new CurrentPathWebRtcHelperSignalingBridgeOptions(
-                "bridge-session-3",
+                "BRIDGE-SESSION-3",
                 "windows-device-01",
                 "mac-device-00001",
                 localOfferPath,
@@ -1754,7 +1741,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         "{\"type\":\"bound\",\"sessionId\":\"BRIDGE-SESSION-4\",\"role\":\"initiator\"}"));
     wrongToTransport.EnqueueReceive(CurrentPathWebSocketReceiveResult.TextMessage(
         CurrentPathSignalingFrameCodec.EncodeEnvelope(new CurrentPathWebRtcSignalingEnvelope(
-            "bridge-session-4",
+            "BRIDGE-SESSION-4",
             "mac-device-00001",
             "windows-device-02",
             CurrentPathWebRtcSignalingMessageType.Answer,
@@ -1767,7 +1754,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         new CurrentPathWebSocketSignalingClientOptions(
             "https://api.nebula-technologies.net",
             "/ws/current",
-            "bridge-session-4",
+            "BRIDGE-SESSION-4",
             "session-token",
             "windows-device-01",
             connectTimeout: TimeSpan.FromSeconds(5))))
@@ -1778,7 +1765,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
             () => bridge.ExchangeOffererAsync(
                 wrongToClient,
                 new CurrentPathWebRtcHelperSignalingBridgeOptions(
-                    "bridge-session-4",
+                    "BRIDGE-SESSION-4",
                     "windows-device-01",
                     "mac-device-00001",
                     localOfferPath,
@@ -1795,7 +1782,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         "{\"type\":\"bound\",\"sessionId\":\"BRIDGE-SESSION-5\",\"role\":\"initiator\"}"));
     missingFingerprintTransport.EnqueueReceive(CurrentPathWebSocketReceiveResult.TextMessage(
         CurrentPathSignalingFrameCodec.EncodeEnvelope(new CurrentPathWebRtcSignalingEnvelope(
-            "bridge-session-5",
+            "BRIDGE-SESSION-5",
             "mac-device-00001",
             "windows-device-01",
             CurrentPathWebRtcSignalingMessageType.Answer,
@@ -1808,7 +1795,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
         new CurrentPathWebSocketSignalingClientOptions(
             "https://api.nebula-technologies.net",
             "/ws/current",
-            "bridge-session-5",
+            "BRIDGE-SESSION-5",
             "session-token",
             "windows-device-01",
             connectTimeout: TimeSpan.FromSeconds(5))))
@@ -1819,7 +1806,7 @@ async Task VerifyCurrentPathWebRtcHelperSignalingBridgeAsync(string signalingRoo
             () => bridge.ExchangeOffererAsync(
                 missingFingerprintClient,
                 new CurrentPathWebRtcHelperSignalingBridgeOptions(
-                    "bridge-session-5",
+                    "BRIDGE-SESSION-5",
                     "windows-device-01",
                     "mac-device-00001",
                     localOfferPath,

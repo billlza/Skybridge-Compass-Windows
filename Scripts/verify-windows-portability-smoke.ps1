@@ -507,7 +507,8 @@ function Invoke-SmokeGate {
 
     try {
         Write-Output "windows-portability-smoke: running $Name"
-        $LASTEXITCODE = 0
+        # Native commands update the global automatic variable. A local copy hides failures in child gates.
+        $global:LASTEXITCODE = 0
         & $scriptPath @Parameters
         Assert-True -Condition ($LASTEXITCODE -eq 0) -Message "Smoke gate failed: $Name exitCode=$LASTEXITCODE"
         Write-Output "windows-portability-smoke: passed $Name"

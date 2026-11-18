@@ -3,7 +3,6 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -76,7 +75,7 @@ public sealed class RemoteControlHandshakeSoa
     }
 }
 
-public static class RemoteControlHandshakeBinding
+public static partial class RemoteControlHandshakeBinding
 {
     public static RemoteControlHandshakeCandidate ValidateAndResolveMessageA(
         ReadOnlyMemory<byte> frame, string localDeviceId, IReadOnlyCollection<RemoteControlTrustedPeer> trustedPeers)
@@ -114,17 +113,4 @@ public static class RemoteControlHandshakeBinding
 
     public static byte[] PeerId(string deviceId) =>
         SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalDeviceId(deviceId)[3..]));
-
-    public static string CanonicalDeviceId(string deviceId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
-        var normalized = deviceId.Trim().ToLowerInvariant();
-        if (normalized.StartsWith("id:", StringComparison.Ordinal)) { normalized = normalized[3..]; }
-        if (normalized.Length is < 8 or > 128 || IPAddress.TryParse(normalized, out _) ||
-            normalized.Any(value => !((value >= 'a' && value <= 'z') || (value >= '0' && value <= '9') || value is '-' or '_' or '.')))
-        {
-            throw new InvalidDataException("Remote-control identity must be a stable device ID, not an endpoint alias.");
-        }
-        return "id:" + normalized;
-    }
 }
