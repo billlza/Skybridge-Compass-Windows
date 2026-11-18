@@ -52,6 +52,9 @@ Selection supports up to 64 files or one folder; a folder is sent as a bounded Z
 Native builds, contract tests and file receipts have been collected independently. Visible input and UI acceptance requires an unlocked desktop; background UI Automation and SSH access alone do not satisfy that gate. Mac/iOS and Android regression must be tracked against their own current devices and artifacts.
 
 ## ADR alignment
+
+Treat older paper materials as stale when they diverge from the reviewed ADRs. Use the pinned Mac sources to verify implementation behavior and device runs to establish interoperability.
+
 - The current cross-platform contracts are Apple project `Docs/ADR-0001-SkyBridge-Core-Transport-Matrix.md` (version 1.1, reviewed 2026-09-08) and `Docs/ADR-0002-Remote-Control-Authority-and-Sessions.md`. Their target architecture, implementation status, and device acceptance are separate gates.
 - `SkyBridgeProtocolCore` owns shared contracts without platform UI or networking dependencies; Apple transport implementations remain in `SkyBridgeAppleTransport`. Windows platform adapters consume the same identity, handshake, channel and input-lease semantics.
 - The binary product handshake remains the only handshake wire. Authenticated application messages may be JSON, but must not become a second JSON handshake or identity system.
