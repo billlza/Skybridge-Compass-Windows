@@ -101,12 +101,13 @@ $pushUrl = Invoke-RepositoryGit remote get-url --push $Remote
 Assert-RemoteIsSsh -Name "$Remote fetch" -Url $fetchUrl
 Assert-RemoteIsSsh -Name "$Remote push" -Url $pushUrl
 
-$sshCommand = (& git -C $RepoRoot config --get core.sshCommand 2>$null)
-if ($LASTEXITCODE -ne 0) {
-    $sshCommand = ""
+$sshConfig = Invoke-RepositoryGitRaw -GitArgs @("config", "--get", "core.sshCommand")
+if ($sshConfig.ExitCode -ne 0 -and
+    ($sshConfig.ExitCode -ne 1 -or -not [string]::IsNullOrWhiteSpace($sshConfig.Text))) {
+    throw "Could not read core.sshCommand (git exit $($sshConfig.ExitCode)): $($sshConfig.Text)"
 }
 
-$sshCommand = ($sshCommand -join [Environment]::NewLine).Trim()
+$sshCommand = $sshConfig.Text.Trim()
 if ($RequireConfiguredSshCommand -and [string]::IsNullOrWhiteSpace($sshCommand)) {
     throw "core.sshCommand is not configured; set it before pushing so Git uses the intended SSH key."
 }
