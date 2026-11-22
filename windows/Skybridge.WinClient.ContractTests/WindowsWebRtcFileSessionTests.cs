@@ -6,7 +6,10 @@ using Skybridge.WinClient.Services.RemoteControl;
 
 internal static class WindowsWebRtcFileSessionTests
 {
-    internal static IReadOnlyList<(string Name, Func<Task> Run)> Cases =>
+    internal static IReadOnlyList<(string Name, Func<Task> Run)> Cases => OperatingSystem.IsWindows()
+        ? [.. PortableCases, ("native first pairing writes only mutual consent to DPAPI and reconnects both signed devices after reopening", NativeRememberAndReconnect)]
+        : PortableCases;
+    private static IReadOnlyList<(string Name, Func<Task> Run)> PortableCases =>
     [
         ("ordinary WebRTC files require approval and a disk-backed exact receipt in both directions", BothDirections),
         ("WebRTC file receiver decline creates no artifact and does not close the session", Decline),
@@ -172,6 +175,83 @@ internal static class WindowsWebRtcFileSessionTests
             finally { storeA.ClearAllForGlobalShutdown(); storeB.ClearAllForGlobalShutdown(); }
         }
         finally { CryptographicOperations.ZeroMemory(skA); CryptographicOperations.ZeroMemory(skB); CryptographicOperations.ZeroMemory(dkB); }
+    }
+
+    private static async Task NativeRememberAndReconnect()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "webrtc-first-pair-" + Guid.NewGuid().ToString("N"))).FullName;
+        string? lastTranscript = null;
+        try
+        {
+            using (var left = await RemoteControlIdentityStore.LoadOrCreateAsync(Path.Combine(root, "one"), "One"))
+            using (var right = await RemoteControlIdentityStore.LoadOrCreateAsync(Path.Combine(root, "two"), "Two"))
+            {
+                await Session(left, right, reject: true, remembered: false);
+                await Session(left, right, reject: false, remembered: false);
+            }
+            using var reopenedA = await RemoteControlIdentityStore.LoadOrCreateAsync(Path.Combine(root, "one"), "One");
+            using var reopenedB = await RemoteControlIdentityStore.LoadOrCreateAsync(Path.Combine(root, "two"), "Two");
+            await Session(reopenedB, reopenedA, reject: false, remembered: true);
+        }
+        finally { Directory.Delete(root, true); }
+
+        async Task Session(RemoteControlIdentityStore left, RemoteControlIdentityStore right, bool reject, bool remembered)
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            var token = deadline.Token;
+            var a = left.PublicMaterial; var b = right.PublicMaterial;
+            WebRtcPairingPolicy Policy(RemoteControlIdentityStore store, RemoteControlPairingMaterial other, bool decline)
+            {
+                var known = store.FindWebRtcIdentity(other.DeviceId, other.ProtocolPublicKeyFingerprint);
+                Require((known.Compared is not null) == remembered && known.PreviouslyTrusted is null, "The scoped authority did not survive correctly.");
+                return new(remembered, false, (_, code, _) =>
+                {
+                    Require(!remembered && code.Length == 6, "Unexpected comparison on a remembered connection.");
+                    return Task.FromResult(decline ? WebRtcComparison.Reject : WebRtcComparison.Remember);
+                }, store.RememberComparedWebRtcPeer);
+            }
+            var rawA = new Wire(); var rawB = new Wire(); rawA.Other = rawB; rawB.Other = rawA;
+            var laneA = new WebRtcProductFramedPlane(rawA); var laneB = new WebRtcProductFramedPlane(rawB);
+            using var ca = left.CreateWebRtcInitiator(b); using var cb = right.CreateCryptoProvider();
+            var sa = new WebRtcProductSecureSessionStore(); var sb = new WebRtcProductSecureSessionStore();
+            try
+            {
+                var responding = new WebRtcProductHandshakeDriver(cb, sb).StartResponderAsync(Context(laneB, a, "answer") with
+                    { SecureSessionState = WebRtcProductControlSecureSessionState.TransportOnly, SessionIncarnation = null }, token);
+                var initiating = new WebRtcProductHandshakeDriver(ca, sa).StartInitiatorAsync(Context(laneA, b, "offer") with
+                    { SecureSessionState = WebRtcProductControlSecureSessionState.TransportOnly, SessionIncarnation = null }, token);
+                var owners = await Task.WhenAll(initiating, responding);
+                using var ka = sa.RequireEstablishedKeys(owners[0]); using var kb = sb.RequireEstablishedKeys(owners[1]);
+                string transcript = Convert.ToHexString(ka.TranscriptHash.Span);
+                Require(lastTranscript != transcript && ka.TranscriptHash.Span.SequenceEqual(kb.TranscriptHash.Span),
+                    "Each pairing must bind the new, mutually signed handshake.");
+                lastTranscript = transcript;
+                await using var first = new WindowsWebRtcFileSession(owners[0], ka, a, b, Policy(left, b, false));
+                await using var second = new WindowsWebRtcFileSession(owners[1], kb, b, a, Policy(right, a, reject));
+                var loops = Task.WhenAll(first.RunAsync(token), second.RunAsync(token));
+                try
+                {
+                    if (reject)
+                    {
+                        try { await Task.WhenAll(first.PairingApproved, second.PairingApproved).WaitAsync(token); }
+                        catch (Exception e) when (e is WebRtcPairingDeclinedException or OperationCanceledException) { }
+                        Require(!token.IsCancellationRequested && !first.PairingApproved.IsCompletedSuccessfully &&
+                            !second.PairingApproved.IsCompletedSuccessfully, "A rejected pair became usable or stalled.");
+                    }
+                    else await Task.WhenAll(first.PairingApproved, second.PairingApproved).WaitAsync(token);
+                    Require((left.FindWebRtcIdentity(b.DeviceId, b.ProtocolPublicKeyFingerprint).Compared is not null) == !reject &&
+                        (right.FindWebRtcIdentity(a.DeviceId, a.ProtocolPublicKeyFingerprint).Compared is not null) == !reject &&
+                        left.TrustedPeers.Count == 0 && right.TrustedPeers.Count == 0,
+                        "Mutual decisions did not match both actual scoped stores.");
+                }
+                finally
+                {
+                    deadline.Cancel();
+                    try { await loops; } catch (OperationCanceledException) { } catch (WebRtcPairingDeclinedException) when (reject) { }
+                }
+            }
+            finally { sa.ClearAllForGlobalShutdown(); sb.ClearAllForGlobalShutdown(); }
+        }
     }
 
     private static async Task PairingBoundaries()
