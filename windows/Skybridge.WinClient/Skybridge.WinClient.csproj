@@ -167,4 +167,31 @@
   <Target Name="ValidateWeatherShaders" BeforeTargets="PrepareForBuild" Condition="'$(OS)'=='Windows_NT' and '$(DesignTimeBuild)'!='true'">
     <Exec EnvironmentVariables="PSModulePath=$(SystemRoot)\System32\WindowsPowerShell\v1.0\Modules" Command="powershell.exe -NoProfile -NonInteractive -File &quot;$(MSBuildProjectDirectory)\..\..\Scripts\verify-windows-weather-shaders.ps1&quot; -SourcePath &quot;$(MSBuildProjectDirectory)\WeatherBackdropDX.xaml.cs&quot; -EvidencePath &quot;$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\weather-shader-validation.json&quot;" />
   </Target>
+  <!-- Keep the helper's .NET host and dependencies private to its own process. -->
+  <ItemGroup Condition="'$(OS)'=='Windows_NT'">
+    <ProjectReference Include="..\Skybridge.WebRtcHelper\Skybridge.WebRtcHelper.csproj" ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true" GlobalPropertiesToRemove="TargetFramework;TargetPlatformVersion;UseWinUI;WindowsPackageType"
+                      AdditionalProperties="RuntimeIdentifier=win-x64;SelfContained=true" />
+  </ItemGroup>
+  <Target Name="CollectConnectionCodeHelper" DependsOnTargets="ResolveProjectReferences"
+          Condition="'$(OS)'=='Windows_NT' and '$(DesignTimeBuild)'!='true'">
+    <PropertyGroup>
+      <_WebRtcOutput>$(MSBuildProjectDirectory)\..\Skybridge.WebRtcHelper\bin\$(Configuration)\net10.0\win-x64\</_WebRtcOutput>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_WebRtcOutput)skybridge-webrtc-helper.exe')" Text="The packaged WebRTC helper was not built." />
+    <ItemGroup>
+      <_WebRtcSidecar Include="$(_WebRtcOutput)**\*" Exclude="$(_WebRtcOutput)**\*.pdb;$(_WebRtcOutput)publish\**" />
+    </ItemGroup>
+  </Target>
+  <Target Name="CopyConnectionCodeHelper" AfterTargets="CopyFilesToOutputDirectory" DependsOnTargets="CollectConnectionCodeHelper"
+          Condition="'$(OS)'=='Windows_NT' and '$(DesignTimeBuild)'!='true'">
+    <Copy SourceFiles="@(_WebRtcSidecar)" DestinationFiles="@(_WebRtcSidecar->'$(TargetDir)WebRTC\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="PublishConnectionCodeHelper" AfterTargets="ComputeFilesToPublish" DependsOnTargets="CollectConnectionCodeHelper"
+          Condition="'$(OS)'=='Windows_NT' and '$(DesignTimeBuild)'!='true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="@(_WebRtcSidecar)" RelativePath="WebRTC\%(RecursiveDir)%(Filename)%(Extension)"
+                             CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    </ItemGroup>
+  </Target>
 </Project>

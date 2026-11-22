@@ -950,6 +950,12 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IDisposable
 
     public ObservableCollection<FileTransferSecurityFactView> FileTransferSecurityFacts { get; }
 
+    internal void ApplyLiveConnectionCodeStatus(string status, bool clearCode)
+    {
+        CrossNetworkStatus = status;
+        if (clearCode) CrossNetworkGeneratedCode = string.Empty;
+    }
+
     internal void ApplyLiveFileTransfer(FileTransferWorkspaceSnapshot snapshot, string status)
     {
         _readOnlyWorkspaceSnapshotHandlers.ApplyFileTransfer(snapshot);

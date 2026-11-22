@@ -124,7 +124,7 @@ if (args.SequenceEqual(["--lan-main-responder"]))
 
 if (args.SequenceEqual(["--file-transfer-regressions"]))
 {
-    foreach (var test in ClassicFileTransferWireTests.Cases.Concat(ClassicFileTransferOperationTests.Cases))
+    foreach (var test in ClassicFileTransferWireTests.Cases.Concat(ClassicFileTransferOperationTests.Cases).Concat(LanProductControlSessionTests.ConnectedFileCases).Concat(WindowsWebRtcFileSessionTests.Cases))
     { await test.Run(); Console.WriteLine("PASS " + test.Name); }
     return;
 }
@@ -422,6 +422,7 @@ var remoteHostTests = Skybridge.WinClient.ContractTests.WindowsRemoteControlAudi
     .Concat(RemoteControlHostSessionTests.Cases)
     .Concat(ClassicFileTransferWireTests.Cases)
     .Concat(ClassicFileTransferOperationTests.Cases)
+    .Concat(WindowsWebRtcFileSessionTests.Cases)
     .Concat(LanProductControlResponderTests.Cases)
     .Concat(LanProductControlListenerTests.Cases)
     .Concat(WindowsLanConnectionInfoTests.Cases)

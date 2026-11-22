@@ -43,7 +43,7 @@ internal static class WindowsNativeRuntimeDependencyFactory
         return true;
     }
 
-    public static SessionViewModelDependencies CreateFromEnvironment(IFileTransferWorkspaceClient? fileTransferClient = null, ITopBarStatusClient? topBarStatusClient = null, SettingsService? settingsService = null)
+    public static SessionViewModelDependencies CreateFromEnvironment(IFileTransferWorkspaceClient? fileTransferClient = null, ITopBarStatusClient? topBarStatusClient = null, SettingsService? settingsService = null, ICrossNetworkConnectionClient? connectionCodes = null)
     {
         var coreBridge = new CoreBridge();
         var discoveryClient = new CoreDiscoveryClient(coreBridge);
@@ -76,7 +76,7 @@ internal static class WindowsNativeRuntimeDependencyFactory
             CreateDiscoveryBrowserClientFromEnvironment(discoveryClient),
             new DeviceDiscoveryInputDefaultsClient(),
             new ManualConnectionClient(),
-            new CrossNetworkConnectionClient(),
+            connectionCodes ?? new CrossNetworkConnectionClient(),
             new PairingMaterialClient(),
             new ConnectionPreflightClient(coreBridge, transportAdapterClient),
             new CoreDiagnosticsClient(coreBridge),

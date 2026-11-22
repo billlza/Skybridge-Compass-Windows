@@ -21,6 +21,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>skybridge-webrtc-helper</AssemblyName>
+    <RuntimeIdentifier Condition="'$(OS)'=='Windows_NT' and '$(RuntimeIdentifier)'==''">win-x64</RuntimeIdentifier>
+    <SelfContained Condition="'$(OS)'=='Windows_NT'">true</SelfContained>
     <RootNamespace>Skybridge.WebRtcHelper</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>

@@ -29,6 +29,11 @@ public interface ICrossNetworkConnectionClient
 
 public sealed class CrossNetworkConnectionClient : ICrossNetworkConnectionClient
 {
+    private readonly Func<CrossNetworkConnectionRequest, Task<CrossNetworkConnectionSnapshot>>? _liveCodeAction;
+    public CrossNetworkConnectionClient() { }
+    internal CrossNetworkConnectionClient(Func<CrossNetworkConnectionRequest, Task<CrossNetworkConnectionSnapshot>> liveCodeAction) =>
+        _liveCodeAction = liveCodeAction ?? throw new ArgumentNullException(nameof(liveCodeAction));
+
     private const string DirectQrPrefix = "skybridge://connect/";
     private const string QueryQrBase = "skybridge://connect?";
     private const string QueryQrPrefix = "skybridge://connect?data=";
@@ -126,6 +131,9 @@ public sealed class CrossNetworkConnectionClient : ICrossNetworkConnectionClient
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        if (_liveCodeAction is not null && request.Action is CrossNetworkConnectionAction.GenerateCode or
+            CrossNetworkConnectionAction.RegenerateCode or CrossNetworkConnectionAction.ConnectWithCode)
+            return _liveCodeAction(request);
         return request.Action switch
         {
             CrossNetworkConnectionAction.GenerateQrCode => Task.FromResult(BuildQrGenerationSnapshot()),

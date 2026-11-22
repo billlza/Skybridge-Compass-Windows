@@ -2618,6 +2618,8 @@
                                             ItemsPanel="{StaticResource HorizontalWorkspaceActionItemsPanel}"
                                             ItemTemplate="{StaticResource WorkspaceActionButtonTemplate}" />
                                     </Grid>
+                                    <Button x:Uid="EndCodeSession" Click="OnEndCodeSessionClicked"
+                                            HorizontalAlignment="Left" AutomationProperties.AutomationId="Skybridge.CrossNetwork.EndCodeSession" />
                                     <TextBlock Text="{Binding CrossNetworkGeneratedCode}" FontSize="28" FontWeight="SemiBold" />
                                 </StackPanel>
                             </Grid>

@@ -145,6 +145,16 @@ public sealed partial class RemoteControlIdentityStore : IDisposable
         }
     }
 
+    internal byte[] SignConnectionCodeChallenge(CurrentPathAdmissionChallenge challenge, CurrentPathProtocolIdentityBinding binding)
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            using var signer = CurrentPathMldsa65AdmissionSigner.ImportPrivateKey(_signingPrivateKey);
+            return signer.SignAdmissionChallenge(challenge, binding);
+        }
+    }
+
     public WebRtcProductPqcHandshakeCryptoProvider CreateCryptoProvider()
     {
         lock (_gate)

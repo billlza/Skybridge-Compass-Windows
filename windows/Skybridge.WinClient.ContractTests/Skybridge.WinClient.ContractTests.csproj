@@ -126,6 +126,7 @@
     <Compile Include="NetworkTelemetryTests.cs" />
     <Compile Include="ClassicFileTransferWireTests.cs" />
     <Compile Include="LanProductControlSessionTests.cs" />
+    <Compile Include="WindowsWebRtcFileSessionTests.cs" />
     <Compile Include="ClassicFileTransferOperationTests.cs" />
     <Compile Include="NativeLanFileTransferValidation.cs" />
     <None Update="Fixtures\classic-file-transfer-v2.json" CopyToOutputDirectory="PreserveNewest" />
@@ -185,6 +186,8 @@
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductHandshakeCodec.cs" Link="Services\WebRtcProductHandshakeCodec.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcFileTransferRuntimeProof.cs" Link="Services\WebRtcFileTransferRuntimeProof.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductControlMessageInbox.cs" Link="Services\WebRtcProductControlMessageInbox.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\WindowsWebRtcIncomingFiles.cs" Link="Services\WindowsWebRtcIncomingFiles.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\WindowsWebRtcFileSession.cs" Link="Services\WindowsWebRtcFileSession.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductControlPlaneClient.cs" Link="Services\WebRtcProductControlPlaneClient.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductSecureSessionRuntimeConsumer.cs" Link="Services\WebRtcProductSecureSessionRuntimeConsumer.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductSecureSessionStore.cs" Link="Services\WebRtcProductSecureSessionStore.cs" />

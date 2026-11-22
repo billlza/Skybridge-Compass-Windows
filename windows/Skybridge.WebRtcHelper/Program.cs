@@ -188,6 +188,15 @@ internal static class Program
             servers.AddRange(ReadIceServerCredentials(credentialsPath));
         }
 
+        if (opts?.GetValueOrDefault("use-session-turn") == "true")
+        {
+            const string key = "SKYBRIDGE_CURRENT_PATH_HELPER_ICE_CREDENTIALS";
+            var json = Environment.GetEnvironmentVariable(key);
+            Environment.SetEnvironmentVariable(key, null);
+            if (string.IsNullOrWhiteSpace(json) || json.Length > 65536)
+                throw new InvalidDataException("The admitted TURN credentials are unavailable.");
+            servers.AddRange(ParseIceServerCredentials(json));
+        }
         var config = new RTCConfiguration { iceServers = servers };
         ApplyLocalIceOptions(config, opts);
         return config;
@@ -231,7 +240,12 @@ internal static class Program
             throw new ArgumentException("--ice-server-credentials must be a non-empty JSON file no larger than 64 KiB.");
         }
 
-        using var document = JsonDocument.Parse(File.ReadAllText(resolvedPath));
+        return ParseIceServerCredentials(File.ReadAllText(resolvedPath));
+    }
+
+    private static List<RTCIceServer> ParseIceServerCredentials(string json)
+    {
+        using var document = JsonDocument.Parse(json);
         if (document.RootElement.ValueKind != JsonValueKind.Object ||
             !document.RootElement.TryGetProperty("iceServers", out var iceServers) ||
             iceServers.ValueKind != JsonValueKind.Array)

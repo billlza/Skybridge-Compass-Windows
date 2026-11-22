@@ -29,6 +29,8 @@ public sealed partial class MainWindow : Window
     public RemoteControlHostViewModel RemoteControlHost { get; }
     private readonly WindowsDeviceWorkspace _remoteControlWorkspace = new();
     private readonly FileTransferWorkspaceClient _fileTransferWorkspace;
+    private readonly WindowsLiveConnectionCodes _liveCodes;
+
     private RemoteControl.RemoteControlViewerWindow? _remoteControlViewer;
     private Window? _remoteControlNotice;
     private bool _closingRemoteControlNotice;
@@ -54,12 +56,18 @@ public sealed partial class MainWindow : Window
         ConfigureShellGlass();
         ConfigureTitleBar();
 
-        _fileTransferWorkspace = new(_remoteControlWorkspace, new NativeFileTransferSelection(this),
-            ReadCurrentDeviceAccount, RemoteControlText);
+        var selection = new NativeFileTransferSelection(this);
+        _liveCodes = new(_remoteControlWorkspace, GetCodeAccountAsync,
+            Path.Combine(AppContext.BaseDirectory, "WebRTC", "skybridge-webrtc-helper.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SkyBridgeCompass"),
+            new(() => selection.DestinationDirectory, selection.ApproveIncomingAsync, ReportIncomingWebRtcProgress, CompleteIncomingWebRtc));
+        _fileTransferWorkspace = new(_remoteControlWorkspace, selection,
+            ReadCurrentDeviceAccount, RemoteControlText, _liveCodes);
         var settings = new SettingsService();
         _operatorSettings = settings;
         _notifications = new WorkspaceNotificationCenter(ShowNotifications);
-        ViewModel = new SessionViewModel(SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu));
+        ViewModel = new SessionViewModel(SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu, new CrossNetworkConnectionClient(_liveCodes.StartAsync)));
+        _liveCodes.Changed += OnCodeSessionChanged;
         _fileTransferWorkspace.Changed += OnFileTransferChanged;
         ViewModel.PropertyChanged += OnFileTransferAccountChanged;
         RootShell.DataContext = ViewModel;
@@ -124,6 +132,26 @@ public sealed partial class MainWindow : Window
         Closed += OnWindowClosed;
     }
 
+    private void ReportIncomingWebRtcProgress(Services.FileTransfer.ClassicFileTransferProgress progress) =>
+        _fileTransferWorkspace.ReportWebRtcProgress(progress);
+    private void CompleteIncomingWebRtc(Services.FileTransfer.ClassicFileMetadata metadata, Services.FileTransfer.ClassicFileTransferResult? result, Exception? failure) =>
+        _fileTransferWorkspace.CompleteIncomingWebRtc(metadata, result, failure);
+
+    private Task<AccountDeviceAuthentication?> GetCodeAccountAsync(CancellationToken token) =>
+        ViewModel.AccountSession.GetDeviceAuthenticationAsync(token);
+
+    private void OnCodeSessionChanged(object owner, string status, bool clearCode) =>
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_hostShutdownInProgress && _liveCodes.IsCurrent(owner)) ViewModel.ApplyLiveConnectionCodeStatus(status, clearCode);
+        });
+
+    private async void OnEndCodeSessionClicked(object sender, RoutedEventArgs args)
+    {
+        try { await _liveCodes.StopAsync(); ViewModel.ApplyLiveConnectionCodeStatus(RemoteControlText("FileTransferLiveDisconnected"), true); }
+        catch (Exception error) { ViewModel.ApplyLiveConnectionCodeStatus(error.Message, true); }
+    }
+
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
         DisposeWindowLifetime();
@@ -148,6 +176,7 @@ public sealed partial class MainWindow : Window
         ViewModel.NearFieldRemoteDesktopRequested -= OnNearFieldRemoteDesktopRequested;
         ViewModel.DarkModeEffectRequested -= OnDarkModeEffectRequested;
         ViewModel.AccentColorEffectRequested -= OnAccentColorEffectRequested;
+        _liveCodes.Changed -= OnCodeSessionChanged;
         _fileTransferWorkspace.Changed -= OnFileTransferChanged;
         ViewModel.PropertyChanged -= OnFileTransferAccountChanged;
         DisposeShellActions();
@@ -186,6 +215,7 @@ public sealed partial class MainWindow : Window
             if (_remoteControlViewer is { } viewer) await viewer.CloseForShutdownAsync();
             await StopAudioReceptionAsync();
             await StopAccountDevicesAsync();
+            await _liveCodes.DisposeAsync();
             await _fileTransferWorkspace.DisposeAsync();
             await _dialogs.DisposeAsync();
             await RemoteControlHost.DisposeAsync();

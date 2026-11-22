@@ -30,10 +30,22 @@ public sealed partial class MainWindow
         AccountDevicesSettings.OpenRequested+=OnOpenAccountDevices;
         AccountDevicesOverlay.CloseRequested+=OnCloseAccountDevices;
         account.IdentityChanged+=OnAccountDevicesIdentityChanged;
+        _codeAccountScope = account.AccountDeviceScope;
         _accountDevices.SetAccount(account.AccountDeviceScope);
         _accountDevices.Start();
     }
-    private void OnAccountDevicesIdentityChanged(object? sender,AccountIdentity account) => _accountDevices?.SetAccount(ViewModel.AccountSession.AccountDeviceScope);
+    private string? _codeAccountScope;
+    private async void OnAccountDevicesIdentityChanged(object? sender, AccountIdentity account)
+    {
+        var scope = ViewModel.AccountSession.AccountDeviceScope;
+        _accountDevices?.SetAccount(scope);
+        if (_codeAccountScope != scope)
+        {
+            _codeAccountScope = scope;
+            await _liveCodes.StopAsync();
+            ViewModel.ApplyLiveConnectionCodeStatus(RemoteControlText("FileTransferLiveDisconnected"), true);
+        }
+    }
     private void OnOpenAccountDevices(object? sender,EventArgs args)
     {
         _accountDevicesReturnFocus=sender as AccountDevicesEntry;

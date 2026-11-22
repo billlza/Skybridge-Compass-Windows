@@ -464,6 +464,13 @@ public sealed class WebRtcHelperLaunchClient : IWebRtcHelperLaunchClient
 
     private void AddLocalIceArguments(ProcessStartInfo startInfo)
     {
+        const string credentials = "SKYBRIDGE_CURRENT_PATH_HELPER_ICE_CREDENTIALS";
+        if (_options.IceCredentialsJson is not null)
+        {
+            startInfo.Environment[credentials] = _options.IceCredentialsJson;
+            startInfo.ArgumentList.Add("--use-session-turn");
+            startInfo.ArgumentList.Add("true");
+        }
         if (!string.IsNullOrWhiteSpace(_options.BindAddress))
         {
             startInfo.ArgumentList.Add("--bind-address");
@@ -924,7 +931,8 @@ public sealed class WebRtcHelperLaunchOptions
         string? iceServersCsv = null,
         string? bindAddress = null,
         bool includeAllIceInterfaceAddresses = false,
-        TimeSpan? launchTimeout = null)
+        TimeSpan? launchTimeout = null,
+        string? iceCredentialsJson = null)
     {
         if (string.IsNullOrWhiteSpace(helperExecutablePath))
         {
@@ -948,6 +956,7 @@ public sealed class WebRtcHelperLaunchOptions
         OfferFileName = string.IsNullOrWhiteSpace(offerFileName) ? "skybridge-webrtc-offer.json" : offerFileName.Trim();
         AnswerFileName = string.IsNullOrWhiteSpace(answerFileName) ? "skybridge-webrtc-answer.json" : answerFileName.Trim();
         IceServersCsv = string.IsNullOrWhiteSpace(iceServersCsv) ? null : iceServersCsv.Trim();
+        IceCredentialsJson = iceCredentialsJson;
         BindAddress = NormalizeBindAddress(bindAddress);
         IncludeAllIceInterfaceAddresses = includeAllIceInterfaceAddresses;
         LaunchTimeout = timeout;
@@ -965,6 +974,7 @@ public sealed class WebRtcHelperLaunchOptions
     public string AnswerFileName { get; }
 
     public string? IceServersCsv { get; }
+    internal string? IceCredentialsJson { get; }
 
     public string? BindAddress { get; }
 

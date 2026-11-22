@@ -1801,6 +1801,16 @@
   <data name="FileTransferLiveNoPeers" xml:space="preserve">
     <value>未发现文件传输设备，请确认双方应用已启动且位于同一网络</value>
   </data>
+  <data name="EndCodeSession.Content" xml:space="preserve"><value>结束短码连接</value></data>
+  <data name="FileTransferLiveConnectedRecipients" xml:space="preserve">
+    <value>发送到已连接设备</value>
+  </data>
+  <data name="FileTransferLiveSendToSelected" xml:space="preserve">
+    <value>发送</value>
+  </data>
+  <data name="FileTransferLiveDiscoverAnother" xml:space="preserve">
+    <value>查找其他设备</value>
+  </data>
   <data name="FileTransferLiveChoosePeer" xml:space="preserve">
     <value>选择传输设备</value>
   </data>

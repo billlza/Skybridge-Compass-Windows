@@ -6,6 +6,9 @@ using System.Security.Cryptography;
 namespace Skybridge.WinClient.Services;
 
 /// <summary>One authenticated compatible-LAN control session shared by native feature operations.</summary>
+internal sealed record LanFileRecipient(Guid RouteGeneration, string DeviceId, string SignerFingerprint,
+    ushort Port, string DisplayName);
+
 internal sealed class LanProductControlSession : IAsyncDisposable
 {
     private readonly TcpProductControlTransport _transport;
@@ -32,6 +35,8 @@ internal sealed class LanProductControlSession : IAsyncDisposable
     private bool _ready;
     private bool _receivedAdmissionPong;
     private LanProductIdentity? _remoteIdentity;
+    private Guid _fileRouteGeneration = Guid.NewGuid();
+    private CancellationTokenSource _fileRouteLifetime = new();
     private long _unavailableAudioFrames;
     private long _audioQueueOverflows;
     private volatile bool _captureReceiverEnabled;
@@ -279,6 +284,46 @@ internal sealed class LanProductControlSession : IAsyncDisposable
         finally { CryptographicOperations.ZeroMemory(plaintext); }
     }
 
+    // Both MAIN roles receive the peer's signed-key-bound identity and its encrypted service port.
+    // No socket, key or address from a discovery record travels in the chooser's receipt.
+    internal LanFileRecipient? CurrentFileRecipient()
+    {
+        lock (_stateGate)
+        {
+            var identity = _remoteIdentity;
+            var port = GeneralFilePort(identity);
+            if (!IsReady || port is null) return null;
+            return new(_fileRouteGeneration, _peer.PeerDeviceId, PeerHandshakeIdentity.Fingerprint,
+                port.Value, string.IsNullOrWhiteSpace(identity?.DeviceName) ? _peer.PeerDeviceId : identity.DeviceName);
+        }
+    }
+
+    private static ushort? GeneralFilePort(LanProductIdentity? identity) =>
+        identity?.FileTransferPort is > 0 && identity.Capabilities?.Contains("file_transfer", StringComparer.Ordinal) == true
+            ? identity.FileTransferPort : null;
+
+    internal CancellationToken RequireFileRecipient(LanFileRecipient selected)
+    {
+        lock (_stateGate)
+        {
+            var current = CurrentFileRecipient();
+            if (current is null || selected.RouteGeneration != current.RouteGeneration ||
+                selected.DeviceId != current.DeviceId || selected.SignerFingerprint != current.SignerFingerprint ||
+                selected.Port != current.Port)
+                throw new InvalidOperationException("The selected file receiver or its authenticated connection has changed. Select the device again.");
+            return _fileRouteLifetime.Token;
+        }
+    }
+
+    internal byte[] AuthorizeFileTransfer(LanFileRecipient selected, string transferId)
+    {
+        lock (_stateGate)
+        {
+            RequireFileRecipient(selected);
+            return FileTransfer.ClassicFileTransferWire.DeriveTransferKey(_keys, transferId);
+        }
+    }
+
     internal byte[] AuthorizeFileTransfer(DiscoveryBrowserPeerCandidate candidate, string transferId)
     {
         ArgumentNullException.ThrowIfNull(candidate);
@@ -375,7 +420,23 @@ internal sealed class LanProductControlSession : IAsyncDisposable
                         // even when the peer's canonical SOA hash and signer remain unchanged.
                         if (_remoteIdentity is { } previous && previous.DeviceId != identity.DeviceId)
                             _audio.InvalidateIdentity();
-                        Volatile.Write(ref _remoteIdentity, identity);
+                        CancellationTokenSource? retiredRoute = null;
+                        lock (_stateGate)
+                        {
+                            if (_remoteIdentity?.DeviceId != identity.DeviceId ||
+                                GeneralFilePort(_remoteIdentity) != GeneralFilePort(identity))
+                            {
+                                _fileRouteGeneration = Guid.NewGuid();
+                                retiredRoute = _fileRouteLifetime;
+                                _fileRouteLifetime = new();
+                            }
+                            Volatile.Write(ref _remoteIdentity, identity);
+                        }
+                        if (retiredRoute is not null)
+                        {
+                            retiredRoute.Cancel();
+                            retiredRoute.Dispose();
+                        }
                         if (_receivedAdmissionPong) _admitted.TrySetResult();
                         break;
                     case LanControlMessageKind.Heartbeat:
@@ -450,6 +511,7 @@ internal sealed class LanProductControlSession : IAsyncDisposable
             _audio.Dispose();
             lock (_stateGate)
             {
+                _fileRouteLifetime.Dispose();
                 _appKeys.Dispose();
                 _keys.Dispose();
                 _lifetime.Dispose();

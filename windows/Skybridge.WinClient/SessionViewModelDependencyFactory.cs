@@ -9,12 +9,12 @@ internal static class SessionViewModelDependencyFactory
         IFileTransferWorkspaceClient fileTransferClient,
         ITopBarNotificationCenterClient notifications,
         SettingsService settings,
-        System.Action openThemePicker) =>
+        System.Action openThemePicker, ICrossNetworkConnectionClient? connectionCodes = null) =>
         CreateConfigured(fileTransferClient,
-            new TopBarStatusClient(notifications, new SettingsThemePreferenceClient(settings), openThemePicker), settings);
+            new TopBarStatusClient(notifications, new SettingsThemePreferenceClient(settings), openThemePicker), settings, connectionCodes);
 
-    public static SessionViewModelDependencies CreateConfigured(IFileTransferWorkspaceClient? fileTransferClient = null, ITopBarStatusClient? topBarStatusClient = null, SettingsService? settingsService = null) =>
-        WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment(fileTransferClient, topBarStatusClient, settingsService);
+    public static SessionViewModelDependencies CreateConfigured(IFileTransferWorkspaceClient? fileTransferClient = null, ITopBarStatusClient? topBarStatusClient = null, SettingsService? settingsService = null, ICrossNetworkConnectionClient? connectionCodes = null) =>
+        WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment(fileTransferClient, topBarStatusClient, settingsService, connectionCodes);
 
     public static SessionViewModelDependencies CreateDefault() =>
         WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment();

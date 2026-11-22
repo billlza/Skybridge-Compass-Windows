@@ -13,6 +13,7 @@ internal static class LanProductControlSessionTests
         ("LAN AppMessage retains Apple dates and rejects ambiguous or mismatched identities", MessageContract),
         ("LAN local publication must match the exact handshake signer", LocalIdentityBinding),
         ("LAN encrypted admission gates exact file routes and retires with its connection", Admission),
+        ..ConnectedFileCases,
         ("LAN audio binds role-aware exact device IDs and actual signers after admission", AudioIdentityBinding),
         ("LAN audio preserves Android and Apple account device ID spelling", AccountDeviceIdSpelling),
         ("LAN changed account ID spelling retires audio without reviving its grant", AccountDeviceIdChange),
@@ -28,6 +29,11 @@ internal static class LanProductControlSessionTests
         ("queued audio reply owns its encoded metadata and cancellation releases its send slot", QueuedAudioSnapshot),
         ("audio replies reject foreign owners and wrong stream IDs before authorization", ForeignAudioReply),
         ("LAN encrypted admission rejects a different peer protocol identity", WrongIdentity)
+    ];
+    internal static IReadOnlyList<(string Name, Func<Task> Run)> ConnectedFileCases =>
+    [
+        ("connected LAN file recipient sends multi-chunk bytes with a verified receipt for either MAIN role", ConnectedFile),
+        ("connected LAN file recipient retires a changed route and rejects same-peer replacement", ChangedFileRoute)
     ];
     private const string PeerId = "id:1a2b3c4d-22aa-33bb-44cc-5555deadbeef";
     private const string LocalId = "id:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -97,6 +103,74 @@ internal static class LanProductControlSessionTests
         Require(await fixture.Session.Completion.WaitAsync(fixture.Token) is not null && !fixture.Session.IsReady,
             "A disconnected control session retained file authority or hid its failure.");
         Throws<InvalidOperationException>(() => fixture.Session.AuthorizeFileTransfer(fixture.Candidate, "transfer"));
+    }
+
+    private static async Task ConnectedFile()
+    {
+        foreach (var role in new[] { ProductHandshakeRole.Initiator, ProductHandshakeRole.Responder })
+        {
+            await using var fixture = await Fixture.Connect(role, inboundOnly: role == ProductHandshakeRole.Responder);
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = checked((ushort)((IPEndPoint)listener.LocalEndpoint).Port);
+            Require(fixture.Session.CurrentFileRecipient() is null, "An unapproved MAIN became a file target.");
+            await fixture.Admit(peerFilePort: port);
+            var recipient = fixture.Session.CurrentFileRecipient() ?? throw new Exception("Missing approved connected peer.");
+            Require(recipient.DeviceId == PeerId && recipient.Port == port && recipient.SignerFingerprint == Fingerprint,
+                "File selection was not bound to the authenticated identity and its own port.");
+            var root = Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "recipient-test-" + Guid.NewGuid().ToString("N"))).FullName;
+            try
+            {
+                var bytes = RandomNumberGenerator.GetBytes(196_731);
+                var path = Path.Combine(root, "selected.bin");
+                await File.WriteAllBytesAsync(path, bytes, fixture.Token);
+                var destination = Directory.CreateDirectory(Path.Combine(root, "received")).FullName;
+                var id = Guid.NewGuid().ToString("D");
+                var sending = ClassicFileTransferSender.SendToRecipientAsync(fixture.Session, recipient, id, path, null, fixture.Token);
+                using var peer = await listener.AcceptTcpClientAsync(fixture.Token);
+                var stream = peer.GetStream();
+                var frame = await ClassicFileTransferFrames.ReadAsync(stream, fixture.Token);
+                Require(frame.Type == ClassicFileFrameType.Metadata, "Missing initial file metadata.");
+                var metadata = ClassicFileTransferWire.Decode<ClassicFileMetadata>(frame.Payload);
+                var key = ClassicFileTransferWire.DeriveTransferKey(fixture.Keys, id);
+                try
+                {
+                    ClassicFileTransferWire.Verify(metadata, key);
+                    var received = await ClassicFileTransferReceiver.ReceiveAsync(stream, metadata, key, destination, null, fixture.Token);
+                    var sent = await sending;
+                    Require(sent.TransferId == id && sent.FileHash == Convert.ToHexStringLower(SHA256.HashData(bytes)) &&
+                        sent.Bytes == bytes.Length && received.FileHash == sent.FileHash &&
+                        (await File.ReadAllBytesAsync(received.SavedPath!, fixture.Token)).SequenceEqual(bytes),
+                        "Receiver disk bytes or the sender's verified receipt did not match the selected source.");
+                }
+                finally { CryptographicOperations.ZeroMemory(key); }
+            }
+            finally { Directory.Delete(root, recursive: true); }
+        }
+    }
+
+    private static async Task ChangedFileRoute()
+    {
+        await using var first = await Fixture.Connect(ProductHandshakeRole.Responder, inboundOnly: true);
+        await using var second = await Fixture.Connect(ProductHandshakeRole.Responder, inboundOnly: true);
+        await first.Admit();
+        await second.Admit();
+        var selected = first.Session.CurrentFileRecipient() ?? throw new Exception("Missing first recipient.");
+        var inFlight = first.Session.RequireFileRecipient(selected);
+        Throws<InvalidOperationException>(() => second.Session.AuthorizeFileTransfer(selected, "other"));
+        Throws<InvalidOperationException>(() => first.Session.AuthorizeFileTransfer(selected with { Port = 1 }, "tampered"));
+        await first.Send(LanControlMessageKind.Identity, Identity() with { Capabilities = [] });
+        await first.Send(LanControlMessageKind.Ping, new LanProductPing(11));
+        Require((await first.Read()).Kind == LanControlMessageKind.Pong, "Failed to fence the withdrawal.");
+        Require(inFlight.IsCancellationRequested && first.Session.CurrentFileRecipient() is null,
+            "An existing file operation survived route withdrawal.");
+        await first.Send(LanControlMessageKind.Identity, Identity());
+        await first.Send(LanControlMessageKind.Ping, new LanProductPing(12));
+        Require((await first.Read()).Kind == LanControlMessageKind.Pong, "Failed to fence readmission.");
+        Throws<InvalidOperationException>(() => first.Session.AuthorizeFileTransfer(selected, "stale"));
+        var renewed = first.Session.CurrentFileRecipient() ?? throw new Exception("Missing renewed route.");
+        Require(renewed.RouteGeneration != selected.RouteGeneration && renewed.Port == selected.Port,
+            "A route re-added at the same port resurrected a stale user selection.");
     }
 
     private static Task LocalIdentityBinding()
@@ -388,7 +462,7 @@ internal static class LanProductControlSessionTests
         internal LanProductControlSession Session { get; }
         internal CancellationToken Token => _deadline.Token;
         internal DiscoveryBrowserPeerCandidate Candidate { get; }
-        private Fixture(TcpClient local, TcpClient remote, ProductHandshakeRole role, byte[] extensions, ushort? localFilePort, bool generalFiles)
+        private Fixture(TcpClient local, TcpClient remote, ProductHandshakeRole role, byte[] extensions, ushort? localFilePort, bool generalFiles, bool inboundOnly)
         {
             Keys = new(role, "fixture", new byte[32],
                 Enumerable.Repeat((byte)1, 32).ToArray(), Enumerable.Repeat((byte)2, 32).ToArray());
@@ -408,7 +482,7 @@ internal static class LanProductControlSessionTests
             Session = new(Local, Keys, Peer,
                 Identity() with { DeviceId = LocalId, ProtocolIdentityPublicKeys = [new("ML-DSA-65", LocalPublicKey)],
                     FileTransferPort = localFilePort, Capabilities = generalFiles ? ["file_transfer"] : [] },
-                control, IPAddress.Loopback, Token, localSigner, signingIdentity, extensions);
+                inboundOnly ? null : control, IPAddress.Loopback, Token, localSigner, signingIdentity, extensions);
             Require(Session.LocalHandshakeIdentity.Fingerprint == localSigner.Fingerprint &&
                 Session.PeerHandshakeIdentity.Fingerprint == Fingerprint, "MAIN discarded its exact signing identities.");
             using var reversed = new ProductSessionKeys(role == ProductHandshakeRole.Initiator ? ProductHandshakeRole.Responder : ProductHandshakeRole.Initiator,
@@ -417,22 +491,22 @@ internal static class LanProductControlSessionTests
         }
         internal static Task<Fixture> ConnectForAudio(ushort? localFilePort = 8080, bool generalFiles = true) =>
             Connect(extensions: Soa(ProductHandshakeRole.Initiator), localFilePort: localFilePort, generalFiles: generalFiles);
-        internal static async Task<Fixture> Connect(ProductHandshakeRole role = ProductHandshakeRole.Initiator, byte[]? extensions = null, ushort? localFilePort = 8080, bool generalFiles = true)
+        internal static async Task<Fixture> Connect(ProductHandshakeRole role = ProductHandshakeRole.Initiator, byte[]? extensions = null, ushort? localFilePort = 8080, bool generalFiles = true, bool inboundOnly = false)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             var local = new TcpClient();
             await local.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
             var remote = await listener.AcceptTcpClientAsync();
-            return new(local, remote, role, extensions ?? Array.Empty<byte>(), localFilePort, generalFiles);
+            return new(local, remote, role, extensions ?? Array.Empty<byte>(), localFilePort, generalFiles, inboundOnly);
         }
         internal void Cancel() => _deadline.Cancel();
-        internal async Task Admit(string? peerSpelling = null)
+        internal async Task Admit(string? peerSpelling = null, ushort peerFilePort = 8080)
         {
             var admission = Session.CompleteAdmissionAsync(Token);
             Require((await Read()).Kind == LanControlMessageKind.Identity, "Missing local identity.");
             var ping = LanProductControlMessages.Payload<LanProductPing>(await Read());
-            await Send(LanControlMessageKind.Identity, Identity() with { DeviceId = peerSpelling ?? PeerId });
+            await Send(LanControlMessageKind.Identity, Identity() with { DeviceId = peerSpelling ?? PeerId, FileTransferPort = peerFilePort });
             await Send(LanControlMessageKind.Pong, ping);
             await admission;
         }

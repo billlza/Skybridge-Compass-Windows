@@ -1,15 +1,25 @@
-using System.Net.Sockets;
 using System.Runtime.Versioning;
-using System.Security.Cryptography;
 using Skybridge.WinClient.Services.FileTransfer;
 using Skybridge.WinClient.Services.RemoteControl;
 
 namespace Skybridge.WinClient.Services;
 
+internal abstract record FileRecipientSelection
+{
+    internal sealed record Connected(LanFileRecipient Recipient) : FileRecipientSelection;
+    internal sealed record WebRtc(WindowsWebRtcFileRecipient Recipient) : FileRecipientSelection;
+    internal sealed record Discovered(DiscoveryBrowserPeerCandidate Candidate) : FileRecipientSelection;
+}
+
 internal interface IFileTransferSelectionClient
 {
     Task<IReadOnlyList<string>> SelectPathsAsync(bool folder, CancellationToken cancellationToken);
     Task<DiscoveryBrowserPeerCandidate?> SelectPeerAsync(CancellationToken cancellationToken);
+    async Task<FileRecipientSelection?> SelectRecipientAsync(IReadOnlyList<LanFileRecipient> connected, WindowsWebRtcFileRecipient? webRtc, CancellationToken cancellationToken)
+    {
+        var candidate = await SelectPeerAsync(cancellationToken);
+        return candidate is null ? null : new FileRecipientSelection.Discovered(candidate);
+    }
     Task<bool> ApproveIncomingAsync(ClassicFileMetadata metadata, string destinationDirectory, CancellationToken cancellationToken);
     string DestinationDirectory { get; }
 }
@@ -19,6 +29,7 @@ internal interface IFileTransferSelectionClient
 internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient, IAsyncDisposable
 {
     private readonly WindowsDeviceWorkspace _workspace;
+    private readonly WindowsLiveConnectionCodes? _codes;
     private readonly IFileTransferSelectionClient _selection;
     private readonly Func<RemoteControlViewerAccount?> _account;
     private readonly Func<string, string> _text;
@@ -40,9 +51,9 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
     private string _status;
 
     internal FileTransferWorkspaceClient(WindowsDeviceWorkspace workspace, IFileTransferSelectionClient selection,
-        Func<RemoteControlViewerAccount?> account, Func<string, string> text)
+        Func<RemoteControlViewerAccount?> account, Func<string, string> text, WindowsLiveConnectionCodes? codes = null)
     {
-        _workspace = workspace; _selection = selection; _account = account; _text = text;
+        _workspace = workspace; _codes = codes; _selection = selection; _account = account; _text = text;
         _status = text("FileTransferLiveReady");
         _progress = new(ReportProgress);
     }
@@ -123,17 +134,45 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
             if (paths.Count == 0) return Result("FileTransferLiveCancelled");
             if (paths.Count > 64 || (folder && paths.Count != 1) || paths.Any(string.IsNullOrWhiteSpace))
                 throw new InvalidOperationException(_text("FileTransferLiveSelectionLimit"));
-            var peer = await _selection.SelectPeerAsync(_lifetime.Token);
-            if (peer is null) return Result("FileTransferLiveCancelled");
-            var session = await ConnectAsync(peer, account);
+            using var batch = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, _connectionsLifetime.Token);
+            var choice = await _selection.SelectRecipientAsync(_workspace.ConnectedFileRecipients(account), _codes?.FileRecipient, batch.Token);
+            if (choice is null) return Result("FileTransferLiveCancelled");
+            batch.Token.ThrowIfCancellationRequested();
+            if (RequireAccount().NebulaId != account.NebulaId)
+                throw new InvalidOperationException(_text("FileTransferLiveSignIn"));
+            Func<string, string, CancellationToken, Task<ClassicFileTransferResult>> send;
+            CancellationToken lifetime = batch.Token;
+            switch (choice)
+            {
+                case FileRecipientSelection.Connected live:
+                    var connected = _workspace.RequireConnectedFileRecipient(live.Recipient, account);
+                    lifetime = connected.Lifetime;
+                    send = (id,path,ct) => ClassicFileTransferSender.SendToRecipientAsync(connected, live.Recipient, id, path, _progress, ct);
+                    break;
+                case FileRecipientSelection.WebRtc online:
+                    var codes = _codes ?? throw new InvalidOperationException(_text("FileTransferLiveNoPeers"));
+                    send = (id,path,ct) => codes.SendFileAsync(online.Recipient, id, path, new TransferProgress(ReportWebRtcProgress), ct);
+                    break;
+                case FileRecipientSelection.Discovered discovery:
+                    var session = await ConnectAsync(discovery.Candidate, account);
+                    session.RequireFileTransferRoute(discovery.Candidate);
+                    var recipient = session.CurrentFileRecipient() ?? throw new InvalidOperationException(_text("FileTransferLiveNoPeers"));
+                    if (recipient.Port != discovery.Candidate.Routes.FileTransfer?.Port)
+                        throw new InvalidOperationException(_text("FileTransferLiveNoPeers"));
+                    lifetime = session.Lifetime;
+                    send = (id,path,ct) => ClassicFileTransferSender.SendToRecipientAsync(session, recipient, id, path, _progress, ct);
+                    break;
+                default: throw new InvalidOperationException("Unknown file recipient selection.");
+            }
+            using var admission = CancellationTokenSource.CreateLinkedTokenSource(batch.Token, lifetime);
             using var power = WindowsPowerKeepAwake.Arm();
             if (folder)
             {
                 SetStatus(_text("FileTransferLivePackaging"));
                 staging = Path.Combine(Path.GetTempPath(), "SkyBridgeTransfer-" + Guid.NewGuid().ToString("N"));
-                paths = [await FileTransferFolderArchive.CreateAsync(paths[0], staging, _lifetime.Token)];
+                paths = [await FileTransferFolderArchive.CreateAsync(paths[0], staging, admission.Token)];
             }
-            foreach (var path in paths) await SendFileAsync(session, peer, path);
+            foreach (var path in paths) await SendFileAsync(send, path, admission.Token);
             return Result("FileTransferLiveCompleted");
         }
         catch (Exception failure)
@@ -150,24 +189,16 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
         }
     }
 
-    private async Task SendFileAsync(LanProductControlSession session, DiscoveryBrowserPeerCandidate peer, string path)
+    private async Task SendFileAsync(Func<string, string, CancellationToken, Task<ClassicFileTransferResult>> send, string path, CancellationToken token)
     {
         var transferId = Guid.NewGuid().ToString("D");
-        using var operation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, session.Lifetime);
-        var key = session.AuthorizeFileTransfer(peer, transferId);
         try
         {
             SetStatus(_text("FileTransferLiveSending"));
-            await using var prepared = await ClassicFileTransferSender.PrepareAsync(path, transferId, session.LocalIdentity, key, operation.Token);
-            using var client = new TcpClient();
-            using var connect = CancellationTokenSource.CreateLinkedTokenSource(operation.Token);
-            connect.CancelAfter(TimeSpan.FromSeconds(10));
-            await client.ConnectAsync(session.RemoteAddress, peer.Routes.FileTransfer!.Port, connect.Token);
-            var result = await ClassicFileTransferSender.SendAsync(client.GetStream(), prepared, key, _progress, operation.Token);
+            var result = await send(transferId, path, token);
             Complete(transferId, Path.GetFileName(path), result, null);
         }
         catch (Exception failure) { Complete(transferId, Path.GetFileName(path), null, failure); throw; }
-        finally { CryptographicOperations.ZeroMemory(key); }
     }
 
     private RemoteControlViewerAccount RequireAccount()
@@ -214,13 +245,14 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
         catch (Exception failure) { _connectionsLifetime.Cancel(); SetStatus(failure.Message); }
     }
 
-    private void ReportProgress(ClassicFileTransferProgress progress)
+    private void ReportProgress(ClassicFileTransferProgress progress) => ReportProgress(progress, "LAN · PQC");
+    private void ReportProgress(ClassicFileTransferProgress progress, string binding)
     {
         bool publish;
         lock (_state)
         {
             _active[progress.TransferId] = new(progress.FileName, progress.IsIncoming ? "Receiving" : "Sending",
-                $"{progress.Bytes:N0} / {progress.TotalBytes:N0} B", "LAN · PQC", "");
+                $"{progress.Bytes:N0} / {progress.TotalBytes:N0} B", binding, "");
             var now = Environment.TickCount64;
             publish = now - _lastProgress >= 100 || progress.Bytes == progress.TotalBytes;
             if (publish) _lastProgress = now;
@@ -228,6 +260,9 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
         if (publish) Publish();
     }
 
+    internal void CompleteIncomingWebRtc(ClassicFileMetadata metadata, ClassicFileTransferResult? result, Exception? failure) =>
+        Complete(metadata.TransferId, metadata.FileName, result, failure);
+    internal void ReportWebRtcProgress(ClassicFileTransferProgress progress) => ReportProgress(progress, "WebRTC · PQC");
     private void Complete(string? transferId, string? name, ClassicFileTransferResult? result, Exception? failure)
     {
         lock (_state)

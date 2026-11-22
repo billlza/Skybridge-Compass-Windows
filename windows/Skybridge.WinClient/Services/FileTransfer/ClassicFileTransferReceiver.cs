@@ -112,7 +112,7 @@ internal static class ClassicFileTransferReceiver
             throw new InvalidDataException("The file name is reserved by Windows.");
     }
 
-    private static string CommitWithoutOverwrite(string partial, string root, string fileName)
+    internal static string CommitWithoutOverwrite(string partial, string root, string fileName)
     {
         for (var index = 0; index < 1000; index++)
         {

@@ -97,6 +97,42 @@ public sealed partial class MainWindow
             return selection.Select(file => file.Path).ToArray();
         }
 
+        public async Task<FileRecipientSelection?> SelectRecipientAsync(IReadOnlyList<LanFileRecipient> connected, WindowsWebRtcFileRecipient? webRtc, CancellationToken cancellationToken)
+        {
+            if (connected.Count > 0 || webRtc != null)
+            {
+                var names = connected.GroupBy(peer => peer.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+                    .Where(group => group.Count() > 1).Select(group => group.Key).ToHashSet(StringComparer.CurrentCultureIgnoreCase);
+                var choices = connected.Select(peer => new ConnectedChoice(new FileRecipientSelection.Connected(peer), names.Contains(peer.DisplayName)
+                    ? $"{peer.DisplayName} · LAN · {peer.DeviceId}" : $"{peer.DisplayName} · LAN")).ToList();
+                if (webRtc is not null) choices.Add(new(new FileRecipientSelection.WebRtc(webRtc), $"{webRtc.Name} · WebRTC"));
+                var picker = new ComboBox {
+                    MinWidth = 380, DisplayMemberPath = nameof(ConnectedChoice.Name),
+                    PlaceholderText = window.RemoteControlText("FileTransferLiveChoosePeer"),
+                    ItemsSource = choices
+                };
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(picker, "Skybridge.FileTransfer.ConnectedPeer");
+                var dialog = new ContentDialog {
+                    XamlRoot = window.RootShell.XamlRoot, Title = window.RemoteControlText("FileTransferLiveConnectedRecipients"),
+                    Content = picker, PrimaryButtonText = window.RemoteControlText("FileTransferLiveSendToSelected"),
+                    SecondaryButtonText = window.RemoteControlText("FileTransferLiveDiscoverAnother"),
+                    CloseButtonText = window.RemoteControlText("FileTransferLiveCancel"), IsPrimaryButtonEnabled = false
+                };
+                picker.SelectionChanged += (_, _) => dialog.IsPrimaryButtonEnabled = picker.SelectedItem is ConnectedChoice;
+                var result = await window._dialogs.ShowAsync(() => new NativeWindowDialog(dialog), cancellationToken);
+                if (result == WindowDialogResult.Primary)
+                {
+                    var selected = picker.SelectedItem as ConnectedChoice ?? throw new InvalidOperationException("No file receiver was selected.");
+                    return selected.Selection;
+                }
+                if (result != WindowDialogResult.Secondary) return null;
+            }
+            var candidate = await SelectPeerAsync(cancellationToken);
+            return candidate is null ? null : new FileRecipientSelection.Discovered(candidate);
+        }
+
+        private sealed record ConnectedChoice(FileRecipientSelection Selection, string Name);
+
         public async Task<DiscoveryBrowserPeerCandidate?> SelectPeerAsync(CancellationToken cancellationToken)
         {
             // File operations own their discovery result. The UI refresh command may

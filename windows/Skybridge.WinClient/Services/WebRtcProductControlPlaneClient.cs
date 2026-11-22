@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -461,5 +462,110 @@ public sealed class WebRtcProductControlPlaneClient : IWebRtcProductControlPlane
         }
 
         return total;
+    }
+}
+
+// The helper's IPC length is local to its TCP socket. The actual SkyBridge DataChannel
+// carries a second, independent four-byte length across ordered SCTP messages.
+internal sealed class WebRtcProductFramedPlane : IWebRtcProductControlPlane
+{
+    internal const int MaximumPayload = 8_000_000;
+    private readonly IWebRtcProductControlPlane _raw;
+    private readonly SemaphoreSlim _writer = new(1, 1);
+    private readonly object _input = new();
+    private readonly byte[] _header = new byte[4];
+    private readonly Queue<byte[]> _pending = new();
+    private int _pendingBytes, _headerBytes, _bodyBytes;
+    private byte[]? _body;
+    private Action<byte[]>? _consumer;
+    private volatile bool _failed;
+
+    internal WebRtcProductFramedPlane(IWebRtcProductControlPlane raw)
+    {
+        _raw = raw;
+        raw.MessageReceived += ReceiveChunk;
+    }
+    public bool IsConnected => !_failed && _raw.IsConnected;
+
+    public event Action<byte[]> MessageReceived
+    {
+        add
+        {
+            lock (_input)
+            {
+                if (_failed || _consumer is not null) throw new InvalidOperationException("This framed session already has an owner or has ended.");
+                _consumer = value;
+                while (_pending.TryDequeue(out var next))
+                {
+                    _pendingBytes -= next.Length;
+                    value(next);
+                }
+            }
+        }
+        remove { lock (_input) { if (_consumer == value) _consumer = null; } }
+    }
+
+    public async Task SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken = default)
+    {
+        if (message.Length is < 1 or > MaximumPayload) throw new InvalidDataException("Invalid product frame length.");
+        await _writer.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!IsConnected) throw new IOException("The framed DataChannel is closed.");
+            var frame = new byte[checked(message.Length + 4)];
+            BinaryPrimitives.WriteUInt32BigEndian(frame, checked((uint)message.Length));
+            message.CopyTo(frame.AsMemory(4));
+            for (int offset = 0; offset < frame.Length; offset += WebRtcProductControlPlaneClient.MaxControlFrameChunkBytes)
+            {
+                int count = Math.Min(WebRtcProductControlPlaneClient.MaxControlFrameChunkBytes, frame.Length - offset);
+                await _raw.SendAsync(frame.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch { _failed = true; throw; }
+        finally { _writer.Release(); }
+    }
+
+    private void ReceiveChunk(byte[] chunk)
+    {
+        lock (_input)
+        {
+            if (_failed) return;
+            try
+            {
+                var input = chunk.AsSpan();
+                while (!input.IsEmpty)
+                {
+                    if (_body is null)
+                    {
+                        var count = Math.Min(4 - _headerBytes, input.Length);
+                        input[..count].CopyTo(_header.AsSpan(_headerBytes));
+                        _headerBytes += count;
+                        input = input[count..];
+                        if (_headerBytes < 4) continue;
+                        uint length = BinaryPrimitives.ReadUInt32BigEndian(_header);
+                        if (length is 0 or > MaximumPayload) throw new InvalidDataException("Invalid inbound product frame length.");
+                        _body = new byte[checked((int)length)];
+                        _headerBytes = 0;
+                    }
+                    var take = Math.Min(_body.Length - _bodyBytes, input.Length);
+                    input[..take].CopyTo(_body.AsSpan(_bodyBytes));
+                    _bodyBytes += take;
+                    input = input[take..];
+                    if (_bodyBytes != _body.Length) continue;
+                    var complete = ProductControlTrafficPadding.Unwrap(_body);
+                    _body = null;
+                    _bodyBytes = 0;
+                    if (_consumer is { } deliver) deliver(complete);
+                    else
+                    {
+                        if (_pending.Count >= 16 || _pendingBytes + complete.Length > MaximumPayload)
+                            throw new InvalidDataException("Too many frames arrived during the session handoff.");
+                        _pending.Enqueue(complete);
+                        _pendingBytes += complete.Length;
+                    }
+                }
+            }
+            catch { _failed = true; throw; }
+        }
     }
 }

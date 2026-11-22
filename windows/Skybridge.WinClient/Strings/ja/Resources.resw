@@ -1801,6 +1801,16 @@
   <data name="FileTransferLiveNoPeers" xml:space="preserve">
     <value>ファイル転送デバイスが見つかりません。同じネットワークで両方のアプリを起動してください</value>
   </data>
+  <data name="EndCodeSession.Content" xml:space="preserve"><value>コード接続を終了</value></data>
+  <data name="FileTransferLiveConnectedRecipients" xml:space="preserve">
+    <value>接続済みデバイスに送信</value>
+  </data>
+  <data name="FileTransferLiveSendToSelected" xml:space="preserve">
+    <value>送信</value>
+  </data>
+  <data name="FileTransferLiveDiscoverAnother" xml:space="preserve">
+    <value>他のデバイスを探す</value>
+  </data>
   <data name="FileTransferLiveChoosePeer" xml:space="preserve">
     <value>転送先のデバイスを選択</value>
   </data>

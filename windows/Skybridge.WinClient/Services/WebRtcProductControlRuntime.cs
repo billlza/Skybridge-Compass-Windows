@@ -15,7 +15,8 @@ public sealed class WebRtcProductControlTransportOptions
     public WebRtcProductControlTransportOptions(
         bool asAnswerer,
         int preferredIpcPort,
-        ulong timestampWindowMs)
+        ulong timestampWindowMs,
+        bool useProductFraming = false)
     {
         if (preferredIpcPort is < 0 or > 65535)
         {
@@ -29,11 +30,13 @@ public sealed class WebRtcProductControlTransportOptions
         }
 
         AsAnswerer = asAnswerer;
+        UseProductFraming = useProductFraming;
         PreferredIpcPort = preferredIpcPort;
         TimestampWindowMs = timestampWindowMs;
     }
 
     public bool AsAnswerer { get; }
+    internal bool UseProductFraming { get; }
 
     public int PreferredIpcPort { get; }
 
@@ -134,9 +137,10 @@ public sealed class WebRtcProductControlTransportProvider : IAsyncDisposable
                 controlPlaneClient = new WebRtcProductControlPlaneClient(
                     helperSession.IpcPort,
                     ipcAuthToken: helperSession.RequireProductControlIpcAuthToken());
+                IWebRtcProductControlPlane wire = _options.UseProductFraming ? new WebRtcProductFramedPlane(controlPlaneClient) : controlPlaneClient;
                 await controlPlaneClient.StartAsync(cancellationToken).ConfigureAwait(false);
 
-                var context = BuildContext(request, helperSession, controlPlaneClient);
+                var context = BuildContext(request, helperSession, wire);
                 _activeTransport = new ActiveTransport(
                     request.PairingMaterial.DeviceId,
                     request.PairingMaterial.PublicKeyFingerprint,

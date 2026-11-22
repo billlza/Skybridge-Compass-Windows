@@ -13,7 +13,7 @@ namespace Skybridge.WinClient.Services;
 /// class does not launch the helper and does not prove product AppControl readiness; it only owns
 /// the SDP/ICE exchange needed before the product-control helper can expose its raw IPC port.
 /// </summary>
-public sealed class CurrentPathWebRtcHelperSignalingBridge
+public sealed class CurrentPathWebRtcHelperSignalingBridge(CurrentPathWebRtcSignalingPayload? localJoin = null)
 {
     public async Task<CurrentPathWebRtcHelperSignalingBridgeResult> ExchangeOffererAsync(
         CurrentPathWebSocketSignalingClient signalingClient,
@@ -35,7 +35,7 @@ public sealed class CurrentPathWebRtcHelperSignalingBridge
                 signalingClient,
                 options,
                 CurrentPathWebRtcSignalingMessageType.Join,
-                payload: null,
+                localJoin,
                 cancellationToken)
             .ConfigureAwait(false);
         await SendEnvelopeAsync(
@@ -96,7 +96,7 @@ public sealed class CurrentPathWebRtcHelperSignalingBridge
                 signalingClient,
                 options,
                 CurrentPathWebRtcSignalingMessageType.Join,
-                payload: null,
+                localJoin,
                 cancellationToken)
             .ConfigureAwait(false);
 

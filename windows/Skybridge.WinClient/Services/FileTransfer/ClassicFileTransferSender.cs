@@ -1,10 +1,29 @@
 using System.Buffers;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 
 namespace Skybridge.WinClient.Services.FileTransfer;
 
 internal static class ClassicFileTransferSender
 {
+    internal static async Task<ClassicFileTransferResult> SendToRecipientAsync(LanProductControlSession session,
+        LanFileRecipient recipient, string transferId, string path, IProgress<ClassicFileTransferProgress>? progress, CancellationToken token)
+    {
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(token, session.Lifetime, session.RequireFileRecipient(recipient));
+        var key = session.AuthorizeFileTransfer(recipient, transferId);
+        try
+        {
+            await using var prepared = await PrepareAsync(path, transferId, session.LocalIdentity, key, operation.Token).ConfigureAwait(false);
+            using var client = new TcpClient();
+            using var connecting = CancellationTokenSource.CreateLinkedTokenSource(operation.Token);
+            connecting.CancelAfter(TimeSpan.FromSeconds(10));
+            await client.ConnectAsync(session.RemoteAddress, recipient.Port, connecting.Token).ConfigureAwait(false);
+            session.RequireFileRecipient(recipient);
+            return await SendAsync(client.GetStream(), prepared, key, progress, operation.Token).ConfigureAwait(false);
+        }
+        finally { CryptographicOperations.ZeroMemory(key); }
+    }
+
     internal static async Task<PreparedFile> PrepareAsync(string sourcePath, string transferId,
         LanProductIdentity localIdentity, ReadOnlyMemory<byte> key, CancellationToken cancellationToken)
     {

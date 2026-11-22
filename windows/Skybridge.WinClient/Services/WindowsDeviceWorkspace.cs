@@ -385,6 +385,29 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
         finally { _controlOperations.Release(); }
     }
 
+    internal IReadOnlyList<LanFileRecipient> ConnectedFileRecipients(RemoteControlViewerAccount account)
+    {
+        lock (_stateGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _controlSessions.Values.Where(s => s.LocalIdentity.NebulaId == account.NebulaId)
+                .Select(s => s.CurrentFileRecipient()).OfType<LanFileRecipient>().ToArray();
+        }
+    }
+
+    internal LanProductControlSession RequireConnectedFileRecipient(LanFileRecipient selected, RemoteControlViewerAccount account)
+    {
+        lock (_stateGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_controlSessions.TryGetValue(selected.DeviceId, out var session) ||
+                session.LocalIdentity.NebulaId != account.NebulaId)
+                throw new InvalidOperationException("The selected file receiver is no longer connected to this account.");
+            session.RequireFileRecipient(selected);
+            return session;
+        }
+    }
+
     internal LanProductControlSession RequireIncomingControlSession(string deviceId)
     {
         lock (_stateGate)
@@ -439,14 +462,19 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
 
     internal async Task<CurrentPathProtocolIdentityBinding> AccountIdentityAsync(CancellationToken cancellationToken)
     {
+        var material = (await GetConnectionIdentityAsync(cancellationToken).ConfigureAwait(false)).PublicMaterial;
+        return new CurrentPathProtocolIdentityBinding(material.DeviceId, CurrentPathProtocolSigningAlgorithm.MLDsa65,
+            material.ProtocolPublicKey, material.ProtocolPublicKeyFingerprint);
+    }
+
+    internal async Task<RemoteControlIdentityStore> GetConnectionIdentityAsync(CancellationToken cancellationToken)
+    {
         await _operations.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             _identity ??= await RemoteControlIdentityStore.LoadOrCreateAsync(_stateDirectory, _displayName, cancellationToken).ConfigureAwait(false);
-            var material = _identity.PublicMaterial;
-            return new CurrentPathProtocolIdentityBinding(material.DeviceId,
-                CurrentPathProtocolSigningAlgorithm.MLDsa65, material.ProtocolPublicKey, material.ProtocolPublicKeyFingerprint);
+            return _identity;
         }
         finally { _operations.Release(); }
     }
