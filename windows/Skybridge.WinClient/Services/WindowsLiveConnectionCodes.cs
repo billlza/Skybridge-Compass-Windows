@@ -193,7 +193,8 @@ internal sealed class WindowsLiveConnectionCodes(
                     var policy = new WebRtcPairingPolicy(trust.Compared != null, trust.PreviouslyTrusted != null, compare,
                         (verifiedPeer, ct) => CommitFile(() => identity.RememberComparedWebRtcPeer(verifiedPeer, ct)));
                     await using var secure = new WindowsWebRtcFileSession(established, keys, local, paired, policy, receive, CommitFile);
-                    var lifetime = secure.RunAsync(token);
+                    using var running = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    var lifetime = secure.RunAsync(running.Token);
                     try
                     {
                         var admitted = await secure.PairingApproved.WaitAsync(token).ConfigureAwait(false);
@@ -206,8 +207,13 @@ internal sealed class WindowsLiveConnectionCodes(
                         var status = $"Connected to {admitted.DeviceName} · WebRTC";
                         op.Started.TrySetResult(new(DateTimeOffset.UtcNow, status, null, []));
                         Changed?.Invoke(op, status, true);
+                        await lifetime.ConfigureAwait(false);
                     }
-                    finally { await lifetime.ConfigureAwait(false); }
+                    finally
+                    {
+                        running.Cancel();
+                        try { await lifetime.ConfigureAwait(false); } catch (OperationCanceledException) when (running.IsCancellationRequested) { }
+                    }
                 }
                 finally { lock (_gate) { if (ReferenceEquals(_current, op)) _fileSession = null; } store.Clear(established); }
             }
