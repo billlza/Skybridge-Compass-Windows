@@ -132,7 +132,7 @@ public sealed class CrossNetworkConnectionClient : ICrossNetworkConnectionClient
         ArgumentNullException.ThrowIfNull(request);
 
         if (_liveCodeAction is not null && request.Action is CrossNetworkConnectionAction.GenerateCode or
-            CrossNetworkConnectionAction.RegenerateCode or CrossNetworkConnectionAction.ConnectWithCode)
+            CrossNetworkConnectionAction.RegenerateCode or CrossNetworkConnectionAction.ConnectWithCode or CrossNetworkConnectionAction.CopyCode)
             return _liveCodeAction(request);
         return request.Action switch
         {

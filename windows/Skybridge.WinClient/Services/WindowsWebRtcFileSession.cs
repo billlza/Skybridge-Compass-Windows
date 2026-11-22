@@ -28,7 +28,7 @@ internal sealed class WindowsWebRtcFileSession : IAsyncDisposable
         TaskCompletionSource<JsonElement> Result);
 
     internal WindowsWebRtcFileSession(LiveWebRtcProductControlContext context, WebRtcAppSecureSessionKeys keys,
-        RemoteControlPairingMaterial local, RemoteControlPairingMaterial paired, WindowsWebRtcReceiveOptions? receive = null)
+        RemoteControlPairingMaterial local, RemoteControlPairingMaterial paired, WindowsWebRtcReceiveOptions? receive = null, Action<Action>? authorizeCommit = null)
     {
         if (context.SecureSessionState != WebRtcProductControlSecureSessionState.Established ||
             context.SessionIncarnation is not { } owner || context.PeerPublicKeyFingerprint != paired.ProtocolPublicKeyFingerprint ||
@@ -38,7 +38,8 @@ internal sealed class WindowsWebRtcFileSession : IAsyncDisposable
         Recipient = new(owner, paired.DeviceId, paired.DeviceName);
         _local = local; _peer = paired; _keys = keys; _plane = context.ControlPlane; _token = _lifetime.Token;
         _incoming = receive is null ? null : new(paired, receive,
-            (response, token) => SendAsync(WebRtcAppSecurePacketType.FileTransfer, JsonSerializer.SerializeToUtf8Bytes(response), token));
+            (response, token) => SendAsync(WebRtcAppSecurePacketType.FileTransfer, JsonSerializer.SerializeToUtf8Bytes(response), token),
+            authorizeCommit ?? (effect => { _token.ThrowIfCancellationRequested(); effect(); }));
         _plane.MessageReceived += Inbound;
     }
     internal WindowsWebRtcFileRecipient Recipient { get; }
@@ -125,7 +126,7 @@ internal sealed class WindowsWebRtcFileSession : IAsyncDisposable
                 lock (_gate)
                 {
                     if (_waiting is not { } expected || expected.Id != idText) continue;
-                    if (op == "error") expected.Result.TrySetException(new IOException("The peer rejected this file."));
+                    if (op == "error") expected.Result.TrySetException(new ClassicFileTransferRejectedException("The peer rejected this file."));
                     else if (op == expected.Op && (expected.Index is null || (root.TryGetProperty("chunkIndex", out var index) && index.GetInt32() == expected.Index)))
                         expected.Result.TrySetResult(root.Clone());
                 }
@@ -199,7 +200,7 @@ internal sealed class WindowsWebRtcFileSession : IAsyncDisposable
                 if (ack.GetProperty("receivedBytes").GetInt64() != size || !ack.GetProperty("fileSha256").GetBytesFromBase64().AsSpan().SequenceEqual(hash))
                     throw new InvalidDataException("The saved-file receipt has the wrong length or SHA-256.");
             }
-            catch (Exception failure) when (failure is OperationCanceledException or IOException or TimeoutException)
+            catch (Exception failure) when (failure is not ClassicFileTransferRejectedException && failure is OperationCanceledException or IOException or TimeoutException)
             { throw new IOException("File delivery is unconfirmed. Check the receiver before sending again.", failure); }
             return new(id, name, sent, Convert.ToHexStringLower(hash));
         }

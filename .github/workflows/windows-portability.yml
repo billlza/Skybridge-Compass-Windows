@@ -91,6 +91,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Native contracts build failed: $LASTEXITCODE" }
           dotnet run --project $project --configuration Debug --no-build --no-restore 2>&1 | Tee-Object artifacts/native-contracts-run.log
           if ($LASTEXITCODE -ne 0) { throw "Native contracts failed: $LASTEXITCODE" }
+          $helper = 'windows/Skybridge.WinClient/bin/Debug/net10.0-windows10.0.22621.0/win-x64/WebRTC/skybridge-webrtc-helper.exe'
+          if (!(Test-Path -LiteralPath $helper -PathType Leaf)) { throw "WinUI file transfer helper is missing" }
+          dotnet run --project $project --configuration Debug --no-build --no-restore -- --native-webrtc-file-transfer $helper 2>&1 | Tee-Object artifacts/native-webrtc-file-receipts.log
+          if ($LASTEXITCODE -ne 0) { throw "Native WebRTC file and receipt verification failed: $LASTEXITCODE" }
+
 
       - name: Run Windows portability gate
         if: ${{ !cancelled() && steps.rust-tooling.outcome == 'success' }}

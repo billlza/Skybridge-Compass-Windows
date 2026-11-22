@@ -12,7 +12,7 @@ internal sealed record WindowsWebRtcReceiveOptions(Func<string> Destination,
 
 /// <summary>One approved ordinary file per secure session. The DataChannel control reader keeps processing heartbeats.</summary>
 internal sealed class WindowsWebRtcIncomingFiles(RemoteControlPairingMaterial peer, WindowsWebRtcReceiveOptions options,
-    Func<object, CancellationToken, Task> reply)
+    Func<object, CancellationToken, Task> reply, Action<Action> authorizeCommit)
 {
     private readonly Channel<JsonElement> _messages = Channel.CreateBounded<JsonElement>(4);
     internal void Enqueue(JsonElement value)
@@ -138,8 +138,13 @@ internal sealed class WindowsWebRtcIncomingFiles(RemoteControlPairingMaterial pe
                 }
             }
             token.ThrowIfCancellationRequested();
-            string saved = ClassicFileTransferReceiver.CommitWithoutOverwrite(partial, root, meta.FileName);
-            owned = false;
+            string? saved = null;
+            authorizeCommit(() =>
+            {
+                token.ThrowIfCancellationRequested();
+                saved = ClassicFileTransferReceiver.CommitWithoutOverwrite(partial, root, meta.FileName);
+                owned = false;
+            });
             return new(meta.TransferId, meta.FileName, received, Convert.ToHexStringLower(digest), saved);
         }
         finally { if (owned) File.Delete(partial); }

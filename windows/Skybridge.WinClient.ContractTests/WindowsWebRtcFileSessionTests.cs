@@ -51,14 +51,10 @@ internal static class WindowsWebRtcFileSessionTests
         var token = timeout.Token;
         try
         {
-            var alice = Peer("id:11111111-1111-1111-1111-111111111111", "One", 11);
-            var bob = Peer("id:22222222-2222-2222-2222-222222222222", "Two", 22);
             var rawA = new Wire(); var rawB = new Wire(); rawA.Other = rawB; rawB.Other = rawA;
             var a = new WebRtcProductFramedPlane(nativeA ?? rawA); var b = new WebRtcProductFramedPlane(nativeB ?? rawB);
-            var forward = RandomNumberGenerator.GetBytes(32); var backwards = RandomNumberGenerator.GetBytes(32);
-            var transcript = RandomNumberGenerator.GetBytes(32);
-            using var ka = new WebRtcAppSecureSessionKeys(WebRtcAppSecureRole.Initiator, "crypto-room", transcript, forward, backwards);
-            using var kb = new WebRtcAppSecureSessionKeys(WebRtcAppSecureRole.Responder, "crypto-room", transcript, backwards, forward);
+            var (alice, bob, keyA, keyB, ownerA, ownerB) = await CreateOwnersAsync(a, b, token);
+            using var ka = keyA; using var kb = keyB;
             var dirA = Directory.CreateDirectory(Path.Combine(root, "one")).FullName;
             var dirB = Directory.CreateDirectory(Path.Combine(root, "two")).FullName;
             var approve = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -75,8 +71,8 @@ internal static class WindowsWebRtcFileSessionTests
                     }
                     return accept;
                 }, _ => { }, (_,_,_) => { });
-            await using var left = new WindowsWebRtcFileSession(Context(a, bob, "offer"), ka, alice, bob, Receive(dirA, bob.DeviceId));
-            await using var right = new WindowsWebRtcFileSession(Context(b, alice, "answer"), kb, bob, alice, Receive(dirB, alice.DeviceId));
+            await using var left = new WindowsWebRtcFileSession(ownerA, ka, alice, bob, Receive(dirA, bob.DeviceId));
+            await using var right = new WindowsWebRtcFileSession(ownerB, kb, bob, alice, Receive(dirB, alice.DeviceId));
             var loopA = left.RunAsync(token); var loopB = right.RunAsync(token);
             try
             {
@@ -111,6 +107,50 @@ internal static class WindowsWebRtcFileSessionTests
             }
         }
         finally { Directory.Delete(root, true); }
+    }
+
+    private static async Task<(RemoteControlPairingMaterial, RemoteControlPairingMaterial, WebRtcAppSecureSessionKeys,
+        WebRtcAppSecureSessionKeys, LiveWebRtcProductControlContext, LiveWebRtcProductControlContext)> CreateOwnersAsync(
+        IWebRtcProductControlPlane a, IWebRtcProductControlPlane b, CancellationToken token)
+    {
+        const string one = "id:11111111-1111-1111-1111-111111111111", two = "id:22222222-2222-2222-2222-222222222222";
+        if (!OperatingSystem.IsWindows())
+        {
+            var forward = RandomNumberGenerator.GetBytes(32); var backwards = RandomNumberGenerator.GetBytes(32);
+            var transcript = RandomNumberGenerator.GetBytes(32);
+            var first = Peer(one, "One", 11); var second = Peer(two, "Two", 22);
+            return (first, second, new(WebRtcAppSecureRole.Initiator, "test-secure-room", transcript, forward, backwards),
+                new(WebRtcAppSecureRole.Responder, "test-secure-room", transcript, backwards, forward),
+                Context(a, second, "offer"), Context(b, first, "answer"));
+        }
+
+        if (!MLDsa.IsSupported || !MLKem.IsSupported) throw new PlatformNotSupportedException("Native Windows ML-DSA and ML-KEM are required.");
+        using var signingA = MLDsa.GenerateKey(MLDsaAlgorithm.MLDsa65);
+        using var signingB = MLDsa.GenerateKey(MLDsaAlgorithm.MLDsa65);
+        using var kemA = MLKem.GenerateKey(MLKemAlgorithm.MLKem768);
+        using var kemB = MLKem.GenerateKey(MLKemAlgorithm.MLKem768);
+        var alice = RemoteControlPairingMaterial.Create(one, "One", signingA.ExportMLDsaPublicKey(), kemA.ExportEncapsulationKey());
+        var bob = RemoteControlPairingMaterial.Create(two, "Two", signingB.ExportMLDsaPublicKey(), kemB.ExportEncapsulationKey());
+        var skA = signingA.ExportMLDsaPrivateKey(); var skB = signingB.ExportMLDsaPrivateKey(); var dkB = kemB.ExportDecapsulationKey();
+        try
+        {
+            using var cryptoA = new WebRtcProductPqcHandshakeCryptoProvider(new WebRtcProductPqcHandshakeCryptoProviderOptions(
+                skA, bob.MlKem768PublicKey, initiatorSuiteWireId: WebRtcProductHandshakeCodec.SuiteMlKem768Mldsa65ForwardSecure));
+            using var cryptoB = new WebRtcProductPqcHandshakeCryptoProvider(new WebRtcProductPqcHandshakeCryptoProviderOptions(
+                skB, ReadOnlyMemory<byte>.Empty, dkB));
+            var storeA = new WebRtcProductSecureSessionStore(); var storeB = new WebRtcProductSecureSessionStore();
+            try
+            {
+                var wait = new WebRtcProductHandshakeDriver(cryptoB, storeB).StartResponderAsync(Context(b, alice, "answer") with
+                    { SecureSessionState = WebRtcProductControlSecureSessionState.TransportOnly, SessionIncarnation = null }, token);
+                var start = new WebRtcProductHandshakeDriver(cryptoA, storeA).StartInitiatorAsync(Context(a, bob, "offer") with
+                    { SecureSessionState = WebRtcProductControlSecureSessionState.TransportOnly, SessionIncarnation = null }, token);
+                var owners = await Task.WhenAll(start, wait);
+                return (alice, bob, storeA.RequireEstablishedKeys(owners[0]), storeB.RequireEstablishedKeys(owners[1]), owners[0], owners[1]);
+            }
+            finally { storeA.ClearAllForGlobalShutdown(); storeB.ClearAllForGlobalShutdown(); }
+        }
+        finally { CryptographicOperations.ZeroMemory(skA); CryptographicOperations.ZeroMemory(skB); CryptographicOperations.ZeroMemory(dkB); }
     }
 
     private static Task Framing()

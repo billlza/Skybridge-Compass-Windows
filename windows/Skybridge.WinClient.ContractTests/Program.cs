@@ -122,6 +122,13 @@ if (args.SequenceEqual(["--lan-main-responder"]))
     return;
 }
 
+if (args.Length == 2 && args[0] == "--native-webrtc-file-transfer")
+{
+    await NativeWebRtcFileSessionValidation.RunAsync(args[1]);
+    Console.WriteLine($"PASS two native helper processes, DTLS/SCTP, approved bidirectional 196731-byte disk readback and verified receipts; Windows native PQC handshake: {OperatingSystem.IsWindows()}");
+    return;
+}
+
 if (args.SequenceEqual(["--file-transfer-regressions"]))
 {
     foreach (var test in ClassicFileTransferWireTests.Cases.Concat(ClassicFileTransferOperationTests.Cases).Concat(LanProductControlSessionTests.ConnectedFileCases).Concat(WindowsWebRtcFileSessionTests.Cases))

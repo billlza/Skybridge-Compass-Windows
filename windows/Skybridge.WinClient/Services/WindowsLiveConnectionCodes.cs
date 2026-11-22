@@ -1,6 +1,7 @@
 using Skybridge.WinClient.Services.FileTransfer;
 using System.Net.Http;
 using System.Text.Json;
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using Skybridge.WinClient.Services.RemoteControl;
 
@@ -10,7 +11,7 @@ namespace Skybridge.WinClient.Services;
 [SupportedOSPlatform("windows10.0.19041")]
 internal sealed class WindowsLiveConnectionCodes(
     WindowsDeviceWorkspace workspace, Func<CancellationToken, Task<AccountDeviceAuthentication?>> authenticate,
-    string helperPath, string stateDirectory, WindowsWebRtcReceiveOptions receive) : IAsyncDisposable
+    string helperPath, string stateDirectory, WindowsWebRtcReceiveOptions receive, Action<string> copyCode) : IAsyncDisposable
 {
     private readonly object _gate = new();
     private readonly HttpClient _http = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(10), MaxResponseContentBufferSize = 128 * 1024 };
@@ -20,6 +21,9 @@ internal sealed class WindowsLiveConnectionCodes(
     private sealed class Operation
     {
         internal readonly CancellationTokenSource Stop = new();
+        internal string? IssuedCode;
+        internal long IssuedAt;
+        internal TimeSpan IssuedFor;
         internal readonly TaskCompletionSource<CrossNetworkConnectionSnapshot> Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly TaskCompletionSource Ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
@@ -28,6 +32,17 @@ internal sealed class WindowsLiveConnectionCodes(
 
     internal async Task<CrossNetworkConnectionSnapshot> StartAsync(CrossNetworkConnectionRequest request)
     {
+        if (request.Action == CrossNetworkConnectionAction.CopyCode)
+        {
+            lock (_gate)
+            {
+                if (_current is not { IssuedCode: not null } issued || issued.IssuedCode != request.CurrentCode ||
+                    issued.Ended.Task.IsCompleted || Stopwatch.GetElapsedTime(issued.IssuedAt) >= issued.IssuedFor)
+                    throw new InvalidOperationException("This invitation has expired or has already been used.");
+                copyCode(issued.IssuedCode);
+                return new(DateTimeOffset.UtcNow, "Connection code copied", issued.IssuedCode, []);
+            }
+        }
         Operation? old;
         var next = new Operation();
         lock (_gate)
@@ -39,7 +54,9 @@ internal sealed class WindowsLiveConnectionCodes(
             old?.Stop.Cancel();
         }
         _ = RunAsync(next, old, request);
-        return await next.Started.Task.ConfigureAwait(false);
+        var snapshot = await next.Started.Task.ConfigureAwait(false);
+        if (!IsCurrent(next)) throw new OperationCanceledException("The connection request was replaced.");
+        return snapshot;
     }
 
     private async Task RunAsync(Operation op, Operation? old, CrossNetworkConnectionRequest request)
@@ -86,7 +103,9 @@ internal sealed class WindowsLiveConnectionCodes(
                 if (lease.ExpiresIn <= 0 || !new CrossNetworkConnectionClient().CanConnectWithCode(lease.Code) ||
                     CrossNetworkConnectionClient.NormalizeCodeInput(lease.Code, CrossNetworkConnectionClient.DefaultCodeInputPolicy) != lease.Code)
                     throw new InvalidDataException("The server returned an invalid or expired connection code.");
-                waiting.CancelAfter(TimeSpan.FromSeconds(Math.Min(lease.ExpiresIn, ttl.TotalSeconds)));
+                op.IssuedAt = Stopwatch.GetTimestamp();
+                op.IssuedFor = TimeSpan.FromSeconds(Math.Min(lease.ExpiresIn, ttl.TotalSeconds));
+                waiting.CancelAfter(op.IssuedFor);
             }
             await using var ws = new CurrentPathWebSocketSignalingClient(wsOptions);
             await ws.ConnectAndBindAsync(setup.Token).ConfigureAwait(false);
@@ -99,8 +118,15 @@ internal sealed class WindowsLiveConnectionCodes(
             string remoteId, fingerprint;
             if (lease is not null)
             {
-                op.Started.TrySetResult(new(DateTimeOffset.UtcNow, "Waiting for a paired device", lease.Code, []));
+                waiting.Token.ThrowIfCancellationRequested();
+                lock (_gate)
+                {
+                    token.ThrowIfCancellationRequested();
+                    op.IssuedCode = lease.Code;
+                    op.Started.TrySetResult(new(DateTimeOffset.UtcNow, "Waiting for a paired device", lease.Code, []));
+                }
                 var peer = await WaitForPeerAsync(ws, room, local.DeviceId, identity, waiting.Token).ConfigureAwait(false);
+                lock (_gate) op.IssuedCode = null;
                 (remoteId, fingerprint) = peer;
             }
             else
@@ -148,7 +174,17 @@ internal sealed class WindowsLiveConnectionCodes(
                     (hosting ? connecting : setup).CancelAfter(Timeout.InfiniteTimeSpan);
                     RequirePaired(identity, remoteId, fingerprint);
                     using var keys = store.RequireEstablishedKeys(established);
-                    await using var secure = new WindowsWebRtcFileSession(established, keys, local, paired, receive);
+                    void CommitFile(Action commit)
+                    {
+                        lock (_gate)
+                        {
+                            token.ThrowIfCancellationRequested();
+                            if (!ReferenceEquals(_current, op)) throw new OperationCanceledException(token);
+                            RequirePaired(identity, remoteId, fingerprint);
+                            commit();
+                        }
+                    }
+                    await using var secure = new WindowsWebRtcFileSession(established, keys, local, paired, receive, CommitFile);
                     lock (_gate)
                     {
                         token.ThrowIfCancellationRequested();
@@ -173,6 +209,7 @@ internal sealed class WindowsLiveConnectionCodes(
         }
         finally
         {
+            lock (_gate) op.IssuedCode = null;
             op.Ended.TrySetResult();
         }
     }
@@ -224,10 +261,14 @@ internal sealed class WindowsLiveConnectionCodes(
         identity.TrustedMaterials.SingleOrDefault(p => p.DeviceId == RemoteControlHandshakeBinding.CanonicalDeviceId(deviceId) &&
             p.ProtocolPublicKeyFingerprint == fingerprint) ?? throw new InvalidOperationException("Pair this device and verify its identity before using a connection code.");
 
-    internal static CurrentPathWebRtcSignalingPayload JoinPayload(RemoteControlPairingMaterial local) =>
-        new(protocolSigningAlgorithm: local.ProtocolSigningAlgorithm, protocolPublicKeyFingerprint: local.ProtocolPublicKeyFingerprint,
-            protocolPublicKeyBytes: local.ProtocolPublicKey.ToArray(), kemPublicKeys: [new(0x0101, local.MlKem768PublicKey.ToArray())],
+    internal static CurrentPathWebRtcSignalingPayload JoinPayload(RemoteControlPairingMaterial local)
+    {
+        var kem = new List<CurrentPathBootstrapKemPublicKey> { new(0x0101, local.MlKem768PublicKey.ToArray()) };
+        if (local.HasQPeriaptKey) kem.Add(new(WebRtcProductHandshakeCodec.SuiteQPeriaptPolicyBound, local.QPeriaptPublicKey.ToArray()));
+        return new(protocolSigningAlgorithm: local.ProtocolSigningAlgorithm, protocolPublicKeyFingerprint: local.ProtocolPublicKeyFingerprint,
+            protocolPublicKeyBytes: local.ProtocolPublicKey.ToArray(), kemPublicKeys: kem,
             platform: "Windows", osVersion: Environment.OSVersion.Version.ToString());
+    }
 
     private static async Task<(string Id, string Fingerprint)> WaitForPeerAsync(CurrentPathWebSocketSignalingClient socket, string room,
         string localId, RemoteControlIdentityStore identity, CancellationToken token)

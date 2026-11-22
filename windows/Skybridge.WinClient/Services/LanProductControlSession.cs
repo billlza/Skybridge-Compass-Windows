@@ -5,10 +5,10 @@ using System.Security.Cryptography;
 
 namespace Skybridge.WinClient.Services;
 
-/// <summary>One authenticated compatible-LAN control session shared by native feature operations.</summary>
 internal sealed record LanFileRecipient(Guid RouteGeneration, string DeviceId, string SignerFingerprint,
     ushort Port, string DisplayName);
 
+/// <summary>One authenticated compatible-LAN control session shared by native feature operations.</summary>
 internal sealed class LanProductControlSession : IAsyncDisposable
 {
     private readonly TcpProductControlTransport _transport;

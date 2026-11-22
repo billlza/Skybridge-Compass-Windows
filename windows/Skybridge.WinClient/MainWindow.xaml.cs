@@ -60,7 +60,7 @@ public sealed partial class MainWindow : Window
         _liveCodes = new(_remoteControlWorkspace, GetCodeAccountAsync,
             Path.Combine(AppContext.BaseDirectory, "WebRTC", "skybridge-webrtc-helper.exe"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SkyBridgeCompass"),
-            new(() => selection.DestinationDirectory, selection.ApproveIncomingAsync, ReportIncomingWebRtcProgress, CompleteIncomingWebRtc));
+            new(() => selection.DestinationDirectory, selection.ApproveIncomingAsync, ReportIncomingWebRtcProgress, CompleteIncomingWebRtc), CopyConnectionCode);
         _fileTransferWorkspace = new(_remoteControlWorkspace, selection,
             ReadCurrentDeviceAccount, RemoteControlText, _liveCodes);
         var settings = new SettingsService();
@@ -130,6 +130,13 @@ public sealed partial class MainWindow : Window
         // Stop the real runtime lifecycle when the window closes: native Core engine, WebRTC
         // adapters, settings timers, and top-bar telemetry must not outlive the UI.
         Closed += OnWindowClosed;
+    }
+
+    private static void CopyConnectionCode(string value)
+    {
+        var data = new DataPackage();
+        data.SetText(value);
+        Clipboard.SetContent(data);
     }
 
     private void ReportIncomingWebRtcProgress(Services.FileTransfer.ClassicFileTransferProgress progress) =>
