@@ -566,6 +566,18 @@ foreach ($entry in @(
     }
     [void]$control.ParentNode.RemoveChild($control)
 }
+# An issued or redeemed room is a cancellable resource. Keep its explicit stop control
+# inside the connection-code panel, alongside both of the normal code actions.
+$endCode = @($actionTemplateDocument.SelectNodes("//*[local-name()='Button']") | Where-Object {
+    $_.GetAttribute("AutomationProperties.AutomationId") -eq "Skybridge.CrossNetwork.EndCodeSession"
+})
+Assert-True -Condition ($endCode.Count -eq 1) -Message "The connection code panel must have exactly one stop control."
+$stop = $endCode[0]
+Assert-True -Condition ($stop.GetAttribute("Click") -eq "OnEndCodeSessionClicked" -and
+    $stop.GetAttribute("Uid", "http://schemas.microsoft.com/winfx/2006/xaml") -eq "EndCodeSession" -and
+    $stop.ParentNode.OuterXml.Contains('ItemsSource="{Binding CrossNetworkCodePrimaryActions}"') -and
+    $stop.ParentNode.OuterXml.Contains('ItemsSource="{Binding CrossNetworkCodeConnectActions}"')) -Message "The localized stop operation must belong to the live code panel."
+[void]$stop.ParentNode.RemoveChild($stop)
 Assert-Count -Text $actionTemplateDocument.OuterXml -Pattern '<Button\b' -ExpectedCount 5 -Message "MainWindow must retain three shared action templates and two weather refresh buttons without extra sidebar/session controls."
 
 Assert-Ordered -Text $mainWindow -Context "MainWindow shared action template usage" -Needles @(
