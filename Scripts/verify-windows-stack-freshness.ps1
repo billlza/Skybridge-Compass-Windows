@@ -151,7 +151,7 @@ Assert-True -Condition ($targetPlatformMinVersion -eq "10.0.19041.0") -Message "
 Assert-True -Condition ($windowsPackageTypes -contains "None") -Message "Windows client must keep a default WindowsPackageType=None path so unpackaged WinUI auto-initializes the Windows App SDK runtime. Actual=[$($windowsPackageTypes -join ', ')]"
 Assert-True -Condition ($windowsAppSdkVersion -eq "2.7.0") -Message "Windows App SDK must stay on latest stable 2.7.0, got $windowsAppSdkVersion"
 Assert-True -Condition ($buildToolsVersion -eq "10.0.28000.2957") -Message "Windows SDK BuildTools must stay on latest stable 10.0.28000.2957, got $buildToolsVersion"
-Assert-True -Condition ($qrCoderVersion -eq "1.8.1") -Message "QRCoder must stay on latest stable 1.8.1, got $qrCoderVersion"
+Assert-True -Condition ($qrCoderVersion -eq "1.9.0") -Message "QRCoder must stay on latest stable 1.9.0, got $qrCoderVersion"
 foreach ($vorticeVersion in @($vorticeDirect3D12Version, $vorticeDxgiVersion, $vorticeWinUiVersion, $vorticeD3DCompilerVersion)) {
     Assert-True -Condition ($vorticeVersion -eq "3.8.3") -Message "All Vortice packages must stay aligned on latest stable 3.8.3, got $vorticeVersion"
 }
@@ -168,7 +168,7 @@ Assert-Contains -Text $rustToolchain -Needle 'channel = "1.100.0"' -Message "rus
 Assert-Contains -Text $workflow -Needle 'actions/checkout@v7.0.1' -Message "Windows CI must pin actions/checkout v7.0.1."
 Assert-Contains -Text $workflow -Needle 'actions/setup-dotnet@v6.1.0' -Message "Windows CI must pin actions/setup-dotnet v6.1.0."
 Assert-Contains -Text $workflow -Needle 'global-json-file: global.json' -Message "Windows CI must consume the repository .NET SDK pin."
-Assert-Contains -Text $workflow -Needle 'cargo install cargo-llvm-cov --version 0.9.1 --locked' -Message "Windows CI must pin cargo-llvm-cov 0.9.1."
+Assert-Contains -Text $workflow -Needle 'cargo install cargo-llvm-cov --version 0.9.2 --locked' -Message "Windows CI must pin cargo-llvm-cov 0.9.2."
 
 $approvedCargoVersions = [ordered]@{
     "thiserror" = "2.0.21"
@@ -201,14 +201,14 @@ foreach ($architectureSignal in @(
     'Windows App SDK `2.7.0`',
     'Windows SDK BuildTools `10.0.28000.2957`',
     '`WindowsPackageType=None`',
-    'QRCoder `1.8.1`',
+    'QRCoder `1.9.0`',
     '.NET 10',
     '11.0.0',
     '10.0.404',
     'November 14, 2028',
     'MsQuic v2.6.4',
     'libdatachannel',
-    'v0.24.6',
+    'v0.24.7',
     'SIPSorcery `10.0.17`',
     'Rust 2021 edition',
     'verify-windows-stack-freshness.ps1',
@@ -226,7 +226,7 @@ foreach ($agentSignal in @(
     'TargetPlatformMinVersion `10.0.19041.0`',
     'Windows App SDK `2.7.0`',
     'Windows SDK BuildTools `10.0.28000.2957`',
-    'QRCoder `1.8.1`',
+    'QRCoder `1.9.0`',
     '-EvidencePath <json>',
     'verify-windows-stack-freshness.ps1'
 )) {
@@ -280,7 +280,7 @@ if ($CheckOnline) {
         Assert-True -Condition ($latestCrates[$dependency] -eq $cargoVersions[$dependency]) -Message "Cargo dependency $dependency is not current stable: project=$($cargoVersions[$dependency]) latest=$($latestCrates[$dependency])"
     }
     $latestCargoLlvmCov = Get-LatestStableCrateVersion -CrateName "cargo-llvm-cov"
-    Assert-True -Condition ($latestCargoLlvmCov -eq "0.9.1") -Message "cargo-llvm-cov latest stable changed: $latestCargoLlvmCov"
+    Assert-True -Condition ($latestCargoLlvmCov -eq "0.9.2") -Message "cargo-llvm-cov latest stable changed: $latestCargoLlvmCov"
 
     $checkoutLatest = Invoke-RestMethod -Uri $sourceUris.checkoutLatestRelease
     Assert-True -Condition ($checkoutLatest.tag_name -eq "v7.0.1") -Message "actions/checkout latest stable changed: $($checkoutLatest.tag_name)"
@@ -294,7 +294,7 @@ if ($CheckOnline) {
     Assert-True -Condition (-not [bool]$msquicLatest.prerelease) -Message "MsQuic latest release must not be a prerelease."
 
     $libdatachannelLatest = Invoke-RestMethod -Uri $sourceUris.libdatachannelLatestRelease
-    Assert-True -Condition ($libdatachannelLatest.tag_name -eq "v0.24.6") -Message "libdatachannel latest stable changed: $($libdatachannelLatest.tag_name)"
+    Assert-True -Condition ($libdatachannelLatest.tag_name -eq "v0.24.7") -Message "libdatachannel latest stable changed: $($libdatachannelLatest.tag_name)"
     Assert-True -Condition (-not [bool]$libdatachannelLatest.prerelease) -Message "libdatachannel latest release must not be a prerelease."
 
     $onlineEvidence = [ordered]@{
@@ -385,7 +385,7 @@ if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
             setupDotnet = "v6.1.0"
             sipsorcery = "10.0.17"
             msquic = "v2.6.4"
-            libdatachannel = "v0.24.6"
+            libdatachannel = "v0.24.7"
         }
         sourceUris = $sourceUris
         online = $onlineEvidenceValue

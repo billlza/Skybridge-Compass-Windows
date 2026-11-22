@@ -136,7 +136,7 @@ try {
 $compileItemText
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="QRCoder" Version="1.8.1" />
+    <PackageReference Include="QRCoder" Version="1.9.0" />
   </ItemGroup>
 </Project>
 "@

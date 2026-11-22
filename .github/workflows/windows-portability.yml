@@ -60,7 +60,7 @@ jobs:
         run: |
           rustup toolchain install 1.100.0 --profile minimal --component clippy --component llvm-tools-preview --component rustfmt
           rustup default 1.100.0
-          cargo install cargo-llvm-cov --version 0.9.1 --locked
+          cargo install cargo-llvm-cov --version 0.9.2 --locked
 
       - name: Build native WinUI client
         id: native-client

@@ -93,7 +93,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" PrivateAssets="all" />
-    <PackageReference Include="QRCoder" Version="1.8.1" />
+    <PackageReference Include="QRCoder" Version="1.9.0" />
     <!-- Vortice.Windows: native DirectX 12 + DXGI + WinUI SwapChainPanel interop — the Windows
          equivalent of Mac's Metal. The cinematic weather backdrop is a hand-written HLSL raymarch
          shader rendered into a SwapChainPanel. Chosen over ComputeSharp: ComputeSharp's source

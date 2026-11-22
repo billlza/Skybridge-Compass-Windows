@@ -75,7 +75,7 @@ $compileItemText
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" PrivateAssets="all" />
-    <PackageReference Include="QRCoder" Version="1.8.1" />
+    <PackageReference Include="QRCoder" Version="1.9.0" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
     <PackageReference Include="Vortice.MediaFoundation" Version="3.8.3" />
     <PackageReference Include="Concentus" Version="2.2.2" />

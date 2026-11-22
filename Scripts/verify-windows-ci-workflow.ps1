@@ -59,7 +59,7 @@ foreach ($signal in @(
     "Sources/SkyBridgeCompassApp/Dashboard/TopBar/TopNavigationBarView.swift",
     "rustup toolchain install 1.100.0 --profile minimal --component clippy --component llvm-tools-preview --component rustfmt",
     "rustup default 1.100.0",
-    "cargo install cargo-llvm-cov --version 0.9.1 --locked",
+    "cargo install cargo-llvm-cov --version 0.9.2 --locked",
     "Build native WinUI client",
     "dotnet restore windows/Skybridge.WinClient/Skybridge.WinClient.csproj",
     "dotnet build windows/Skybridge.WinClient/Skybridge.WinClient.csproj --configuration Debug --no-restore /p:TreatWarningsAsErrors=true",
