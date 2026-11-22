@@ -675,9 +675,7 @@
              off PublicKeyFingerprint presence (green when the peer advertises a
              verifiable identity, muted gray otherwise) — no fabricated state.
              Wrapped in GlassCard so the full-page peer list matches the carded
-             dashboard look (closes the asymmetry noted in recon). Contains NO
-             inline button element — connect actions live on the page's shared
-             action surfaces, so the gated button count is unaffected.
+             dashboard look. A resolved file service lets the operator start file pairing for that row.
              =================================================================== -->
         <DataTemplate x:Key="DiscoveredPeerItemTemplate">
             <!-- Padding binds to DeviceDisplayPrefs.CardPadding (紧凑模式 tightens it live). -->
@@ -739,6 +737,9 @@
                                 Fill="{Binding PublicKeyFingerprint, Converter={StaticResource PeerStatusBrushConverter}}"
                                 VerticalAlignment="Center" />
                         </StackPanel>
+                        <Button x:Uid="FilePairDiscoveredButton" Content="Connect for files" HorizontalAlignment="Left"
+                                Visibility="{Binding HasFileService, Converter={StaticResource BoolToVisibilityConverter}}"
+                                Click="OnDiscoveredFilePeerClicked" AutomationProperties.AutomationId="Skybridge.Discovery.PairForFiles" />
                         <!-- Platform / ServiceKind secondary line -->
                         <TextBlock FontSize="12" Foreground="{StaticResource SkyBridgeTextSecondaryBrush}">
                             <Run Text="{Binding Platform}" />

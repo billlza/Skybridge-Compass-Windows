@@ -169,7 +169,7 @@ internal static class LanProductControlResponder
             scope.CancelAfter(TimeSpan.FromSeconds(30));
             try
             {
-                var candidate = pairing.CreateCandidate(request, scope.Token);
+                var candidate = pairing.CreateCandidate(request, scope.Token, token);
                 await transport.SendAdmittedAsync(() =>
                 {
                     pairing.RequireCandidateSend(request, candidate, scope.Token);

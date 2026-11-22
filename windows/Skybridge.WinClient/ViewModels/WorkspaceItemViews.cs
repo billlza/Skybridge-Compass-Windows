@@ -499,6 +499,7 @@ public sealed record DiscoveredPeerView(
     string ProductActionSummary)
 {
     public DiscoveryBrowserPeerCandidate? Candidate { get; init; }
+    public bool HasFileService => Candidate?.Routes.FileTransfer is not null && !string.IsNullOrEmpty(PublicKeyFingerprint);
     public static DiscoveredPeerView FromCandidate(DiscoveryBrowserPeerCandidate candidate) =>
         new(
             candidate.Peer.DeviceId,

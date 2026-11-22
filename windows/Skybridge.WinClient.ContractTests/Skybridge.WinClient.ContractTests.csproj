@@ -38,8 +38,10 @@
     <Compile Include="..\Skybridge.WinClient\Services\WindowsLanConnectionInfo.cs" Link="Services\WindowsLanConnectionInfo.cs" />
     <Compile Include="LanProtocolIdentityBindingTests.cs" />
     <Compile Include="LanPibResponderTests.cs" />
+    <Compile Include="LanFileFirstPairTests.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\LanPibResponder.cs" Link="Services\LanPibResponder.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\RemoteControl\RemoteControlIdentityStore.Pib.cs" Link="Services\RemoteControl\RemoteControlIdentityStore.Pib.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\RemoteControl\RemoteControlIdentityStore.FilePairing.cs" Link="Services\RemoteControl\RemoteControlIdentityStore.FilePairing.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\LanBootstrapWire.cs" Link="Services\LanBootstrapWire.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\LanProtocolIdentityBinding.cs" Link="Services\LanProtocolIdentityBinding.cs" />
     <Compile Include="ProtocolOnlyPairingMaterialTests.cs" />

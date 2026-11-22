@@ -11,6 +11,7 @@ internal static class LanPibResponderTests
 {
     internal static readonly (string Name, Func<Task> Run)[] Cases =
     [
+        ("file PIB displays both pages' comparison before signed confirm and cannot commit on one vote", EarlyComparison),
         ("PIB candidate verifies possession without approval or trust commit", CandidateOnly),
         ("PIB final ACK waits for actual approval and persistence completion", ApprovalAndCommitOrder),
         ("PIB invalid request and confirmation signatures never reach approval", BadSignatures),
@@ -60,8 +61,9 @@ internal static class LanPibResponderTests
         { _stamp += TimeSpan.FromSeconds(seconds).Ticks; if (wall) Now += TimeSpan.FromSeconds(seconds); }
         internal double Reference => Now.ToUnixTimeMilliseconds() / 1000.0 - 978307200.0;
     }
-    private sealed class Approval(Func<LanPibApprovalRequest, CancellationToken, Task<bool>> show) : ILanPibApprovalPresenter
+    private sealed class Approval(Func<LanPibApprovalRequest, CancellationToken, Task<bool>> show, bool stage = false) : ILanPibApprovalPresenter
     {
+        public bool StageCandidate => stage;
         public Task<bool> ShowAsync(LanPibApprovalRequest request, CancellationToken token) => show(request, token);
     }
     private sealed class Fixture
@@ -76,7 +78,7 @@ internal static class LanPibResponderTests
         internal Func<LanPibApprovalRequest, CancellationToken, Task<bool>>? Show;
         internal Func<Action, CancellationToken, Task>? Persist;
         internal Action<int>? OnSign;
-        internal Fixture()
+        internal Fixture(bool stage = false)
         {
             Request = NewRequest(0);
             // Deliberately controlled SHA-256 ports isolate the actual transaction,
@@ -101,7 +103,7 @@ internal static class LanPibResponderTests
                 Approvals++; request.RequireCurrent();
                 Require(request.SasCode.Length == 6, "Approval did not contain a six-digit transcript SAS.");
                 return Show?.Invoke(request, token) ?? Task.FromResult(true);
-            }), () => { if (!Current) throw new InvalidOperationException("fixture account revoked"); }, Clock);
+            }, stage), () => { if (!Current) throw new InvalidOperationException("fixture account revoked"); }, Clock);
         }
         internal LanPibRequest NewRequest(byte identity, bool upperFingerprint = false)
         {
@@ -133,6 +135,23 @@ internal static class LanPibResponderTests
                 () => { if (!Current) throw new InvalidOperationException("fixture account revoked"); }, Clock);
         }
     }
+    private static async Task EarlyComparison()
+    {
+        var f = new Fixture(stage: true);
+        var shown = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var vote = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        f.Show = (request, token) => { shown.SetResult(request.SasCode); return vote.Task.WaitAsync(token); };
+        var candidate = f.Candidate();
+        Require(await shown.Task.WaitAsync(TimeSpan.FromSeconds(2)) == LanPibCanonical.SasCode(f.Request, candidate), "The receiver did not show the requester's same digits before confirmation.");
+        _ = f.Candidate(); vote.SetResult(true);
+        Require(f.Approvals == 1 && f.Commits == 0 && f.Trusted.Length == 0, "An early or duplicate candidate granted trust.");
+        var confirm = f.Confirm(candidate);
+        await Reject(() => f.Responder.ConfirmAsync(confirm with { RequesterSignature = Bytes(0, 32) }, default), "signatureInvalid");
+        Require(f.Commits == 0, "A forged confirming signature consumed the early acceptance.");
+        var ack = await f.Responder.ConfirmAsync(confirm, default);
+        Require(ack.Accepted && f.Commits == 1 && f.Approvals == 1, "Both real decisions did not consume the exact staged approval once.");
+    }
+
     private static Task CandidateOnly()
     {
         var f = new Fixture(); var candidate = f.Candidate();

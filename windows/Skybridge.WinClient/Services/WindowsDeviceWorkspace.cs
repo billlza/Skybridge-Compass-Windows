@@ -377,12 +377,14 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
     }
 
     internal async Task<LanProductControlSession> ConnectControlAsync(DiscoveryBrowserPeerCandidate candidate,
-        RemoteControlViewerAccount account, ushort localFileTransferPort, CancellationToken cancellationToken)
+        RemoteControlViewerAccount account, ushort localFileTransferPort, CancellationToken cancellationToken,
+        Func<string, string, CancellationToken, Task<bool>>? compareFilePeer = null, Action? requireCurrent = null)
     {
         await _controlOperations.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            requireCurrent?.Invoke(); cancellationToken.ThrowIfCancellationRequested();
             var deviceId = RemoteControlHandshakeBinding.CanonicalDeviceId(candidate.Peer.DeviceId);
             foreach (var stale in _controlSessions.Where(entry => !entry.Value.IsReady).ToArray())
             {
@@ -398,12 +400,28 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
                 return existing;
             }
             if (_controlSessions.Count >= 8) throw new InvalidOperationException("Eight device sessions are already open. Disconnect before adding another.");
-            var authority = await PrepareControlAuthenticationAsync(candidate, account, cancellationToken).ConfigureAwait(false);
+            ProductPeerAuthentication authority;
+            if (compareFilePeer == null) authority = await PrepareControlAuthenticationAsync(candidate, account, cancellationToken).ConfigureAwait(false);
+            else
+            {
+                ArgumentNullException.ThrowIfNull(requireCurrent);
+                var route = candidate.Routes.Control ?? throw new InvalidOperationException("The selected device has no resolved control route.");
+                var identity = await GetConnectionIdentityAsync(cancellationToken).ConfigureAwait(false);
+                var peer = await identity.PrepareLanFilePeerAsync(candidate.Peer.DeviceId, candidate.Peer.PublicKeyFingerprint,
+                    route, compareFilePeer, requireCurrent, cancellationToken).ConfigureAwait(false);
+                requireCurrent(); cancellationToken.ThrowIfCancellationRequested();
+                var local = identity.PublicMaterial;
+                var accountDevice = new RemoteControlSecurityIdentity(account.AccountDisplayName, account.NebulaId, local.DeviceId, local.DeviceName);
+                accountDevice.Validate();
+                authority = new(route, new(peer.DeviceId, peer.ProtocolPublicKeyFingerprint), identity.CreateWebRtcInitiator(peer), accountDevice, local);
+            }
             var session = await LanProductControlSession.ConnectAsync(authority, localFileTransferPort, cancellationToken).ConfigureAwait(false);
+            try { requireCurrent?.Invoke(); cancellationToken.ThrowIfCancellationRequested(); }
+            catch { await session.DisposeAsync().ConfigureAwait(false); throw; }
             lock (_stateGate) _controlSessions.Add(deviceId, session);
             // The registered session remains owned even if feature startup fails;
             // explicit disconnect must drain any actual consumer before removal.
-            if (_audioReceiveHost is { } receiver) await receiver.AttachAsync(session, cancellationToken).ConfigureAwait(false);
+            if (compareFilePeer == null && _audioReceiveHost is { } receiver) await receiver.AttachAsync(session, cancellationToken).ConfigureAwait(false);
             return session;
         }
         finally { _controlOperations.Release(); }

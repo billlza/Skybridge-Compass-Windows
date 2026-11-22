@@ -1974,6 +1974,7 @@
   <data name="FileReceiveWaiting" xml:space="preserve"><value>已就绪，可在所选网络配对设备、接收文件。</value></data>
   <data name="FileReceiveStopped" xml:space="preserve"><value>已停止局域网文件接收。</value></data>
   <data name="FileReceiveNoNetwork" xml:space="preserve"><value>没有可用的局域网接口。</value></data>
+  <data name="FilePairDiscoveredButton.Content" xml:space="preserve"><value>连接此设备传文件</value></data>
   <data name="FileReceiveIdentityDetails" xml:space="preserve"><value>查看设备身份详情</value></data>
   <data name="FileReceivePairDetail" xml:space="preserve"><value>记住这台设备用于局域网文件传输。接收每个文件前仍会询问。</value></data>
   <data name="WebRtcPairingCompare" xml:space="preserve"><value>请核对两台设备上显示的六位数字。</value></data>

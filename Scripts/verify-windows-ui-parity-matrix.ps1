@@ -533,6 +533,11 @@ foreach ($lifecycle in @(
     Assert-True -Condition $inFileWorkspace -Message "File-transfer lifecycle control must remain inside the file workspace: $($lifecycle.Name)"
     [void]$control.ParentNode.RemoveChild($control)
 }
+$rowAction = @($actionTemplateDocument.SelectNodes("//*[local-name()='Button']") | Where-Object { $_.GetAttribute("AutomationProperties.AutomationId") -eq "Skybridge.Discovery.PairForFiles" })
+Assert-True -Condition ($rowAction.Count -eq 1 -and $rowAction[0].GetAttribute("Click") -eq "OnDiscoveredFilePeerClicked" -and
+    $rowAction[0].GetAttribute("Visibility").Contains("HasFileService") -and
+    $rowAction[0].SelectSingleNode("ancestor::*[local-name()='DataTemplate']").GetAttribute("Key", "http://schemas.microsoft.com/winfx/2006/xaml") -eq "DiscoveredPeerItemTemplate") -Message "A discovered file row must connect its exact candidate through file pairing."
+[void]$rowAction[0].ParentNode.RemoveChild($rowAction[0])
 # Explicit shell and discovery buttons replaced the old top-bar item template.
 # Verify each owner, identity, and command before removing it from the template inventory.
 foreach ($entry in @(

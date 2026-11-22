@@ -2019,6 +2019,7 @@
   <data name="FileReceiveWaiting" xml:space="preserve"><value>Ready to pair and receive files on the selected network.</value></data>
   <data name="FileReceiveStopped" xml:space="preserve"><value>LAN file reception stopped.</value></data>
   <data name="FileReceiveNoNetwork" xml:space="preserve"><value>No local network interface is available.</value></data>
+  <data name="FilePairDiscoveredButton.Content" xml:space="preserve"><value>Connect for files</value></data>
   <data name="FileReceiveIdentityDetails" xml:space="preserve"><value>Device identity details</value></data>
   <data name="FileReceivePairDetail" xml:space="preserve"><value>Remember this device for LAN file transfers. You will be asked before each incoming file.</value></data>
   <data name="WebRtcPairingCompare" xml:space="preserve"><value>Compare these six digits on both devices.</value></data>

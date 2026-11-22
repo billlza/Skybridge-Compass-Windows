@@ -7,7 +7,8 @@ using Skybridge.WinClient.Services.RemoteControl;
 internal static class WindowsWebRtcFileSessionTests
 {
     internal static IReadOnlyList<(string Name, Func<Task> Run)> Cases => OperatingSystem.IsWindows()
-        ? [.. PortableCases, ("passive file-only LAN receives ordinary bytes on its announced port and verifies the saved receipt", LanProductControlResponderTests.NativePassiveFileReadback),
+        ? [.. PortableCases, ("first LAN file connection compares both operators, verifies signed KEM refresh and saves acknowledged bytes", LanFileFirstPairTests.Run),
+            ("passive file-only LAN receives ordinary bytes on its announced port and verifies the saved receipt", LanProductControlResponderTests.NativePassiveFileReadback),
             ("native first pairing writes only mutual consent to DPAPI and reconnects both signed devices after reopening", NativeRememberAndReconnect)]
         : PortableCases;
     private static IReadOnlyList<(string Name, Func<Task> Run)> PortableCases =>

@@ -62,7 +62,7 @@ public sealed partial class MainWindow : Window
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SkyBridgeCompass"),
             new(() => selection.DestinationDirectory, selection.ApproveIncomingAsync, ReportIncomingWebRtcProgress, CompleteIncomingWebRtc), CopyConnectionCode, CompareWebRtcPairingAsync);
         _fileTransferWorkspace = new(_remoteControlWorkspace, selection,
-            ReadCurrentDeviceAccount, RemoteControlText, _liveCodes);
+            ReadCurrentDeviceAccount, RemoteControlText, _liveCodes, ReadFileAccountOwner);
         var settings = new SettingsService();
         _operatorSettings = settings;
         _notifications = new WorkspaceNotificationCenter(ShowNotifications);
@@ -143,6 +143,8 @@ public sealed partial class MainWindow : Window
         _fileTransferWorkspace.ReportWebRtcProgress(progress);
     private void CompleteIncomingWebRtc(Services.FileTransfer.ClassicFileMetadata metadata, Services.FileTransfer.ClassicFileTransferResult? result, Exception? failure) =>
         _fileTransferWorkspace.CompleteIncomingWebRtc(metadata, result, failure);
+
+    private Services.Audio.AccountAudioAuthorization? ReadFileAccountOwner() => ViewModel.AccountSession.ReadAudioAuthorization();
 
     private Task<AccountDeviceAuthentication?> GetCodeAccountAsync(CancellationToken token) =>
         ViewModel.AccountSession.GetDeviceAuthenticationAsync(token);

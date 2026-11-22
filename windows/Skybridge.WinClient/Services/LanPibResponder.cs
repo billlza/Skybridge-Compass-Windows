@@ -8,6 +8,7 @@ internal sealed record LanPibApprovalRequest(LanPibRequest Request, LanPibCandid
     string SasCode, Action RequireCurrent);
 internal interface ILanPibApprovalPresenter
 {
+    bool StageCandidate => false;
     Task<bool> ShowAsync(LanPibApprovalRequest request, CancellationToken token);
 }
 internal sealed class LanPibRejectedException(string code, string message, Exception? inner = null) : IOException(message, inner)
@@ -46,6 +47,7 @@ internal sealed class LanPibResponder
         internal string? ConfirmHash;
         internal Task<LanPibFinalAck>? Finalization;
         internal LanPibFinalAck? Ack;
+        internal Task<(bool Match, Exception? Failure)>? EarlyApproval;
     }
 
     internal LanPibResponder(LanPibLocalIdentity local, Func<byte[], ImmutableArray<byte>> sign,
@@ -67,7 +69,7 @@ internal sealed class LanPibResponder
         _commit = commit; _approval = approval; _requireCurrent = requireCurrent; _time = time ?? TimeProvider.System;
     }
 
-    internal LanPibCandidate CreateCandidate(LanPibRequest request, CancellationToken token)
+    internal LanPibCandidate CreateCandidate(LanPibRequest request, CancellationToken token, CancellationToken? ownerLifetime = null)
     {
         RequireCurrent(token);
         var now = ObserveTime();
@@ -116,10 +118,29 @@ internal sealed class LanPibResponder
                 if (_time.GetElapsedTime(entry.Admitted, _time.GetTimestamp()) >= TimeSpan.FromMinutes(5))
                     throw Reject("expired", "Candidate generation outlived its transaction.");
                 entry.Candidate = candidate; entry.Phase = Phase.Candidate;
+                if (_approval.StageCandidate) entry.EarlyApproval = StageAsync(entry, candidate, ownerLifetime ?? token);
                 return candidate;
             }
             catch { entry.Phase = Phase.Failed; throw; }
         }
+    }
+
+    // The receiver must show the digits while the requester is comparing them.
+    // Its choice alone cannot sign an ACK or write an identity.
+    private async Task<(bool Match, Exception? Failure)> StageAsync(Entry entry, LanPibCandidate candidate, CancellationToken lifetime)
+    {
+        await Task.Yield();
+        using var scope = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+        try
+        {
+            scope.CancelAfter(TimeSpan.FromMinutes(5));
+            void Check() => RequireLive(entry, scope.Token);
+            Check();
+            var request = new LanPibApprovalRequest(entry.Request, candidate, LanPibCanonical.SasCode(entry.Request, candidate), Check);
+            var match = await _approval.ShowAsync(request, scope.Token).ConfigureAwait(false);
+            Check(); return (match, null);
+        }
+        catch (Exception failure) { return (false, failure); }
     }
 
     internal async Task<LanPibFinalAck> ConfirmAsync(LanPibConfirm confirm, CancellationToken token)
@@ -181,7 +202,14 @@ internal sealed class LanPibResponder
             RequireConfirmation();
             var request = new LanPibApprovalRequest(entry.Request, candidate,
                 LanPibCanonical.SasCode(entry.Request, candidate), RequireConfirmation);
-            var approved = await _approval.ShowAsync(request, scope.Token).ConfigureAwait(false);
+            bool approved;
+            if (entry.EarlyApproval is { } pending)
+            {
+                var early = await pending.WaitAsync(scope.Token).ConfigureAwait(false);
+                if (early.Failure != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(early.Failure).Throw();
+                approved = early.Match;
+            }
+            else approved = await _approval.ShowAsync(request, scope.Token).ConfigureAwait(false);
             RequireConfirmation();
             if (!approved) throw Reject("userRejected", "The local operator declined the pairing code.");
             var now = ObserveTime().Wall / 1000.0 - 978307200.0;

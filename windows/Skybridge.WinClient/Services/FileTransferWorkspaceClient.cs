@@ -21,6 +21,7 @@ internal interface IFileTransferSelectionClient
         return candidate is null ? null : new FileRecipientSelection.Discovered(candidate);
     }
     Task<bool> ApproveIncomingAsync(ClassicFileMetadata metadata, string destinationDirectory, CancellationToken cancellationToken);
+    Task<bool> CompareLanDeviceAsync(string device, string digits, CancellationToken token);
     string DestinationDirectory { get; }
 }
 
@@ -33,6 +34,7 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
     private readonly IFileTransferSelectionClient _selection;
     private readonly Func<RemoteControlViewerAccount?> _account;
     private readonly Func<string, string> _text;
+    private readonly Func<Audio.AccountAudioAuthorization?> _accountEpoch;
     private readonly object _state = new();
     private readonly SemaphoreSlim _outbound = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
@@ -51,9 +53,9 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
     private string _status;
 
     internal FileTransferWorkspaceClient(WindowsDeviceWorkspace workspace, IFileTransferSelectionClient selection,
-        Func<RemoteControlViewerAccount?> account, Func<string, string> text, WindowsLiveConnectionCodes? codes = null)
+        Func<RemoteControlViewerAccount?> account, Func<string, string> text, WindowsLiveConnectionCodes? codes, Func<Audio.AccountAudioAuthorization?> accountEpoch)
     {
-        _workspace = workspace; _codes = codes; _selection = selection; _account = account; _text = text;
+        _workspace = workspace; _codes = codes; _accountEpoch = accountEpoch; _selection = selection; _account = account; _text = text;
         _status = text("FileTransferLiveReady");
         _progress = new(ReportProgress);
     }
@@ -149,13 +151,13 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
         _passiveScope = null; scope.Dispose();
     }
 
-    internal async Task ConnectSelectedPeerAsync()
+    internal async Task ConnectSelectedPeerAsync(DiscoveryBrowserPeerCandidate? selected = null)
     {
         if (!await _outbound.WaitAsync(0)) throw new InvalidOperationException(_text("FileTransferLiveBusy"));
         try
         {
             var account = RequireAccount();
-            var peer = await _selection.SelectPeerAsync(_lifetime.Token);
+            var peer = selected ?? await _selection.SelectPeerAsync(_lifetime.Token);
             if (peer is not null) await ConnectAsync(peer, account);
         }
         catch (Exception failure) { SetStatus(failure.Message); throw; }
@@ -286,7 +288,10 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
         }
         if (_listener.Completion.IsCompleted) throw new IOException(_text("FileTransferLiveListenerStopped"));
         SetStatus(_text("FileTransferLiveConnecting"));
-        var session = await _workspace.ConnectControlAsync(peer, account, _listener.Port, _connectionsLifetime.Token);
+        var epoch = _accountEpoch() ?? throw new InvalidOperationException(_text("FileTransferLiveSignIn"));
+        epoch.RequireCurrent();
+        var session = await _workspace.ConnectControlAsync(peer, account, _listener.Port, _connectionsLifetime.Token,
+            _selection.CompareLanDeviceAsync, epoch.RequireCurrent);
         bool added;
         lock (_state) added = _connected.Add(session.SessionId);
         if (added)

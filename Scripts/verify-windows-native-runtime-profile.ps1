@@ -110,7 +110,8 @@ static async Task VerifyFileTransferWorkspaceAsync()
     AssertEqual(false, defaults.FileTransferClient.CanGenerateShareQr(), "unconfigured share gate");
     await using var workspace = new WindowsDeviceWorkspace();
     await using var transfers = new FileTransferWorkspaceClient(workspace, new CancelledFileTransferSelection(),
-        () => new RemoteControlViewerAccount("Runtime profile", "Runtime profile"), key => key);
+        () => new RemoteControlViewerAccount("Runtime profile", "Runtime profile"), key => key, null,
+        () => throw new InvalidOperationException("Cancelled selection must not start LAN pairing."));
     var configured = WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment(transfers);
     AssertEqual(true, ReferenceEquals(configured.FileTransferClient, transfers), "the factory must retain the one window-owned transfer runtime");
     AssertEqual(true, transfers.CanSelectFiles(), "configured file picker gate");
@@ -4605,6 +4606,7 @@ sealed class TestWebRtcProductControlPlane : IWebRtcProductControlPlane
 }
 sealed class CancelledFileTransferSelection : IFileTransferSelectionClient
 {
+    public Task<bool> CompareLanDeviceAsync(string device, string digits, CancellationToken token) => throw new InvalidOperationException("A canceled picker must not request a pairing decision.");
     public string DestinationDirectory => throw new InvalidOperationException("Cancelled selection must not inspect a receive folder.");
     public Task<IReadOnlyList<string>> SelectPathsAsync(bool folder, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>>([]);
     public Task<DiscoveryBrowserPeerCandidate?> SelectPeerAsync(CancellationToken cancellationToken) => throw new InvalidOperationException("Cancelled selection must not choose a peer or establish a session.");

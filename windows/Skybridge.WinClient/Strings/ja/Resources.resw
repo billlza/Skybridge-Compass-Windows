@@ -1974,6 +1974,7 @@
   <data name="FileReceiveWaiting" xml:space="preserve"><value>選択したネットワークでペアリングとファイル受信ができます。</value></data>
   <data name="FileReceiveStopped" xml:space="preserve"><value>LANファイル受信を停止しました。</value></data>
   <data name="FileReceiveNoNetwork" xml:space="preserve"><value>利用可能なネットワークがありません。</value></data>
+  <data name="FilePairDiscoveredButton.Content" xml:space="preserve"><value>ファイル転送用に接続</value></data>
   <data name="FileReceiveIdentityDetails" xml:space="preserve"><value>デバイスの識別情報</value></data>
   <data name="FileReceivePairDetail" xml:space="preserve"><value>このデバイスをLANファイル転送用に記憶します。ファイルごとに受信を確認します。</value></data>
   <data name="WebRtcPairingCompare" xml:space="preserve"><value>両方のデバイスに表示された6桁の数字を比較してください。</value></data>

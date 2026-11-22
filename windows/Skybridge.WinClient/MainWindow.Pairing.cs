@@ -33,6 +33,7 @@ public sealed partial class MainWindow
 
     private sealed class NativePairingApproval(MainWindow window, bool filesOnly = false) : ILanPibApprovalPresenter
     {
+        public bool StageCandidate => filesOnly;
         public async Task<bool> ShowAsync(LanPibApprovalRequest request, CancellationToken token)
         {
             return await window._dialogs.ShowAsync(() =>

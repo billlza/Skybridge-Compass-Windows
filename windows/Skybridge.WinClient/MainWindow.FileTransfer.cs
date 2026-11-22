@@ -102,6 +102,26 @@ public sealed partial class MainWindow
             throw new InvalidOperationException("The transfer state could not be presented in the application window.");
     }
 
+    private async void OnDiscoveredFilePeerClicked(object sender, RoutedEventArgs args)
+    {
+        if (_connectingFileTransfer || _hostShutdownInProgress || sender is not Button { DataContext: ViewModels.DiscoveredPeerView { Candidate: { } row } }) return;
+        _connectingFileTransfer = true;
+        try
+        {
+            var peers = ViewModel.DiscoveredPeers.Select(p => p.Candidate).OfType<DiscoveryBrowserPeerCandidate>().ToArray();
+            if (!peers.Any(p => ReferenceEquals(p, row))) throw new InvalidOperationException(RemoteControlText("FileTransferLiveNoPeers"));
+            var selected = DiscoveryPeerRoutes.JoinFileTransferServices(row, peers);
+            ViewModel.SelectedFeature = ViewModel.NavigationItems.Single(item => item.Id == FeatureEntryId.FileTransfer);
+            await _fileTransferWorkspace.ConnectSelectedPeerAsync(selected);
+        }
+        catch (Exception failure)
+        {
+            ViewModel.ApplyLiveFileTransfer(await _fileTransferWorkspace.BuildReadOnlySnapshotAsync(), failure.Message);
+            _notifications.Add(RemoteControlText("FileTransferLiveConnect"), failure.Message, "\uEA39");
+        }
+        finally { _connectingFileTransfer = false; }
+    }
+
     private async void OnFileTransferConnectClicked(object sender, RoutedEventArgs args)
     {
         if (_connectingFileTransfer || _hostShutdownInProgress) return;
@@ -194,6 +214,27 @@ public sealed partial class MainWindow
             if (result != WindowDialogResult.Primary) return null;
             var selected = (picker.SelectedItem as PeerChoice)?.Candidate ?? throw new InvalidOperationException("No transfer peer was selected.");
             return DiscoveryPeerRoutes.JoinFileTransferServices(selected, candidates);
+        }
+
+        public async Task<bool> CompareLanDeviceAsync(string device, string digits, CancellationToken token)
+        {
+            var result = await window._dialogs.ShowAsync(() =>
+            {
+                token.ThrowIfCancellationRequested(); window.RestoreMainWindow();
+                var body = new StackPanel { Spacing = 12 };
+                body.Children.Add(new TextBlock { Text = device, TextWrapping = TextWrapping.Wrap });
+                var code = new TextBlock { Text = digits, FontSize = 32, IsTextSelectionEnabled = true };
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(code, "Skybridge.FileTransfer.PairingCode");
+                body.Children.Add(code);
+                body.Children.Add(new TextBlock { Text = window.RemoteControlText("WebRtcPairingCompare"), TextWrapping = TextWrapping.Wrap });
+                return new NativeWindowDialog(new ContentDialog
+                {
+                    XamlRoot = window.RootShell.XamlRoot, Title = window.RemoteControlText("LanPairingTitle"), Content = body,
+                    PrimaryButtonText = window.RemoteControlText("LanPairingSave"),
+                    CloseButtonText = window.RemoteControlText("WebRtcPairingMismatch"), DefaultButton = ContentDialogButton.Close
+                });
+            }, token);
+            return result == WindowDialogResult.Primary;
         }
 
         public async Task<bool> ApproveIncomingAsync(ClassicFileMetadata metadata, string destinationDirectory, CancellationToken cancellationToken)

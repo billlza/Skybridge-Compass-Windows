@@ -34,6 +34,13 @@ public sealed partial class RemoteControlIdentityStore
         }
     }
 
+    private void RequireLanPeerCapacity(RemoteControlPairingMaterial candidate)
+    {
+        var ids = _trusted.Concat(_filePaired).Select(peer => peer.DeviceId).ToHashSet(StringComparer.Ordinal);
+        if (!ids.Contains(candidate.DeviceId) && ids.Count >= MaximumTrustedPeers)
+            throw new InvalidOperationException("The paired LAN device limit is reached.");
+    }
+
     private void RememberLanFilePeer(RemoteControlPairingMaterial peer, Action requireCommit, CancellationToken token)
     {
         lock (_gate)
@@ -42,7 +49,7 @@ public sealed partial class RemoteControlIdentityStore
             if (!peer.IsProtocolIdentityOnly) throw new InvalidDataException("PIB authorizes only its verified signing identity.");
             CheckKnownSigner(peer.DeviceId, peer.ProtocolPublicKeyFingerprint);
             if (!CheckImport(peer, PublicMaterial, _filePaired)) return;
-            if (_filePaired.Count >= MaximumTrustedPeers) throw new InvalidOperationException("The paired file device limit is reached.");
+            RequireLanPeerCapacity(peer);
             var replacement = new List<RemoteControlPairingMaterial>(_filePaired) { peer };
             Persist(_trusted, token, requireCommit, filePeers: replacement);
             _filePaired.Add(peer);
@@ -55,6 +62,7 @@ public sealed partial class RemoteControlIdentityStore
         {
             ThrowIfDisposed();
             CheckKnownSigner(material.DeviceId, material.ProtocolPublicKeyFingerprint);
+            RequireLanPeerCapacity(material);
             var members = filesOnly ? _filePaired : _trusted;
             if (CheckImport(material, PublicMaterial, members) && members.Count >= MaximumTrustedPeers)
                 throw new InvalidOperationException("The trusted peer limit is reached.");

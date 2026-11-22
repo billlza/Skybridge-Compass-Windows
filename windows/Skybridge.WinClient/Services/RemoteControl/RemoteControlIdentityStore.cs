@@ -245,6 +245,7 @@ public sealed partial class RemoteControlIdentityStore : IDisposable
                     return true;
                 }
                 if (!CheckImport(material)) { return false; }
+                RequireLanPeerCapacity(material);
                 if (_trusted.Count >= MaximumTrustedPeers) { throw new InvalidOperationException("The remote-control trusted peer limit is reached."); }
                 var replacement = new List<RemoteControlPairingMaterial>(_trusted) { material };
                 Persist(replacement, cancellationToken, requireCommit);
