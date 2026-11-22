@@ -59,6 +59,7 @@ public static class RemoteControlIdentityContractTests
         {
             var protector = new RecordingProtector();
             var committer = new SwitchableCommitter();
+            var webPeer = RemoteControlPairingMaterial.Create("id:webrtc-only-peer", "Paired over WebRTC", Enumerable.Repeat((byte)12, 1952).ToArray(), new byte[1184]);
             string localId;
             string localFingerprint;
             using (var store = await RemoteControlIdentityStore.LoadOrCreateAsync(directory, "Windows test host", protector, committer).ConfigureAwait(false))
@@ -67,6 +68,9 @@ public static class RemoteControlIdentityContractTests
                 localFingerprint = store.PublicMaterial.ProtocolPublicKeyFingerprint;
                 Require(store.TrustedPeers.Count == 0, "new identity authorizes no peers");
                 Require(protector.LastPlaintext is not null && AllZero(protector.LastPlaintext), "serialized private identity cleared after protection");
+                store.RememberComparedWebRtcPeer(webPeer, default);
+                Require(store.TrustedPeers.Count == 0 && store.FindWebRtcIdentity(webPeer.DeviceId, webPeer.ProtocolPublicKeyFingerprint).Compared!.HasSameAuthority(webPeer),
+                    "remembering a WebRTC signer does not authorize remote control");
                 using var provider = store.CreateCryptoProvider();
                 Require(await store.ImportTrustedPeerAsync(peer).ConfigureAwait(false), "explicit import commits a peer");
                 Require(!await store.ImportTrustedPeerAsync(parsed).ConfigureAwait(false), "equivalent import is idempotent");
@@ -128,6 +132,10 @@ public static class RemoteControlIdentityContractTests
             {
                 Require(reopened.PublicMaterial.DeviceId == localId && reopened.PublicMaterial.ProtocolPublicKeyFingerprint == localFingerprint,
                     "restart preserves real protocol identity");
+                Require(reopened.FindWebRtcIdentity(webPeer.DeviceId, webPeer.ProtocolPublicKeyFingerprint).Compared!.HasSameAuthority(webPeer),
+                    "restart preserves scoped WebRTC signer separately from remote controllers");
+                Reject<InvalidDataException>(() => reopened.FindWebRtcIdentity(webPeer.DeviceId, new string('c', 64)), "restart rejects a replacement signer");
+                Reject<InvalidDataException>(() => reopened.FindWebRtcIdentity("id:webrtc-alias", webPeer.ProtocolPublicKeyFingerprint), "restart rejects a signer under a different id");
                 Require(reopened.TrustedPeers.Count == 3, "restart preserves all explicitly committed peers");
                 Require(reopened.TrustedMaterials.Single(p => p.DeviceId == "id:eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee").IsProtocolIdentityOnly,
                     "restart preserves explicit identity-only state without inventing KEM");

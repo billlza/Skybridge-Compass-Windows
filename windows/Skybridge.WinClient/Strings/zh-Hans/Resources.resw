@@ -1967,6 +1967,10 @@
   <data name="LanPairingCompare" xml:space="preserve"><value>请确认这六位配对码与手机上显示的完全一致。</value></data>
   <data name="LanPairingSaveDetail" xml:space="preserve"><value>配对会在此电脑保存该设备身份。播放音频仍需通过账户验证，并单独批准播放请求。</value></data>
   <data name="LanPairingSave" xml:space="preserve"><value>一致，保存配对</value></data>
+  <data name="WebRtcPairingCompare" xml:space="preserve"><value>请核对两台设备上显示的六位数字。</value></data>
+  <data name="WebRtcPairingRemember" xml:space="preserve"><value>号码一致，记住设备</value></data>
+  <data name="WebRtcPairingOnce" xml:space="preserve"><value>号码一致，仅限本次</value></data>
+  <data name="WebRtcPairingMismatch" xml:space="preserve"><value>号码不一致</value></data>
   <data name="LanPairingReject" xml:space="preserve"><value>拒绝</value></data>
   <data name="LanPairingEnded" xml:space="preserve"><value>配对请求已结束，可以从手机重新发起。</value></data>
   <data name="AudioConnectionCopy.Label" xml:space="preserve"><value>复制连接信息</value></data>

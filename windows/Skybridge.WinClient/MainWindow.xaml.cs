@@ -60,7 +60,7 @@ public sealed partial class MainWindow : Window
         _liveCodes = new(_remoteControlWorkspace, GetCodeAccountAsync,
             Path.Combine(AppContext.BaseDirectory, "WebRTC", "skybridge-webrtc-helper.exe"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SkyBridgeCompass"),
-            new(() => selection.DestinationDirectory, selection.ApproveIncomingAsync, ReportIncomingWebRtcProgress, CompleteIncomingWebRtc), CopyConnectionCode);
+            new(() => selection.DestinationDirectory, selection.ApproveIncomingAsync, ReportIncomingWebRtcProgress, CompleteIncomingWebRtc), CopyConnectionCode, CompareWebRtcPairingAsync);
         _fileTransferWorkspace = new(_remoteControlWorkspace, selection,
             ReadCurrentDeviceAccount, RemoteControlText, _liveCodes);
         var settings = new SettingsService();

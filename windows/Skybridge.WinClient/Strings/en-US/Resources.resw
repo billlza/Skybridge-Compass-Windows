@@ -2012,6 +2012,10 @@
   <data name="LanPairingCompare" xml:space="preserve"><value>Confirm that the six-digit code matches the code on your phone.</value></data>
   <data name="LanPairingSaveDetail" xml:space="preserve"><value>Pairing saves this device identity on this computer. Audio playback still requires account verification and a separate playback approval.</value></data>
   <data name="LanPairingSave" xml:space="preserve"><value>Match and save</value></data>
+  <data name="WebRtcPairingCompare" xml:space="preserve"><value>Compare these six digits on both devices.</value></data>
+  <data name="WebRtcPairingRemember" xml:space="preserve"><value>Match and remember</value></data>
+  <data name="WebRtcPairingOnce" xml:space="preserve"><value>Match for this session</value></data>
+  <data name="WebRtcPairingMismatch" xml:space="preserve"><value>Numbers differ</value></data>
   <data name="LanPairingReject" xml:space="preserve"><value>Reject</value></data>
   <data name="LanPairingEnded" xml:space="preserve"><value>The pairing request ended. You can start a new request from your phone.</value></data>
   <data name="AudioConnectionCopy.Label" xml:space="preserve"><value>Copy connection info</value></data>

@@ -23,26 +23,38 @@ internal sealed class WindowsWebRtcFileSession : IAsyncDisposable
     private ulong _counter;
     private long _lastHeartbeat = Stopwatch.GetTimestamp();
     private readonly WindowsWebRtcIncomingFiles? _incoming;
+    private readonly WindowsWebRtcPairing _pairing;
+    internal Task<RemoteControlPairingMaterial> PairingApproved => _pairing.Approved;
     private bool _disposed;
     private sealed record Pending(string Id, string Op, int? Index,
         TaskCompletionSource<JsonElement> Result);
 
     internal WindowsWebRtcFileSession(LiveWebRtcProductControlContext context, WebRtcAppSecureSessionKeys keys,
-        RemoteControlPairingMaterial local, RemoteControlPairingMaterial paired, WindowsWebRtcReceiveOptions? receive = null, Action<Action>? authorizeCommit = null)
+        RemoteControlPairingMaterial local, RemoteControlPairingMaterial paired, WebRtcPairingPolicy policy, WindowsWebRtcReceiveOptions? receive = null, Action<Action>? authorizeCommit = null)
     {
         if (context.SecureSessionState != WebRtcProductControlSecureSessionState.Established ||
             context.SessionIncarnation is not { } owner || context.PeerPublicKeyFingerprint != paired.ProtocolPublicKeyFingerprint ||
             RemoteControlHandshakeBinding.CanonicalDeviceId(context.PeerDeviceId) != paired.DeviceId)
             throw new InvalidDataException("A current authenticated peer is required.");
         owner.RequireValid();
-        Recipient = new(owner, paired.DeviceId, paired.DeviceName);
+        _owner = owner;
         _local = local; _peer = paired; _keys = keys; _plane = context.ControlPlane; _token = _lifetime.Token;
-        _incoming = receive is null ? null : new(paired, receive,
+        _pairing = new(paired, keys.TranscriptHash, policy);
+        _incoming = receive is null ? null : new(PairingApproved, receive,
             (response, token) => SendAsync(WebRtcAppSecurePacketType.FileTransfer, JsonSerializer.SerializeToUtf8Bytes(response), token),
             authorizeCommit ?? (effect => { _token.ThrowIfCancellationRequested(); effect(); }));
         _plane.MessageReceived += Inbound;
     }
-    internal WindowsWebRtcFileRecipient Recipient { get; }
+    private readonly WebRtcProductSessionIncarnation _owner;
+    internal WindowsWebRtcFileRecipient Recipient
+    {
+        get
+        {
+            if (!PairingApproved.IsCompletedSuccessfully) throw new InvalidOperationException("Confirm the six digits on both devices first.");
+            var peer = PairingApproved.GetAwaiter().GetResult();
+            return new(_owner, peer.DeviceId, peer.DeviceName);
+        }
+    }
     private void Inbound(byte[] payload)
     {
         if (!_input.Writer.TryWrite(payload))
@@ -54,20 +66,28 @@ internal sealed class WindowsWebRtcFileSession : IAsyncDisposable
         var control = ControlAsync(stop.Token);
         var heartbeat = HeartbeatAsync(stop.Token);
         var workers = _incoming is null ? new[] { control, heartbeat } : new[] { control, heartbeat, _incoming.RunAsync(stop.Token) };
-        try { await await Task.WhenAny(workers).ConfigureAwait(false); }
+        var pairing = _pairing.RunAsync((message, ct) => SendAsync(WebRtcAppSecurePacketType.AppControl, message, ct), stop.Token);
+        try
+        {
+            var first = await Task.WhenAny(workers.Append(pairing)).ConfigureAwait(false);
+            await first.ConfigureAwait(false);
+            if (first == pairing) await await Task.WhenAny(workers).ConfigureAwait(false);
+        }
         finally
         {
             stop.Cancel();
             _lifetime.Cancel();
-            try { await Task.WhenAll(workers).ConfigureAwait(false); }
+            try { await Task.WhenAll(workers.Append(pairing)).ConfigureAwait(false); }
             catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
         }
     }
     private async Task HeartbeatAsync(CancellationToken token)
     {
-        var identity = new LanProductIdentity(_local.DeviceId, [new(0x0101, _local.MlKem768PublicKey.ToArray())],
+        var kem = new List<LanKemPublicKey> { new(0x0101, _local.MlKem768PublicKey.ToArray()) };
+        if (_local.HasQPeriaptKey) kem.Add(new(WebRtcProductHandshakeCodec.SuiteQPeriaptPolicyBound, _local.QPeriaptPublicKey.ToArray()));
+        var identity = new LanProductIdentity(_local.DeviceId, kem.ToArray(),
             LanProductControlMessages.Timestamp(DateTimeOffset.UtcNow), [new(_local.ProtocolSigningAlgorithm, _local.ProtocolPublicKey.ToArray())],
-            DeviceName: _local.DeviceName, Platform: "Windows", OsVersion: Environment.OSVersion.Version.ToString(), Capabilities: _incoming is null ? [] : ["file_transfer"]);
+            DeviceName: _local.DeviceName, Platform: "Windows", OsVersion: Environment.OSVersion.Version.ToString(), Capabilities: _incoming is null ? [WindowsWebRtcPairing.Capability] : [WindowsWebRtcPairing.Capability, "file_transfer"]);
         await SendAsync(WebRtcAppSecurePacketType.AppControl, LanProductControlMessages.Encode(LanControlMessageKind.Identity, identity), token).ConfigureAwait(false);
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
         do
@@ -93,7 +113,8 @@ internal sealed class WindowsWebRtcFileSession : IAsyncDisposable
                 var root = doc.RootElement;
                 if (clear.PacketType == WebRtcAppSecurePacketType.AppControl)
                 {
-                    if (root.TryGetProperty("heartbeat", out var beat))
+                    if (root.TryGetProperty("pairingSASDecision", out _)) _pairing.ReceiveVote(root, clear.Payload.Length);
+                    else if (root.TryGetProperty("heartbeat", out var beat))
                     {
                         string id = beat.GetProperty("deviceId").GetString() ?? throw new InvalidDataException("Heartbeat has no sender.");
                         if (RemoteControlHandshakeBinding.CanonicalDeviceId(id) != _peer.DeviceId)
@@ -103,7 +124,7 @@ internal sealed class WindowsWebRtcFileSession : IAsyncDisposable
                     else if (root.TryGetProperty("pairingIdentityExchange", out _))
                     {
                         var identity = LanProductControlMessages.Payload<LanProductIdentity>(LanProductControlMessages.Decode(clear.Payload));
-                        LanProductControlMessages.ValidateIdentity(identity, new(_peer.DeviceId, _peer.ProtocolPublicKeyFingerprint));
+                        _pairing.ReceiveIdentity(identity);
                     }
                     else if (root.TryGetProperty("peerDisconnecting", out _)) throw new IOException("The paired device disconnected.");
                     else if (root.TryGetProperty("ping", out var ping))
@@ -117,7 +138,7 @@ internal sealed class WindowsWebRtcFileSession : IAsyncDisposable
                 var op = root.GetProperty("op").GetString();
                 if (op is "metadata" or "chunk" or "complete" or "cancel")
                 {
-                    if (_incoming is not null) { _incoming.Enqueue(root); continue; }
+                    if (PairingApproved.IsCompletedSuccessfully && _incoming is not null) { _incoming.Enqueue(root); continue; }
                     await SendAsync(WebRtcAppSecurePacketType.FileTransfer, JsonSerializer.SerializeToUtf8Bytes(new {
                         version = 1, op = "error", transferId = idText, message = "This receiver does not accept incoming WebRTC files."
                     }), token).ConfigureAwait(false);
@@ -163,6 +184,7 @@ internal sealed class WindowsWebRtcFileSession : IAsyncDisposable
     {
         using var operation = CancellationTokenSource.CreateLinkedTokenSource(token, _token);
         token = operation.Token;
+        await PairingApproved.WaitAsync(token).ConfigureAwait(false);
         await _file.WaitAsync(token).ConfigureAwait(false);
         try
         {

@@ -1967,6 +1967,10 @@
   <data name="LanPairingCompare" xml:space="preserve"><value>6桁のコードがスマートフォンに表示されているコードと一致することを確認してください。</value></data>
   <data name="LanPairingSaveDetail" xml:space="preserve"><value>このコンピューターにデバイスの識別情報を保存します。音声の再生には、アカウントの確認と別途の再生許可が必要です。</value></data>
   <data name="LanPairingSave" xml:space="preserve"><value>一致を確認して保存</value></data>
+  <data name="WebRtcPairingCompare" xml:space="preserve"><value>両方のデバイスに表示された6桁の数字を比較してください。</value></data>
+  <data name="WebRtcPairingRemember" xml:space="preserve"><value>一致・デバイスを記憶</value></data>
+  <data name="WebRtcPairingOnce" xml:space="preserve"><value>一致・今回のみ</value></data>
+  <data name="WebRtcPairingMismatch" xml:space="preserve"><value>番号が一致しない</value></data>
   <data name="LanPairingReject" xml:space="preserve"><value>拒否</value></data>
   <data name="LanPairingEnded" xml:space="preserve"><value>ペアリング要求が終了しました。スマートフォンから再度開始できます。</value></data>
   <data name="AudioConnectionCopy.Label" xml:space="preserve"><value>接続情報をコピー</value></data>

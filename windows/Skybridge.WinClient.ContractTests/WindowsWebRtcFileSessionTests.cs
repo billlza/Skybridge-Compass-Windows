@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.Services.FileTransfer;
 using Skybridge.WinClient.Services.RemoteControl;
@@ -9,6 +10,7 @@ internal static class WindowsWebRtcFileSessionTests
     [
         ("ordinary WebRTC files require approval and a disk-backed exact receipt in both directions", BothDirections),
         ("WebRTC file receiver decline creates no artifact and does not close the session", Decline),
+        ("WebRTC SAS rejects mismatch, stale transcript, signer change and silent capability downgrade", PairingBoundaries),
         ("WebRTC native fragments reassemble across headers and reject oversized prefixes", Framing),
     ];
 
@@ -71,8 +73,20 @@ internal static class WindowsWebRtcFileSessionTests
                     }
                     return accept;
                 }, _ => { }, (_,_,_) => { });
-            await using var left = new WindowsWebRtcFileSession(ownerA, ka, alice, bob, Receive(dirA, bob.DeviceId));
-            await using var right = new WindowsWebRtcFileSession(ownerB, kb, bob, alice, Receive(dirB, alice.DeviceId));
+            int remembered = 0;
+            string? leftCode = null, rightCode = null;
+            var userReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var compare = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var leftPolicy = new WebRtcPairingPolicy(false, false, (_, code, _) =>
+            {
+                leftCode = code; return Task.FromResult(WebRtcComparison.Remember);
+            }, (peer, _) => { Require(peer.HasSameAuthority(bob), "Wrong remembered peer."); Interlocked.Increment(ref remembered); });
+            var rightPolicy = new WebRtcPairingPolicy(false, false, async (_, code, ct) =>
+            {
+                rightCode = code; userReady.TrySetResult(); await compare.Task.WaitAsync(ct); return WebRtcComparison.AllowOnce;
+            }, (_, _) => throw new Exception("Allow once wrote persistent trust."));
+            await using var left = new WindowsWebRtcFileSession(ownerA, ka, alice, bob, leftPolicy, Receive(dirA, bob.DeviceId));
+            await using var right = new WindowsWebRtcFileSession(ownerB, kb, bob, alice, rightPolicy, Receive(dirB, alice.DeviceId));
             var loopA = left.RunAsync(token); var loopB = right.RunAsync(token);
             try
             {
@@ -81,6 +95,13 @@ internal static class WindowsWebRtcFileSessionTests
                 await File.WriteAllBytesAsync(source, bytes, token);
                 var id = Guid.NewGuid().ToString("D");
                 var sending = left.SendFileAsync(id, source, null, token);
+                await userReady.Task.WaitAsync(token);
+                Require(!sending.IsCompleted && !left.PairingApproved.IsCompleted && !right.PairingApproved.IsCompleted &&
+                    !approve.Task.IsCompleted && Volatile.Read(ref remembered) == 0, "Pairing or file authorization preceded both comparisons.");
+                compare.SetResult();
+                await Task.WhenAll(left.PairingApproved, right.PairingApproved).WaitAsync(token);
+                Require(leftCode is { Length: 6 } && leftCode == rightCode && Volatile.Read(ref remembered) == 1,
+                    "The signed session did not produce mutual identical codes and exactly one opt-in.");
                 await approve.Task.WaitAsync(token);
                 Require(Directory.GetFileSystemEntries(dirB).Length == 0 && !sending.IsCompleted, "A file was accepted before local approval.");
                 delay = false; release.SetResult();
@@ -151,6 +172,50 @@ internal static class WindowsWebRtcFileSessionTests
             finally { storeA.ClearAllForGlobalShutdown(); storeB.ClearAllForGlobalShutdown(); }
         }
         finally { CryptographicOperations.ZeroMemory(skA); CryptographicOperations.ZeroMemory(skB); CryptographicOperations.ZeroMemory(dkB); }
+    }
+
+    private static async Task PairingBoundaries()
+    {
+        byte[] transcript = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+        var hash = Convert.ToHexStringLower(transcript);
+        var peer = Peer("id:valid-peer", "Peer", 6);
+        var identity = new LanProductIdentity(peer.DeviceId, [new(0x0101, peer.MlKem768PublicKey.ToArray())], 0,
+            [new("ML-DSA-65", peer.ProtocolPublicKey.ToArray())], Capabilities: [WindowsWebRtcPairing.Capability]);
+        var sent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int writes = 0;
+        var opt = new WebRtcPairingPolicy(false, false, (_, _, _) => Task.FromResult(WebRtcComparison.Remember), (_, _) => writes++);
+        using var bound = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        Task Send(byte[] _, CancellationToken ct) { ct.ThrowIfCancellationRequested(); sent.TrySetResult(); return Task.CompletedTask; }
+        static JsonElement Vote(string hash, bool yes) => JsonSerializer.SerializeToElement(new {
+            pairingSASDecision = new { version = 1, transcriptHashHex = hash, accepted = yes } });
+        static void Reject(Action attempt) { try { attempt(); } catch (Exception e) when (e is InvalidDataException or WebRtcPairingDeclinedException) { return; } throw new Exception("Invalid vote/identity accepted."); }
+        static async Task Declined(Task attempt) { try { await attempt; } catch (Exception e) when (e is InvalidDataException or WebRtcPairingDeclinedException) { return; } throw new Exception("Pairing succeeded."); }
+        Require(WindowsWebRtcPairing.VerificationCode(transcript) == "879057", "Cross-platform transcript SAS differs.");
+        var comparison = new WindowsWebRtcPairing(peer, transcript, opt);
+        comparison.ReceiveIdentity(identity);
+        var running = comparison.RunAsync(Send, bound.Token);
+        await sent.Task.WaitAsync(bound.Token);
+        Reject(() => comparison.ReceiveVote(Vote(new string('f', 64), true), 180));
+        Reject(() => comparison.ReceiveVote(Vote(hash, false), 180));
+        await Declined(running);
+        Require(writes == 0, "A remote mismatch after local acceptance wrote trust.");
+        var mismatch = new WindowsWebRtcPairing(peer, transcript, opt with { Compare = (_,_,_) => Task.FromResult(WebRtcComparison.Reject) });
+        mismatch.ReceiveIdentity(identity); mismatch.ReceiveVote(Vote(hash, true), 180);
+        await Declined(mismatch.RunAsync(Send, bound.Token));
+        Require(writes == 0, "Local mismatch with a remote accept wrote trust.");
+        var reconnect = new WindowsWebRtcPairing(peer, transcript, opt with {
+            Remembered = true, Compare = (_, _, _) => throw new Exception("Remembered signed peer unexpectedly prompted.") });
+        reconnect.ReceiveIdentity(identity);
+        var resumed = reconnect.RunAsync(Send, bound.Token);
+        Require(!reconnect.Approved.IsCompleted, "Remembered peer skipped fresh remote approval.");
+        reconnect.ReceiveVote(Vote(hash, true), 180);
+        await resumed;
+        Require(writes == 0 && (await reconnect.Approved).HasSameProtocolIdentity(peer), "Fresh reconnect lost its signed owner.");
+        var changed = new WindowsWebRtcPairing(peer, transcript, opt);
+        Reject(() => changed.ReceiveIdentity(identity with { ProtocolIdentityPublicKeys = [new("ML-DSA-65", new byte[1952])] }));
+        var downgraded = new WindowsWebRtcPairing(peer, transcript, opt with { Remembered = true, LegacyTrusted = true });
+        downgraded.ReceiveIdentity(identity with { Capabilities = [] });
+        await Declined(downgraded.RunAsync(Send, bound.Token));
     }
 
     private static Task Framing()

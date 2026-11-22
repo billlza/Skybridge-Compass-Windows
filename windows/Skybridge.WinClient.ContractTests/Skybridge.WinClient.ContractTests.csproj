@@ -190,6 +190,7 @@
     <Compile Include="..\Skybridge.WinClient\Services\WindowsWebRtcIncomingFiles.cs" Link="Services\WindowsWebRtcIncomingFiles.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductHandshakeDriver.cs" Link="Services\WebRtcProductHandshakeDriver.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WindowsWebRtcFileSession.cs" Link="Services\WindowsWebRtcFileSession.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\WindowsWebRtcPairing.cs" Link="Services\WindowsWebRtcPairing.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductControlPlaneClient.cs" Link="Services\WebRtcProductControlPlaneClient.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductSecureSessionRuntimeConsumer.cs" Link="Services\WebRtcProductSecureSessionRuntimeConsumer.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\WebRtcProductSecureSessionStore.cs" Link="Services\WebRtcProductSecureSessionStore.cs" />

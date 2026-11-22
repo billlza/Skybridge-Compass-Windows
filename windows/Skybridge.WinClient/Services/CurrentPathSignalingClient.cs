@@ -1831,6 +1831,7 @@ public sealed class CurrentPathWebSocketSignalingClient : IAsyncDisposable
     private readonly CurrentPathWebSocketSignalingClientOptions _options;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private int _generation;
+    private readonly Queue<CurrentPathSignalingInboundMessage> _handoff = new();
 
     public CurrentPathWebSocketSignalingClient(
         CurrentPathWebSocketSignalingClientOptions options)
@@ -1868,6 +1869,7 @@ public sealed class CurrentPathWebSocketSignalingClient : IAsyncDisposable
                 return;
             }
 
+            _handoff.Clear();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(_options.ConnectTimeout);
             Emit(CurrentPathSignalingLifecyclePhase.Connecting, generation);
@@ -1981,6 +1983,17 @@ public sealed class CurrentPathWebSocketSignalingClient : IAsyncDisposable
             .ConfigureAwait(false);
     }
 
+    // A single reader transfers ordered, already validated envelopes to the helper on the same binding.
+    internal void HandoffReceived(IEnumerable<CurrentPathSignalingInboundMessage> messages)
+    {
+        foreach (var message in messages)
+        {
+            if (!IsBound || message.Envelope?.SessionId != _options.SessionId || _handoff.Count >= 32)
+                throw new InvalidDataException("Invalid early signaling handoff.");
+            _handoff.Enqueue(message);
+        }
+    }
+
     public async Task<CurrentPathSignalingInboundMessage> ReceiveNextAsync(
         CancellationToken cancellationToken = default)
     {
@@ -1992,6 +2005,8 @@ public sealed class CurrentPathWebSocketSignalingClient : IAsyncDisposable
                 "Current-path WebSocket must be bound before receiving signaling envelopes.");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_handoff.TryDequeue(out var buffered)) return buffered;
         var received = await _transport.ReceiveAsync(_options.MaxMessageBytes, cancellationToken)
             .ConfigureAwait(false);
         if (received.Kind == CurrentPathWebSocketReceiveKind.Close)

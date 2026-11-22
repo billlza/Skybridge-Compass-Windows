@@ -11,7 +11,8 @@ namespace Skybridge.WinClient.Services;
 [SupportedOSPlatform("windows10.0.19041")]
 internal sealed class WindowsLiveConnectionCodes(
     WindowsDeviceWorkspace workspace, Func<CancellationToken, Task<AccountDeviceAuthentication?>> authenticate,
-    string helperPath, string stateDirectory, WindowsWebRtcReceiveOptions receive, Action<string> copyCode) : IAsyncDisposable
+    string helperPath, string stateDirectory, WindowsWebRtcReceiveOptions receive, Action<string> copyCode,
+    Func<string, string, CancellationToken, Task<WebRtcComparison>> compare) : IAsyncDisposable
 {
     private readonly object _gate = new();
     private readonly HttpClient _http = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(10), MaxResponseContentBufferSize = 128 * 1024 };
@@ -115,7 +116,7 @@ internal sealed class WindowsLiveConnectionCodes(
             await ws.SendAsync(new(room, local.DeviceId, null, CurrentPathWebRtcSignalingMessageType.Join, localJoin,
                 sentAt: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000d), setup.Token).ConfigureAwait(false);
 
-            string remoteId, fingerprint;
+            Candidate peer;
             if (lease is not null)
             {
                 waiting.Token.ThrowIfCancellationRequested();
@@ -123,31 +124,36 @@ internal sealed class WindowsLiveConnectionCodes(
                 {
                     token.ThrowIfCancellationRequested();
                     op.IssuedCode = lease.Code;
-                    op.Started.TrySetResult(new(DateTimeOffset.UtcNow, "Waiting for a paired device", lease.Code, []));
+                    op.Started.TrySetResult(new(DateTimeOffset.UtcNow, "Waiting for a device", lease.Code, []));
                 }
-                var peer = await WaitForPeerAsync(ws, room, local.DeviceId, identity, waiting.Token).ConfigureAwait(false);
+                peer = await WaitForPeerAsync(ws, room, local.DeviceId, identity, null, null, waiting.Token).ConfigureAwait(false);
                 lock (_gate) op.IssuedCode = null;
-                (remoteId, fingerprint) = peer;
             }
             else
             {
                 if (lookup!.InitiatorProtocolSigningAlgorithm != CurrentPathProtocolSigningAlgorithm.MLDsa65)
                     throw new InvalidDataException("The advertised device does not meet the ML-DSA identity policy.");
-                remoteId = lookup.InitiatorDeviceId;
-                fingerprint = lookup.InitiatorProtocolPublicKeyFingerprint;
+                var known = identity.FindWebRtcIdentity(lookup.InitiatorDeviceId, lookup.InitiatorProtocolPublicKeyFingerprint);
+                var pinned = known.Compared ?? known.PreviouslyTrusted;
+                peer = pinned is null
+                    ? await WaitForPeerAsync(ws, room, local.DeviceId, identity, lookup.InitiatorDeviceId,
+                        lookup.InitiatorProtocolPublicKeyFingerprint, setup.Token).ConfigureAwait(false)
+                    : new(lookup.InitiatorDeviceId, pinned);
             }
 
             using var connecting = CancellationTokenSource.CreateLinkedTokenSource(token);
             connecting.CancelAfter(TimeSpan.FromSeconds(30));
             var sessionToken = hosting ? connecting.Token : setup.Token;
-            var paired = RequirePaired(identity, remoteId, fingerprint);
+            var remoteId = peer.WireId;
+            var paired = peer.Material;
+            var fingerprint = paired.ProtocolPublicKeyFingerprint;
             var remoteCaps = new PeerCapabilities(CorePeerPlatform.Unknown, false, false, false, true, false, false);
             var path = NetworkPath.CrossNatPath();
             var selected = await new CoreBridge().SelectTransportAsync(PeerCapabilities.Windows(), remoteCaps, path).ConfigureAwait(false);
             var adapter = new WindowsTransportAdapterRequest(
                 new(CoreDiscoveryServiceKind.Unknown, remoteId, paired.DeviceName, CorePeerPlatform.Unknown, "", fingerprint,
                     "webrtc", CurrentPathSignalServerClient.DefaultProtocolVersion, remoteCaps),
-                new(remoteId, paired.DeviceName, "", fingerprint, paired.ProtocolPublicKey.ToArray(), true, "authenticated-code-and-paired-identity"),
+                new(remoteId, paired.DeviceName, "", fingerprint, paired.ProtocolPublicKey.ToArray(), true, "signaling-candidate-pending-signed-handshake"),
                 selected.Kind, selected.AuditCode, selected.RelayRequired, selected.RelayAllowed, PeerCapabilities.Windows(), remoteCaps, path);
             var directory = Path.Combine(stateDirectory, "webrtc", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
@@ -162,7 +168,7 @@ internal sealed class WindowsLiveConnectionCodes(
                 await using var transport = new WebRtcProductControlTransportProvider(connector, new(!hosting, 0, 15_000, useProductFraming: true));
                 var context = await transport.PrepareAsync(adapter, sessionToken).ConfigureAwait(false);
                 var store = new WebRtcProductSecureSessionStore();
-                using var crypto = hosting ? identity.CreateInitiatorCryptoProvider(remoteId, fingerprint) : identity.CreateCryptoProvider();
+                using var crypto = hosting ? identity.CreateWebRtcInitiator(paired) : identity.CreateCryptoProvider();
                 var handshake = new WebRtcProductHandshakeDriver(crypto, store, new(TimeSpan.FromSeconds(15)));
                 var established = hosting ? await handshake.StartInitiatorAsync(context, sessionToken).ConfigureAwait(false)
                     : await handshake.StartResponderAsync(context, sessionToken).ConfigureAwait(false);
@@ -172,7 +178,7 @@ internal sealed class WindowsLiveConnectionCodes(
                     // The helper pump was established under the bounded setup token; disarm its deadline
                     // once FIN1 succeeded. Parent cancellation remains bound to the real room lifetime.
                     (hosting ? connecting : setup).CancelAfter(Timeout.InfiniteTimeSpan);
-                    RequirePaired(identity, remoteId, fingerprint);
+                    var trust = identity.FindWebRtcIdentity(remoteId, fingerprint);
                     using var keys = store.RequireEstablishedKeys(established);
                     void CommitFile(Action commit)
                     {
@@ -180,21 +186,28 @@ internal sealed class WindowsLiveConnectionCodes(
                         {
                             token.ThrowIfCancellationRequested();
                             if (!ReferenceEquals(_current, op)) throw new OperationCanceledException(token);
-                            RequirePaired(identity, remoteId, fingerprint);
+                            identity.FindWebRtcIdentity(remoteId, fingerprint);
                             commit();
                         }
                     }
-                    await using var secure = new WindowsWebRtcFileSession(established, keys, local, paired, receive, CommitFile);
-                    lock (_gate)
+                    var policy = new WebRtcPairingPolicy(trust.Compared != null, trust.PreviouslyTrusted != null, compare,
+                        (verifiedPeer, ct) => CommitFile(() => identity.RememberComparedWebRtcPeer(verifiedPeer, ct)));
+                    await using var secure = new WindowsWebRtcFileSession(established, keys, local, paired, policy, receive, CommitFile);
+                    var lifetime = secure.RunAsync(token);
+                    try
                     {
-                        token.ThrowIfCancellationRequested();
-                        if (!ReferenceEquals(_current, op)) throw new OperationCanceledException(token);
-                        _fileSession = secure;
+                        var admitted = await secure.PairingApproved.WaitAsync(token).ConfigureAwait(false);
+                        lock (_gate)
+                        {
+                            token.ThrowIfCancellationRequested();
+                            if (!ReferenceEquals(_current, op)) throw new OperationCanceledException(token);
+                            _fileSession = secure;
+                        }
+                        var status = $"Connected to {admitted.DeviceName} · WebRTC";
+                        op.Started.TrySetResult(new(DateTimeOffset.UtcNow, status, null, []));
+                        Changed?.Invoke(op, status, true);
                     }
-                    var status = $"Connected to {paired.DeviceName} · WebRTC";
-                    op.Started.TrySetResult(new(DateTimeOffset.UtcNow, status, null, []));
-                    Changed?.Invoke(op, status, true);
-                    await secure.RunAsync(token).ConfigureAwait(false);
+                    finally { await lifetime.ConfigureAwait(false); }
                 }
                 finally { lock (_gate) { if (ReferenceEquals(_current, op)) _fileSession = null; } store.Clear(established); }
             }
@@ -240,8 +253,9 @@ internal sealed class WindowsLiveConnectionCodes(
     {
         CurrentPathSignalServerException server => $"Connection service returned HTTP {(int)server.StatusCode}.",
         CurrentPathWebSocketSignalingException signal => $"Signaling failed ({signal.FailureClass}).",
+        WebRtcPairingDeclinedException => "Pairing declined. Compare the six digits on both devices to try again.",
         TimeoutException => "The invitation or connection timed out.",
-        _ => $"Unable to establish this paired connection ({error.GetType().Name})."
+        _ => $"Unable to establish this connection ({error.GetType().Name})."
     };
 
     private WindowsWebRtcFileSession? _fileSession;
@@ -257,10 +271,6 @@ internal sealed class WindowsLiveConnectionCodes(
         }
     }
 
-    internal static RemoteControlPairingMaterial RequirePaired(RemoteControlIdentityStore identity, string deviceId, string fingerprint) =>
-        identity.TrustedMaterials.SingleOrDefault(p => p.DeviceId == RemoteControlHandshakeBinding.CanonicalDeviceId(deviceId) &&
-            p.ProtocolPublicKeyFingerprint == fingerprint) ?? throw new InvalidOperationException("Pair this device and verify its identity before using a connection code.");
-
     internal static CurrentPathWebRtcSignalingPayload JoinPayload(RemoteControlPairingMaterial local)
     {
         var kem = new List<CurrentPathBootstrapKemPublicKey> { new(0x0101, local.MlKem768PublicKey.ToArray()) };
@@ -270,21 +280,53 @@ internal sealed class WindowsLiveConnectionCodes(
             platform: "Windows", osVersion: Environment.OSVersion.Version.ToString());
     }
 
-    private static async Task<(string Id, string Fingerprint)> WaitForPeerAsync(CurrentPathWebSocketSignalingClient socket, string room,
-        string localId, RemoteControlIdentityStore identity, CancellationToken token)
+    private sealed record Candidate(string WireId, RemoteControlPairingMaterial Material);
+
+    private static async Task<Candidate> WaitForPeerAsync(CurrentPathWebSocketSignalingClient socket, string room,
+        string localId, RemoteControlIdentityStore identity, string? expectedId, string? expectedFingerprint, CancellationToken token)
     {
+        var early = new List<CurrentPathSignalingInboundMessage>();
         while (true)
         {
             var inbound = await socket.ReceiveNextAsync(token).ConfigureAwait(false);
-            if (inbound.Envelope is not { Type: CurrentPathWebRtcSignalingMessageType.Join } join || join.SessionId != room ||
-                join.From == localId || (join.To is not null && join.To != localId)) continue;
-            var paired = identity.TrustedMaterials.SingleOrDefault(p => p.DeviceId == RemoteControlHandshakeBinding.CanonicalDeviceId(join.From));
-            if (paired is null) throw new InvalidDataException("The joining device has no verified pairing.");
-            if (join.Payload is { } fields && (fields.ProtocolPublicKeyBytes != null || fields.ProtocolPublicKeyFingerprint != null || fields.ProtocolSigningAlgorithm != null) &&
-                (fields.ProtocolSigningAlgorithm != paired.ProtocolSigningAlgorithm || fields.ProtocolPublicKeyFingerprint != paired.ProtocolPublicKeyFingerprint ||
-                fields.ProtocolPublicKeyBytes is null || !fields.ProtocolPublicKeyBytes.AsSpan().SequenceEqual(paired.ProtocolPublicKey.Span)))
-                throw new InvalidDataException("The joining device no longer matches its paired identity.");
-            return (join.From, paired.ProtocolPublicKeyFingerprint);
+            if (inbound.Envelope is not { } join || join.SessionId != room || join.From == localId ||
+                (join.To is not null && join.To != localId) || (expectedId != null && join.From != expectedId)) continue;
+            if (join.Type != CurrentPathWebRtcSignalingMessageType.Join)
+            {
+                if (join.Type == CurrentPathWebRtcSignalingMessageType.Leave && expectedId != null)
+                    throw new IOException("The invited device disconnected.");
+                if (join.Type is CurrentPathWebRtcSignalingMessageType.Offer or CurrentPathWebRtcSignalingMessageType.Answer or CurrentPathWebRtcSignalingMessageType.IceCandidate)
+                {
+                    if (early.Count >= 32) throw new InvalidDataException("Too many signaling messages preceded the peer identity.");
+                    early.Add(inbound);
+                }
+                continue;
+            }
+            var payload = join.Payload;
+            var fp = payload?.ProtocolPublicKeyFingerprint;
+            if (fp != null && expectedFingerprint != null && fp != expectedFingerprint)
+                throw new InvalidDataException("The joining signer conflicts with the redeemed code.");
+            var known = identity.FindWebRtcIdentity(join.From, expectedFingerprint ?? fp);
+            var pinned = known.Compared ?? known.PreviouslyTrusted;
+            RemoteControlPairingMaterial material;
+            if (payload?.ProtocolSigningAlgorithm == null && fp == null && payload?.ProtocolPublicKeyBytes == null)
+            {
+                if (pinned == null || pinned.IsProtocolIdentityOnly) continue;
+                material = pinned;
+            }
+            else
+            {
+                if (payload?.ProtocolSigningAlgorithm != "ML-DSA-65" || fp == null || payload.ProtocolPublicKeyBytes == null ||
+                    payload.KemPublicKeys == null) throw new InvalidDataException("The joining signer or its PQC keys are incomplete.");
+                var received = WindowsWebRtcPairing.Material(join.From, pinned?.DeviceName ?? join.From, payload.ProtocolPublicKeyBytes,
+                    payload.KemPublicKeys.Select(k => new LanKemPublicKey(k.SuiteWireId, k.PublicKey)));
+                if (received.ProtocolPublicKeyFingerprint != fp || (pinned != null &&
+                    !pinned.HasSameAuthority(received) && !pinned.CanAddKemMaterial(received)))
+                    throw new InvalidDataException("The joining keys conflict with the pinned device.");
+                material = received;
+            }
+            socket.HandoffReceived(early.Where(m => m.Envelope?.From == join.From));
+            return new(join.From, material);
         }
     }
 

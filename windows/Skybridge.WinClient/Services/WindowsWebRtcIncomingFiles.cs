@@ -11,7 +11,7 @@ internal sealed record WindowsWebRtcReceiveOptions(Func<string> Destination,
     Action<ClassicFileTransferProgress> Progress, Action<ClassicFileMetadata, ClassicFileTransferResult?, Exception?> Completed);
 
 /// <summary>One approved ordinary file per secure session. The DataChannel control reader keeps processing heartbeats.</summary>
-internal sealed class WindowsWebRtcIncomingFiles(RemoteControlPairingMaterial peer, WindowsWebRtcReceiveOptions options,
+internal sealed class WindowsWebRtcIncomingFiles(Task<RemoteControlPairingMaterial> approvedPeer, WindowsWebRtcReceiveOptions options,
     Func<object, CancellationToken, Task> reply, Action<Action> authorizeCommit)
 {
     private readonly Channel<JsonElement> _messages = Channel.CreateBounded<JsonElement>(4);
@@ -22,6 +22,7 @@ internal sealed class WindowsWebRtcIncomingFiles(RemoteControlPairingMaterial pe
 
     internal async Task RunAsync(CancellationToken token)
     {
+        var peer = await approvedPeer.WaitAsync(token).ConfigureAwait(false);
         string? lastCompleted = null;
         long completedBytes = 0;
         byte[]? completedHash = null;
