@@ -167,7 +167,7 @@ $connectionWorkspaceState = Get-Content -Raw -LiteralPath $connectionWorkspaceSt
 $workspaceErrorStatus = Get-Content -Raw -LiteralPath $workspaceErrorStatusPath
 $usbManagement = Get-Content -Raw -LiteralPath $usbManagementPath
 $coreDiagnostics = Get-Content -Raw -LiteralPath $coreDiagnosticsPath
-$fileTransfer = (Get-Content -Raw -LiteralPath $fileTransferPath) + (Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/FileTransferWorkspaceContracts.cs"))
+$fileTransfer = (Get-Content -Raw -LiteralPath $fileTransferPath) + (Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/FileTransferWorkspaceContracts.cs")) + (Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/FileTransfer/ClassicFileTransferSender.cs"))
 $workspaceActionCatalog = Get-Content -Raw -LiteralPath $workspaceActionCatalogPath
 $remoteDesktop = Get-Content -Raw -LiteralPath $remoteDesktopPath
 $remoteDesktopProfileCatalog = Get-Content -Raw -LiteralPath $remoteDesktopProfileCatalogPath
@@ -417,9 +417,10 @@ foreach ($signal in @(
 )) {
     Assert-Contains -Text $connectionLaunchSmoke -Needle $signal -Message "Windows connection launch smoke missing signal: $signal"
 }
-Assert-Contains -Text $mainWindow -Needle "SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu)" -Message "MainWindow should pass its file transfer, notification, settings, and appearance owners through the configured dependency factory."
-Assert-Contains -Text $dependencyFactory -Needle "CreateConfigured(IFileTransferWorkspaceClient? fileTransferClient = null, ITopBarStatusClient? topBarStatusClient = null, SettingsService? settingsService = null)" -Message "Dependency factory should expose explicit configured runtime selection with the shared window services."
-Assert-Contains -Text $dependencyFactory -Needle "WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment(fileTransferClient, topBarStatusClient, settingsService)" -Message "Configured window services must reach the native runtime composition root."
+Assert-Contains -Text $dependencyFactory -Needle "new CrossNetworkConnectionClient(liveCodeAction)" -Message "The configured factory must bind the window's live code operation to its connection client."
+Assert-Contains -Text $mainWindow -Needle "SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu, _liveCodes.StartAsync)" -Message "MainWindow should pass its file transfer, notification, settings, appearance, and live connection code owners through the configured dependency factory."
+Assert-Contains -Text $dependencyFactory -Needle "CreateConfigured(IFileTransferWorkspaceClient? fileTransferClient = null, ITopBarStatusClient? topBarStatusClient = null, SettingsService? settingsService = null, ICrossNetworkConnectionClient? connectionCodes = null)" -Message "Dependency factory should expose explicit configured runtime selection with the shared window services."
+Assert-Contains -Text $dependencyFactory -Needle "WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment(fileTransferClient, topBarStatusClient, settingsService, connectionCodes)" -Message "Configured window services must reach the native runtime composition root."
 Assert-Contains -Text $dependencyFactory -Needle "CreateDefault()" -Message "Dependency factory should retain the product default runtime entrypoint."
 Assert-Contains -Text $dependencyFactory -Needle "WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment()" -Message "Dependency factory should route configured/default startup through the Windows runtime composition root."
 Assert-True -Condition (-not $mainWindow.Contains("new FfiEngineClient()")) -Message "MainWindow must not bypass the configured lifecycle composition root."
@@ -2124,7 +2125,7 @@ foreach ($signal in @(
     "WindowsDeviceWorkspace",
     "ConnectControlAsync",
     "AuthorizeFileTransfer",
-    "ClassicFileTransferSender.SendAsync",
+    "ClassicFileTransferSender.SendToRecipientAsync", "SendAsync(client.GetStream(), prepared, key, progress, operation.Token)", "FileRecipientSelection.WebRtc", "RequireConnectedFileRecipient",
     "ClassicFileTransferListener",
     "BuildReadOnlySnapshotAsync",
     "FileTransferWorkspaceSnapshot",

@@ -66,7 +66,7 @@ public sealed partial class MainWindow : Window
         var settings = new SettingsService();
         _operatorSettings = settings;
         _notifications = new WorkspaceNotificationCenter(ShowNotifications);
-        ViewModel = new SessionViewModel(SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu, new CrossNetworkConnectionClient(_liveCodes.StartAsync)));
+        ViewModel = new SessionViewModel(SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu, _liveCodes.StartAsync));
         _liveCodes.Changed += OnCodeSessionChanged;
         _fileTransferWorkspace.Changed += OnFileTransferChanged;
         ViewModel.PropertyChanged += OnFileTransferAccountChanged;

@@ -9,9 +9,10 @@ internal static class SessionViewModelDependencyFactory
         IFileTransferWorkspaceClient fileTransferClient,
         ITopBarNotificationCenterClient notifications,
         SettingsService settings,
-        System.Action openThemePicker, ICrossNetworkConnectionClient? connectionCodes = null) =>
+        System.Action openThemePicker, System.Func<CrossNetworkConnectionRequest, System.Threading.Tasks.Task<CrossNetworkConnectionSnapshot>>? liveCodeAction = null) =>
         CreateConfigured(fileTransferClient,
-            new TopBarStatusClient(notifications, new SettingsThemePreferenceClient(settings), openThemePicker), settings, connectionCodes);
+            new TopBarStatusClient(notifications, new SettingsThemePreferenceClient(settings), openThemePicker), settings,
+            liveCodeAction is null ? null : new CrossNetworkConnectionClient(liveCodeAction));
 
     public static SessionViewModelDependencies CreateConfigured(IFileTransferWorkspaceClient? fileTransferClient = null, ITopBarStatusClient? topBarStatusClient = null, SettingsService? settingsService = null, ICrossNetworkConnectionClient? connectionCodes = null) =>
         WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment(fileTransferClient, topBarStatusClient, settingsService, connectionCodes);

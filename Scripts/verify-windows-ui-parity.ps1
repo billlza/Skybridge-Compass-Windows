@@ -284,7 +284,7 @@ $connectionWorkspaceState = Get-Content -Raw -LiteralPath $connectionWorkspaceSt
 $workspaceErrorStatus = Get-Content -Raw -LiteralPath $workspaceErrorStatusPath
 $usbManagement = Get-Content -Raw -LiteralPath $usbManagementPath
 $coreDiagnostics = Get-Content -Raw -LiteralPath $coreDiagnosticsPath
-$fileTransfer = (Get-Content -Raw -LiteralPath $fileTransferPath) + (Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/FileTransferWorkspaceContracts.cs"))
+$fileTransfer = (Get-Content -Raw -LiteralPath $fileTransferPath) + (Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/FileTransferWorkspaceContracts.cs")) + (Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "windows/Skybridge.WinClient/Services/FileTransfer/ClassicFileTransferSender.cs"))
 $workspaceActionCatalog = Get-Content -Raw -LiteralPath $workspaceActionCatalogPath
 $remoteDesktop = Get-Content -Raw -LiteralPath $remoteDesktopPath
 $remoteDesktopProfileCatalog = Get-Content -Raw -LiteralPath $remoteDesktopProfileCatalogPath
@@ -354,7 +354,7 @@ foreach ($compositionSignal in @(
     "SessionViewModelDependencyFactory",
     "SessionViewModelDependencyFactory.CreateConfigured()",
     "SessionViewModelDependencyFactory.CreateDefault()",
-    "new SessionViewModel(SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu))",
+    "new SessionViewModel(SessionViewModelDependencyFactory.CreateConfigured(_fileTransferWorkspace, _notifications, settings, ShowAppearanceMenu, _liveCodes.StartAsync))",
     "WindowsNativeRuntimeDependencyFactory.CreateFromEnvironment()"
 )) {
     Assert-Contains -Text ($sessionViewModelDependencyFactory + $sessionViewModel + $mainWindowCode + $parityDoc) -Needle $compositionSignal -Message "Windows composition signal missing: $compositionSignal"
@@ -4068,7 +4068,7 @@ Assert-Contains -Text $featureContract -Needle 'new(FeatureEntryId.UsbManagement
 foreach ($fileTransferSignal in @(
     "FileTransferHeaderActions", "FileTransferActions", "FileTransferWorkspaceActions",
     "BuildSelectFilesActionAsync", "BuildSelectFolderActionAsync", "BuildReadOnlySnapshotAsync",
-    "IFileTransferSelectionClient", "WindowsDeviceWorkspace", "ClassicFileTransferSender.SendAsync",
+    "IFileTransferSelectionClient", "WindowsDeviceWorkspace", "ClassicFileTransferSender.SendToRecipientAsync", "SendAsync(client.GetStream(), prepared, key, progress, operation.Token)", "FileRecipientSelection.WebRtc", "RequireConnectedFileRecipient",
     "ClassicFileTransferListener", "FileTransferFolderArchive.CreateAsync", "CanGenerateShareQr() => false",
     "Skybridge.FileTransfer.Connect", "Skybridge.FileTransfer.Disconnect", "FileTransferWorkspaceActionResult"
 )) {
