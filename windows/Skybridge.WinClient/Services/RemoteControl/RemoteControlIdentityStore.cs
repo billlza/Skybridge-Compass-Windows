@@ -30,6 +30,7 @@ public sealed partial class RemoteControlIdentityStore : IDisposable
     private readonly byte[] _kemDecapsulationKey;
     private readonly List<RemoteControlPairingMaterial> _trusted;
     private readonly List<RemoteControlPairingMaterial> _webRtcCompared;
+    private readonly List<RemoteControlPairingMaterial> _filePaired;
     private bool _disposed;
 
     private RemoteControlIdentityStore(string directory, FileStream fileLease, ISessionProtector protector,
@@ -45,7 +46,8 @@ public sealed partial class RemoteControlIdentityStore : IDisposable
         PublicMaterial = ValidateLocalIdentity(document.DeviceId, document.DeviceName, _signingPrivateKey, _kemDecapsulationKey);
         _trusted = ReadTrustedMaterials(document, PublicMaterial);
         _webRtcCompared = ReadTrustedMaterials(document with { TrustedMaterials = document.WebRtcComparedPeers ?? [] }, PublicMaterial);
-        foreach (var peer in _webRtcCompared) CheckWebRtcIdentity(peer.DeviceId, peer.ProtocolPublicKeyFingerprint);
+        _filePaired = ReadTrustedMaterials(document with { TrustedMaterials = document.LanFilePeers ?? [] }, PublicMaterial);
+        foreach (var peer in _webRtcCompared.Concat(_filePaired)) CheckKnownSigner(peer.DeviceId, peer.ProtocolPublicKeyFingerprint);
     }
 
     private static List<RemoteControlPairingMaterial> ReadTrustedMaterials(IdentityDocument document, RemoteControlPairingMaterial local)
@@ -195,7 +197,7 @@ public sealed partial class RemoteControlIdentityStore : IDisposable
         lock (_gate)
         {
             ThrowIfDisposed();
-            CheckWebRtcIdentity(peer.DeviceId, peer.ProtocolPublicKeyFingerprint);
+            CheckKnownSigner(peer.DeviceId, peer.ProtocolPublicKeyFingerprint);
             peer.RequireInitiatorKem();
             var soa = new RemoteControlHandshakeSoa(RemoteControlHandshakeBinding.PeerId(PublicMaterial.DeviceId),
                 RemoteControlHandshakeBinding.PeerId(peer.DeviceId), RandomNumberGenerator.GetBytes(16));
@@ -258,15 +260,15 @@ public sealed partial class RemoteControlIdentityStore : IDisposable
         {
             ThrowIfDisposed();
             var id = RemoteControlHandshakeBinding.CanonicalDeviceId(deviceId);
-            CheckWebRtcIdentity(id, fingerprint);
+            CheckKnownSigner(id, fingerprint);
             return (_webRtcCompared.SingleOrDefault(p => p.DeviceId == id), _trusted.SingleOrDefault(p => p.DeviceId == id));
         }
     }
 
-    private void CheckWebRtcIdentity(string id, string? fingerprint)
+    private void CheckKnownSigner(string id, string? fingerprint)
     {
         if (PublicMaterial.DeviceId == id || PublicMaterial.ProtocolPublicKeyFingerprint == fingerprint ||
-            _webRtcCompared.Concat(_trusted).Any(p => (p.DeviceId == id && fingerprint != null && p.ProtocolPublicKeyFingerprint != fingerprint) ||
+            _webRtcCompared.Concat(_trusted).Concat(_filePaired).Any(p => (p.DeviceId == id && fingerprint != null && p.ProtocolPublicKeyFingerprint != fingerprint) ||
                 (p.DeviceId != id && p.ProtocolPublicKeyFingerprint == fingerprint)))
             throw new InvalidDataException("This device conflicts with an existing signed identity.");
     }
@@ -277,7 +279,7 @@ public sealed partial class RemoteControlIdentityStore : IDisposable
         {
             ThrowIfDisposed();
             token.ThrowIfCancellationRequested();
-            CheckWebRtcIdentity(peer.DeviceId, peer.ProtocolPublicKeyFingerprint);
+            CheckKnownSigner(peer.DeviceId, peer.ProtocolPublicKeyFingerprint);
             if (_webRtcCompared.Any(p => p.HasSameProtocolIdentity(peer))) return;
             if (_webRtcCompared.Count >= MaximumTrustedPeers) throw new InvalidOperationException("The remembered WebRTC device limit is reached.");
             var replacement = new List<RemoteControlPairingMaterial>(_webRtcCompared) { peer };
@@ -288,7 +290,7 @@ public sealed partial class RemoteControlIdentityStore : IDisposable
 
     private bool CheckImport(RemoteControlPairingMaterial material)
     {
-        CheckWebRtcIdentity(material.DeviceId, material.ProtocolPublicKeyFingerprint);
+        CheckKnownSigner(material.DeviceId, material.ProtocolPublicKeyFingerprint);
         return CheckImport(material, PublicMaterial, _trusted);
     }
 
@@ -310,12 +312,13 @@ public sealed partial class RemoteControlIdentityStore : IDisposable
     }
 
     private void Persist(IReadOnlyCollection<RemoteControlPairingMaterial> trusted, CancellationToken cancellationToken,
-        Action? requireCommit = null, IReadOnlyCollection<RemoteControlPairingMaterial>? compared = null)
+        Action? requireCommit = null, IReadOnlyCollection<RemoteControlPairingMaterial>? compared = null,
+        IReadOnlyCollection<RemoteControlPairingMaterial>? filePeers = null)
     {
         var expanded = QPeriaptKeyEncoding.ExportPrivate(RequirePolicyKey());
         var document = new IdentityDocument(2, PublicMaterial.DeviceId, PublicMaterial.DeviceName,
             _signingPrivateKey, _kemDecapsulationKey, trusted.Select(peer => peer.ToJson()).ToArray(), expanded, true,
-            (compared ?? _webRtcCompared).Select(peer => peer.ToJson()).ToArray());
+            (compared ?? _webRtcCompared).Select(peer => peer.ToJson()).ToArray(), (filePeers ?? _filePaired).Select(peer => peer.ToJson()).ToArray());
         byte[] plaintext;
         try { plaintext = JsonSerializer.SerializeToUtf8Bytes(document, PersistenceJson); }
         finally { CryptographicOperations.ZeroMemory(expanded); }
@@ -454,5 +457,5 @@ public sealed partial class RemoteControlIdentityStore : IDisposable
 
     private sealed record IdentityDocument(int SchemaVersion, string DeviceId, string DeviceName,
         byte[] SigningPrivateKey, byte[] KemDecapsulationKey, string[] TrustedMaterials,
-        byte[]? QPeriaptPrivateKey = null, bool QPeriaptEnrolled = false, string[]? WebRtcComparedPeers = null);
+        byte[]? QPeriaptPrivateKey = null, bool QPeriaptEnrolled = false, string[]? WebRtcComparedPeers = null, string[]? LanFilePeers = null);
 }

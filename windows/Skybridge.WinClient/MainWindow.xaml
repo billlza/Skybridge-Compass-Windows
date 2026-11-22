@@ -2947,6 +2947,7 @@
                                     <Border Style="{StaticResource GlassCard}">
                                         <StackPanel Spacing="12">
                                             <TextBlock x:Uid="FileTransferQuickActionsHeader" Text="Quick Actions" FontWeight="SemiBold" />
+                                            <Button x:Name="FileReceiveButton" x:Uid="FileReceiveStartButton" Content="Receive files / pair a device" Click="OnFileReceiveClicked" AutomationProperties.AutomationId="Skybridge.FileTransfer.Receive" />
                                             <Button x:Name="FileTransferConnectButton" x:Uid="FileTransferLiveConnectButton" Content="Connect device" Click="OnFileTransferConnectClicked" AutomationProperties.AutomationId="Skybridge.FileTransfer.Connect" />
                                             <Button x:Name="FileTransferDisconnectButton" x:Uid="FileTransferLiveDisconnectButton" Content="Disconnect" Click="OnFileTransferDisconnectClicked" AutomationProperties.AutomationId="Skybridge.FileTransfer.Disconnect" />
                                             <ItemsControl

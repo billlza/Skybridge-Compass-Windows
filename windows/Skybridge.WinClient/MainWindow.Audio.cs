@@ -67,7 +67,7 @@ public sealed partial class MainWindow
         AudioReceiveStart.IsEnabled = AudioOutputPicker.IsEnabled && _audioCatalogUnreleased is null && ViewModel.IsSignedIn &&
             AudioOutputPicker.SelectedItem is ComboBoxItem { Tag: AudioOutputEndpoint } &&
             AudioNetworkPicker.SelectedItem is ComboBoxItem { Tag: RemoteControlNetworkInterface };
-        AudioReceiveStop.IsEnabled = !_audioChanging && (state.Enabled || state.Stopping || state.Phase is not null || _remoteControlWorkspace.HasIncomingMain);
+        AudioReceiveStop.IsEnabled = !_audioChanging && (state.Enabled || state.Stopping || state.Phase is not null || (_remoteControlWorkspace.HasIncomingMain && !_remoteControlWorkspace.HasFileMain));
         AudioConnectionCopy.IsEnabled = !_audioChanging && !_hostShutdownInProgress &&
             _audioListenerEpoch is { IsCurrent: true } && incoming is { Endpoint: not null, Stopping: false, ReleaseUnconfirmed: false };
         string text;
@@ -273,7 +273,7 @@ public sealed partial class MainWindow
     {
         _audioListenerEpoch = null;
         var failures = new List<Exception>();
-        try { await _remoteControlWorkspace.StopIncomingMainAsync(); } catch (Exception error) { failures.Add(error); }
+        try { await _remoteControlWorkspace.StopIncomingMainAsync(filesOnly: false); } catch (Exception error) { failures.Add(error); }
         if (_audioReceiveHost is { } host)
             try { await host.DisableAsync(); } catch (Exception error) { failures.Add(error); }
         if (failures.Count > 0) throw new AggregateException("Audio reception resources remain unresolved.", failures);

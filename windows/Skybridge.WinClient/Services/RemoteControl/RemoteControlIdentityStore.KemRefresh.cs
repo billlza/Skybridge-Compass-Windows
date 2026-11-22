@@ -6,7 +6,7 @@ namespace Skybridge.WinClient.Services.RemoteControl;
 
 public sealed partial class RemoteControlIdentityStore
 {
-    internal SignedLanKemRefreshResponder CreateKemRefreshResponder(Action requireCurrent, string osVersion)
+    internal SignedLanKemRefreshResponder CreateKemRefreshResponder(Action requireCurrent, string osVersion, bool filesOnly = false)
     {
         lock (_gate)
         {
@@ -16,7 +16,7 @@ public sealed partial class RemoteControlIdentityStore
                 [new(0x0012, material.QPeriaptPublicKey.ToArray().ToImmutableArray()),
                  new(0x0101, material.MlKem768PublicKey.ToArray().ToImmutableArray())],
                 "windows", osVersion, RequirePolicySession().AuthProfile);
-            return new(inventory, () => TrustedPeers, SignLanBootstrap, requireCurrent);
+            return new(inventory, () => filesOnly ? FileTransferPeers : TrustedPeers, SignLanBootstrap, requireCurrent);
         }
     }
 

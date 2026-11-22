@@ -39,9 +39,12 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
     private LanProductControlListener? _mainListener;
     private LanProductControlListener? _audioFileListener;
     internal Audio.AudioOriginalFileReceiveRegistry OriginalAudioFiles { get; } = new();
-    private WindowsRemoteControlAdvertisement? _mainAdvertisement;
+    private WindowsRemoteControlAdvertisement? _mainAdvertisement, _transferAdvertisement;
     private Task<Exception?> _mainObservation = Task.FromResult<Exception?>(null);
     private bool _mainStarting;
+    private bool _fileMain;
+    internal Task<Exception?> IncomingMainEnded { get { lock (_stateGate) return _mainObservation; } }
+    internal bool HasFileMain { get { lock (_stateGate) return _fileMain && (_mainListener != null || _mainStarting); } }
 
     internal bool HasIncomingMain { get { lock (_stateGate) return _mainStarting || _mainListener is not null || _audioFileListener is not null; } }
     internal LanProductListenerSnapshot? ReadIncomingMain()
@@ -75,7 +78,7 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
 
     internal async Task StartIncomingMainAsync(RemoteControlNetworkInterface selected,
         RemoteControlViewerAccount account, Audio.AccountAudioAuthorization authorization,
-        ILanPibApprovalPresenter pairingApproval, CancellationToken token)
+        ILanPibApprovalPresenter pairingApproval, CancellationToken token, TcpListener? transferListener = null)
     {
         ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(account);
         ArgumentNullException.ThrowIfNull(authorization);
@@ -84,8 +87,8 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this); authorization.RequireCurrent();
-            if (_mainListener is not null || _audioFileListener is not null) throw new InvalidOperationException("Stop the current audio listeners before starting another.");
-            lock (_stateGate) _mainStarting = true;
+            if (_mainListener is not null || _audioFileListener is not null) throw new InvalidOperationException("Stop the current LAN receiver before enabling a different receive mode.");
+            lock (_stateGate) { _mainStarting = true; _fileMain = transferListener != null; }
             RemoteControlIdentityStore identity;
             await _operations.WaitAsync(token).ConfigureAwait(false);
             try
@@ -102,29 +105,39 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
             var local = new RemoteControlSecurityIdentity(account.AccountDisplayName, account.NebulaId, material.DeviceId, material.DeviceName);
             local.Validate();
             var osVersion = QPeriaptPeerPlatform.LocalVersion();
-            var refresh = identity.CreateKemRefreshResponder(authorization.RequireCurrent, osVersion);
-            var pairing = identity.CreatePibResponder(pairingApproval, authorization.RequireCurrent);
-            var fileListener = new LanProductControlListener((client, cancellation) =>
-                OriginalAudioFiles.ReceiveAsync(client, RequireIncomingControlSession, cancellation),
-                () => !_disposed && authorization.IsCurrent);
-            lock (_stateGate) _audioFileListener = fileListener;
+            var refresh = identity.CreateKemRefreshResponder(authorization.RequireCurrent, osVersion, transferListener != null);
+            var pairing = identity.CreatePibResponder(pairingApproval, authorization.RequireCurrent, transferListener != null);
+            LanProductControlListener? audioListener = null;
             ushort filePort;
-            try
+            if (transferListener != null)
             {
-                var privateDirectory = Path.Combine(_stateDirectory, "audio-playback");
-                Directory.CreateDirectory(privateDirectory);
-                fileListener.Start(selected.Address, token);
-                OriginalAudioFiles.Bind(fileListener, privateDirectory);
-                filePort = checked((ushort)((IPEndPoint)fileListener.RequireLiveListener().LocalEndpoint).Port);
+                if (!transferListener.Server.IsBound || transferListener.LocalEndpoint is not IPEndPoint endpoint ||
+                    !endpoint.Address.Equals(selected.Address)) throw new InvalidDataException("The file receiver is not listening on the selected interface.");
+                filePort = checked((ushort)endpoint.Port);
             }
-            catch (Exception startFailure)
+            else
             {
-                try { await ReleaseIncomingMainAsync().ConfigureAwait(false); }
-                catch (Exception cleanup) { throw new AggregateException("Audio file listener start and cleanup failed.", startFailure, cleanup); }
-                throw;
+                audioListener = new LanProductControlListener((client, cancellation) =>
+                    OriginalAudioFiles.ReceiveAsync(client, RequireIncomingControlSession, cancellation),
+                    () => !_disposed && authorization.IsCurrent);
+                lock (_stateGate) _audioFileListener = audioListener;
+                try
+                {
+                    var privateDirectory = Path.Combine(_stateDirectory, "audio-playback");
+                    Directory.CreateDirectory(privateDirectory);
+                    audioListener.Start(selected.Address, token);
+                    OriginalAudioFiles.Bind(audioListener, privateDirectory);
+                    filePort = checked((ushort)((IPEndPoint)audioListener.RequireLiveListener().LocalEndpoint).Port);
+                }
+                catch (Exception startFailure)
+                {
+                    try { await ReleaseIncomingMainAsync().ConfigureAwait(false); }
+                    catch (Exception cleanup) { throw new AggregateException("Audio file listener start and cleanup failed.", startFailure, cleanup); }
+                    throw;
+                }
             }
             var listener = new LanProductControlListener((client, cancellation) =>
-                RunIncomingMainPeerAsync(client, identity, local, material, refresh, pairing, authorization, filePort, cancellation),
+                RunIncomingMainPeerAsync(client, identity, local, material, refresh, pairing, authorization, filePort, transferListener != null, cancellation),
                 () => !_disposed && authorization.IsCurrent);
             var advertisement = new WindowsRemoteControlAdvertisement();
             lock (_stateGate) { _mainListener = listener; _mainAdvertisement = advertisement; }
@@ -140,8 +153,17 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
                         ["platform"] = "windows", ["osVersion"] = osVersion
                     }, WindowsProductAdvertisementService.MainControl);
                 await advertisement.StartAsync(socket, options, token).ConfigureAwait(false);
+                WindowsRemoteControlAdvertisement? fileAdvertisement = null;
+                if (transferListener != null)
+                {
+                    fileAdvertisement = new WindowsRemoteControlAdvertisement();
+                    lock (_stateGate) _transferAdvertisement = fileAdvertisement;
+                    var fileOptions = new WindowsRemoteControlAdvertisementOptions(options.InstanceName, options.HostName,
+                        selected.Address, filePort, selected.InterfaceIndex, options.TxtProperties, WindowsProductAdvertisementService.FileTransfer);
+                    await fileAdvertisement.StartAsync(transferListener, fileOptions, token).ConfigureAwait(false);
+                }
                 authorization.RequireCurrent(); token.ThrowIfCancellationRequested();
-                _mainObservation = ObserveIncomingMainEndAsync(listener, fileListener, advertisement);
+                _mainObservation = ObserveIncomingMainEndAsync(listener, audioListener, advertisement, fileAdvertisement);
             }
             catch (Exception startFailure)
             {
@@ -157,10 +179,10 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
         }
     }
 
-    internal async Task StopIncomingMainAsync()
+    internal async Task StopIncomingMainAsync(bool? filesOnly = null)
     {
         await _mainOperations.WaitAsync().ConfigureAwait(false);
-        try { await ReleaseIncomingMainAsync().ConfigureAwait(false); }
+        try { if (filesOnly == null || filesOnly == _fileMain) await ReleaseIncomingMainAsync().ConfigureAwait(false); }
         finally { _mainOperations.Release(); }
     }
     private async Task ReleaseIncomingMainAsync()
@@ -177,7 +199,8 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
         {
             try
             {
-                await listener.StopWithPublicationAsync(() => _mainAdvertisement?.DisposeAsync().AsTask() ?? Task.CompletedTask).ConfigureAwait(false);
+                await listener.StopWithPublicationAsync(() => Task.WhenAll(_mainAdvertisement?.DisposeAsync().AsTask() ?? Task.CompletedTask,
+                    _transferAdvertisement?.DisposeAsync().AsTask() ?? Task.CompletedTask)).ConfigureAwait(false);
                 await listener.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception error) { failures.Add(error); }
@@ -193,16 +216,17 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
         // still throw from their DisposeAsync on every subsequent cleanup attempt.
         _mainObservation = Task.FromResult<Exception?>(null);
         if (failures.Count != 0) throw new AggregateException("Incoming MAIN could not fully stop.", failures);
-        lock (_stateGate) { _mainListener = null; _audioFileListener = null; _mainAdvertisement = null; }
+        lock (_stateGate) { _mainListener = null; _audioFileListener = null; _mainAdvertisement = null; _transferAdvertisement = null; }
     }
-    private async Task<Exception?> ObserveIncomingMainEndAsync(LanProductControlListener listener, LanProductControlListener fileListener,
-        WindowsRemoteControlAdvertisement advertisement)
+    private async Task<Exception?> ObserveIncomingMainEndAsync(LanProductControlListener listener, LanProductControlListener? fileListener,
+        WindowsRemoteControlAdvertisement advertisement, WindowsRemoteControlAdvertisement? fileAdvertisement)
     {
-        await Task.WhenAny(listener.NetworkEnded, fileListener.NetworkEnded).ConfigureAwait(false);
+        await Task.WhenAny(listener.NetworkEnded, fileListener?.NetworkEnded ?? listener.NetworkEnded).ConfigureAwait(false);
         var errors = new List<Exception>();
-        try { OriginalAudioFiles.Unbind(fileListener); } catch (Exception error) { errors.Add(error); }
-        var fileStop = fileListener.StopAsync();
-        var mainStop = listener.StopWithPublicationAsync(() => advertisement.StopAsync());
+        if (fileListener != null)
+            try { OriginalAudioFiles.Unbind(fileListener); } catch (Exception error) { errors.Add(error); }
+        var fileStop = fileListener?.StopAsync() ?? Task.CompletedTask;
+        var mainStop = listener.StopWithPublicationAsync(() => Task.WhenAll(advertisement.StopAsync(), fileAdvertisement?.StopAsync() ?? Task.CompletedTask));
         foreach (var stopping in new[] { fileStop, mainStop })
             try { await stopping.ConfigureAwait(false); } catch (Exception error) { errors.Add(error); }
         return errors.Count switch { 0 => null, 1 => errors[0], _ => new AggregateException("Audio listener teardown failed.", errors) };
@@ -211,7 +235,7 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
     private async Task RunIncomingMainPeerAsync(TcpClient client, RemoteControlIdentityStore identity,
         RemoteControlSecurityIdentity local, RemoteControlPairingMaterial material,
         SignedLanKemRefreshResponder refresh, LanPibResponder pairing,
-        Audio.AccountAudioAuthorization authorization, ushort filePort, CancellationToken token)
+        Audio.AccountAudioAuthorization authorization, ushort filePort, bool filesOnly, CancellationToken token)
     {
         LanProductControlSession? session = null;
         bool registered = false;
@@ -220,9 +244,9 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
         {
             authorization.RequireCurrent();
             var accepted = await LanProductControlResponder.AcceptWithBootstrapAsync(client, local, material,
-                () => { authorization.RequireCurrent(); return identity.TrustedPeers; },
+                () => { authorization.RequireCurrent(); return filesOnly ? identity.FileTransferPeers : identity.TrustedPeers; },
                 () => { authorization.RequireCurrent(); return identity.CreateCryptoProvider(); }, filePort, token, refresh, pairing,
-                advertiseGeneralFiles: false).ConfigureAwait(false);
+                advertiseGeneralFiles: filesOnly).ConfigureAwait(false);
             if (accepted is LanIncomingControlResult.KemRefreshCompleted or LanIncomingControlResult.PairingExchangeCompleted) return;
             session = accepted is LanIncomingControlResult.Main main ? main.Session
                 : throw new InvalidOperationException("Unknown incoming MAIN admission result.");
@@ -237,7 +261,7 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
                     throw new InvalidOperationException("Eight device sessions are already open.");
                 lock (_stateGate) _controlSessions.Add(session.PeerDeviceId, session);
                 registered = true;
-                if (_audioReceiveHost is { } audio) await audio.AttachAsync(session, token).ConfigureAwait(false);
+                if (!filesOnly && _audioReceiveHost is { } audio) await audio.AttachAsync(session, token).ConfigureAwait(false);
             }
             finally { _controlOperations.Release(); }
             var ended = await session.Completion.ConfigureAwait(false);
@@ -249,7 +273,7 @@ internal sealed class WindowsDeviceWorkspace : IAsyncDisposable
             await _controlOperations.WaitAsync().ConfigureAwait(false);
             try
             {
-                if (registered && _audioReceiveHost is { } audio)
+                if (registered && !filesOnly && _audioReceiveHost is { } audio)
                 {
                     try { await audio.DetachAsync(session).ConfigureAwait(false); }
                     catch (Exception error) when (!audio.OwnsSession(session))

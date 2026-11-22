@@ -84,6 +84,71 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
     public Task<FileTransferWorkspaceActionResult> BuildSelectFolderActionAsync() => SelectAndSendAsync(true);
     public Task<FileTransferWorkspaceActionResult> BuildShareQrActionAsync() => Task.FromResult(BuildDefaultShareQrActionResult());
 
+    private CancellationTokenSource? _passiveScope;
+    private Task _passiveRun = Task.CompletedTask;
+    internal bool HasPassiveReception => Volatile.Read(ref _passiveScope) != null;
+
+    internal async Task StartPassiveReceptionAsync(RemoteControlNetworkInterface network, Audio.AccountAudioAuthorization accountOwner,
+        ILanPibApprovalPresenter pairing)
+    {
+        if (!await _outbound.WaitAsync(0)) throw new InvalidOperationException(_text("FileTransferLiveBusy"));
+        try
+        {
+            var account = RequireAccount(); accountOwner.RequireCurrent();
+            if (HasPassiveReception) throw new InvalidOperationException(_text("FileTransferLiveBusy"));
+            var destination = ClassicFileTransferReceiver.ValidateReceiveDirectory(_selection.DestinationDirectory);
+            var scope = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, _connectionsLifetime.Token);
+            ClassicFileTransferListener? receiver = null;
+            try
+            {
+                receiver = new(_workspace.RequireIncomingControlSession, destination, _selection.ApproveIncomingAsync, _progress,
+                    (meta, result, failure) => Complete(meta?.TransferId, meta?.FileName, result, failure), scope.Token, network.Address, accountOwner.RequireCurrent);
+                await _workspace.StartIncomingMainAsync(network, account, accountOwner, pairing, scope.Token, receiver.BoundListener);
+                _passiveScope = scope;
+                _passiveRun = ObservePassiveReceptionAsync(receiver, scope, _workspace.IncomingMainEnded);
+                SetStatus(_text("FileReceiveWaiting"));
+            }
+            catch
+            {
+                scope.Cancel();
+                if (receiver != null) await receiver.DisposeAsync();
+                scope.Dispose();
+                throw;
+            }
+        }
+        finally { _outbound.Release(); }
+    }
+
+    private async Task ObservePassiveReceptionAsync(ClassicFileTransferListener receiver, CancellationTokenSource scope, Task<Exception?> mainEnded)
+    {
+        await Task.WhenAny(receiver.Completion, mainEnded).ConfigureAwait(false);
+        scope.Cancel();
+        var errors = new List<Exception>();
+        try { await _workspace.StopIncomingMainAsync(filesOnly: true).ConfigureAwait(false); } catch (Exception e) { errors.Add(e); }
+        try { await receiver.DisposeAsync().ConfigureAwait(false); } catch (Exception e) { errors.Add(e); }
+        if (errors.Count != 0)
+        {
+            var failure = new AggregateException("LAN file reception could not fully stop.", errors);
+            SetStatus(failure.Message);
+            throw failure;
+        }
+        SetStatus(_text("FileReceiveStopped"));
+    }
+
+    internal async Task StopPassiveReceptionAsync()
+    {
+        await _outbound.WaitAsync();
+        try { await StopPassiveOwnerAsync(); }
+        finally { _outbound.Release(); }
+    }
+    private async Task StopPassiveOwnerAsync()
+    {
+        if (_passiveScope is not { } scope) return;
+        scope.Cancel();
+        await _passiveRun;
+        _passiveScope = null; scope.Dispose();
+    }
+
     internal async Task ConnectSelectedPeerAsync()
     {
         if (!await _outbound.WaitAsync(0)) throw new InvalidOperationException(_text("FileTransferLiveBusy"));
@@ -107,6 +172,7 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
             try
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
+                await StopPassiveOwnerAsync();
                 await _workspace.DisconnectControlSessionsAsync();
                 if (_listener is { } listener) { await listener.DisposeAsync(); _listener = null; }
                 await _listenerObservation;
@@ -214,7 +280,7 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
         {
             _destinationDirectory = Path.GetFullPath(_selection.DestinationDirectory);
             if (!Directory.Exists(_destinationDirectory)) throw new DirectoryNotFoundException(_text("FileTransferLiveMissingDestination"));
-            _listener = new(_workspace, _destinationDirectory, _selection.ApproveIncomingAsync, _progress,
+            _listener = new(_workspace.RequireIncomingControlSession, _destinationDirectory, _selection.ApproveIncomingAsync, _progress,
                 (metadata, result, failure) => Complete(metadata?.TransferId, metadata?.FileName, result, failure), _lifetime.Token);
             _listenerObservation = ObserveListenerAsync(_listener);
         }
@@ -295,6 +361,7 @@ internal sealed class FileTransferWorkspaceClient : IFileTransferWorkspaceClient
         await _outbound.WaitAsync();
         try
         {
+            await StopPassiveOwnerAsync();
             if (_listener is { } listener) { await listener.DisposeAsync(); _listener = null; }
             await _listenerObservation;
             await _workspace.DisconnectControlSessionsAsync();

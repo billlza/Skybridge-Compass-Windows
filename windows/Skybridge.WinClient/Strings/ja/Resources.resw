@@ -1967,6 +1967,15 @@
   <data name="LanPairingCompare" xml:space="preserve"><value>6桁のコードがスマートフォンに表示されているコードと一致することを確認してください。</value></data>
   <data name="LanPairingSaveDetail" xml:space="preserve"><value>このコンピューターにデバイスの識別情報を保存します。音声の再生には、アカウントの確認と別途の再生許可が必要です。</value></data>
   <data name="LanPairingSave" xml:space="preserve"><value>一致を確認して保存</value></data>
+  <data name="FileReceiveStartButton.Content" xml:space="preserve"><value>ファイル受信・ペアリング</value></data>
+  <data name="FileReceiveStart" xml:space="preserve"><value>ファイル受信・ペアリング</value></data>
+  <data name="FileReceiveStop" xml:space="preserve"><value>ファイル受信を停止</value></data>
+  <data name="FileReceiveNetworkTitle" xml:space="preserve"><value>ファイルを受信するネットワークを選択</value></data>
+  <data name="FileReceiveWaiting" xml:space="preserve"><value>選択したネットワークでペアリングとファイル受信ができます。</value></data>
+  <data name="FileReceiveStopped" xml:space="preserve"><value>LANファイル受信を停止しました。</value></data>
+  <data name="FileReceiveNoNetwork" xml:space="preserve"><value>利用可能なネットワークがありません。</value></data>
+  <data name="FileReceiveIdentityDetails" xml:space="preserve"><value>デバイスの識別情報</value></data>
+  <data name="FileReceivePairDetail" xml:space="preserve"><value>このデバイスをLANファイル転送用に記憶します。ファイルごとに受信を確認します。</value></data>
   <data name="WebRtcPairingCompare" xml:space="preserve"><value>両方のデバイスに表示された6桁の数字を比較してください。</value></data>
   <data name="WebRtcPairingRemember" xml:space="preserve"><value>一致・デバイスを記憶</value></data>
   <data name="WebRtcPairingOnce" xml:space="preserve"><value>一致・今回のみ</value></data>

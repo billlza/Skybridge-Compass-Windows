@@ -6,9 +6,10 @@ internal static class ClassicFileTransferReceiver
 {
     internal static async Task<ClassicFileTransferResult> ReceiveAsync(Stream network, ClassicFileMetadata metadata,
         ReadOnlyMemory<byte> key, string destinationDirectory, IProgress<ClassicFileTransferProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, Action? requireCurrent = null)
     {
         ClassicFileTransferWire.Verify(metadata, key.Span);
+        requireCurrent?.Invoke();
         string? partial = null;
         string? savedPath = null;
         long received = 0;
@@ -25,11 +26,12 @@ internal static class ClassicFileTransferReceiver
                     await output.WriteAsync(plaintext, token).ConfigureAwait(false);
                     received += plaintext.Length;
                     progress?.Report(new(metadata.TransferId, metadata.FileName, received, metadata.FileSize, true));
-                }, cancellationToken.ThrowIfCancellationRequested, cancellationToken).ConfigureAwait(false);
+                }, () => { cancellationToken.ThrowIfCancellationRequested(); requireCurrent?.Invoke(); }, cancellationToken).ConfigureAwait(false);
                 await output.FlushAsync(cancellationToken).ConfigureAwait(false);
                 output.Flush(flushToDisk: true);
             }
             cancellationToken.ThrowIfCancellationRequested();
+            requireCurrent?.Invoke();
             savedPath = CommitWithoutOverwrite(partial, root, metadata.FileName);
             await ClassicFileTransferOperation.SendReceiptAsync(network,
                 new(metadata.TransferId, true, received, 2, metadata.FileHash), key, cancellationToken).ConfigureAwait(false);

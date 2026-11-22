@@ -508,10 +508,11 @@ foreach ($templateSignal in @(
     Assert-Contains -Text $mainWindow -Needle $templateSignal -Message "MainWindow missing shared action-template signal: $templateSignal"
 }
 
-# The file workspace owns two explicit connection lifecycle controls. Check their
+# The file workspace owns explicit pairing, receive and connection lifecycle controls. Check their
 # location and handlers before excluding them from the shared-template inventory.
 [xml]$actionTemplateDocument = $mainWindow
 foreach ($lifecycle in @(
+    @{ Name = "FileReceiveButton"; Handler = "OnFileReceiveClicked"; AutomationId = "Skybridge.FileTransfer.Receive" },
     @{ Name = "FileTransferConnectButton"; Handler = "OnFileTransferConnectClicked"; AutomationId = "Skybridge.FileTransfer.Connect" },
     @{ Name = "FileTransferDisconnectButton"; Handler = "OnFileTransferDisconnectClicked"; AutomationId = "Skybridge.FileTransfer.Disconnect" }
 )) {

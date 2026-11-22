@@ -31,7 +31,7 @@ public sealed partial class MainWindow
             WindowDialogResult.Secondary => WebRtcComparison.AllowOnce, _ => WebRtcComparison.Reject };
     }
 
-    private sealed class NativePairingApproval(MainWindow window) : ILanPibApprovalPresenter
+    private sealed class NativePairingApproval(MainWindow window, bool filesOnly = false) : ILanPibApprovalPresenter
     {
         public async Task<bool> ShowAsync(LanPibApprovalRequest request, CancellationToken token)
         {
@@ -44,24 +44,26 @@ public sealed partial class MainWindow
                 content.Children.Add(code);
                 content.Children.Add(new TextBlock
                 {
-                    Text = window.RemoteControlText("LanPairingCompare"),
+                    Text = window.RemoteControlText(filesOnly ? "WebRtcPairingCompare" : "LanPairingCompare"),
                     TextWrapping = TextWrapping.Wrap
                 });
-                content.Children.Add(new TextBlock
+                var identity = new TextBlock
                 {
                     Text = request.Request.RequesterDeviceId + "\n" + request.Request.RequesterProtocolIdentityFingerprint,
                     TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true
-                });
+                };
+                if (filesOnly) content.Children.Add(new Expander { Header = window.RemoteControlText("FileReceiveIdentityDetails"), Content = identity });
+                else content.Children.Add(identity);
                 content.Children.Add(new TextBlock
                 {
-                    Text = window.RemoteControlText("LanPairingSaveDetail"),
+                    Text = window.RemoteControlText(filesOnly ? "FileReceivePairDetail" : "LanPairingSaveDetail"),
                     TextWrapping = TextWrapping.Wrap
                 });
                 var dialog = new ContentDialog
                 {
                     XamlRoot = window.RootShell.XamlRoot, Title = window.RemoteControlText("LanPairingTitle"), Content = content,
                     PrimaryButtonText = window.RemoteControlText("LanPairingSave"),
-                    CloseButtonText = window.RemoteControlText("LanPairingReject"), DefaultButton = ContentDialogButton.Close
+                    CloseButtonText = window.RemoteControlText(filesOnly ? "WebRtcPairingMismatch" : "LanPairingReject"), DefaultButton = ContentDialogButton.Close
                 };
                 AutomationProperties.SetAutomationId(dialog, "Skybridge.Pairing.Approval");
                 return new NativeWindowDialog(dialog);

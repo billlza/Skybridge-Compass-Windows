@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Skybridge.WinClient.Services;
 using Skybridge.WinClient.Services.FileTransfer;
+using Skybridge.WinClient.Services.RemoteControl;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 
@@ -11,6 +12,42 @@ public sealed partial class MainWindow
 {
     private bool _connectingFileTransfer;
     private bool _disconnectingFileTransfer;
+
+    private async void OnFileReceiveClicked(object sender, RoutedEventArgs args)
+    {
+        if (_hostShutdownInProgress || !FileReceiveButton.IsEnabled) return;
+        FileReceiveButton.IsEnabled = false;
+        try
+        {
+            if (_fileTransferWorkspace.HasPassiveReception) { await _fileTransferWorkspace.StopPassiveReceptionAsync(); return; }
+            var epoch = ViewModel.AccountSession.ReadAudioAuthorization() ?? throw new InvalidOperationException(RemoteControlText("FileTransferLiveSignIn"));
+            var networks = await WindowsDeviceWorkspace.OperatorNetworkInterfacesAsync(CancellationToken.None);
+            if (networks.Count == 0) throw new InvalidOperationException(RemoteControlText("FileReceiveNoNetwork"));
+            var picker = new ComboBox { MinWidth = 260, DisplayMemberPath = nameof(RemoteControlNetworkInterface.DisplayName),
+                ItemsSource = networks, SelectedIndex = networks.Count == 1 ? 0 : -1, PlaceholderText = RemoteControlText("AudioReceiveNetworkLabel") };
+            var answer = await _dialogs.ShowAsync(() =>
+            {
+                epoch.RequireCurrent();
+                var dialog = new ContentDialog
+                {
+                    XamlRoot = RootShell.XamlRoot, Title = RemoteControlText("FileReceiveNetworkTitle"), Content = picker,
+                    PrimaryButtonText = RemoteControlText("FileReceiveStart"), CloseButtonText = RemoteControlText("FileTransferLiveCancel"),
+                    IsPrimaryButtonEnabled = picker.SelectedItem is RemoteControlNetworkInterface, DefaultButton = ContentDialogButton.Close
+                };
+                picker.SelectionChanged += (_, _) => dialog.IsPrimaryButtonEnabled = picker.SelectedItem is RemoteControlNetworkInterface;
+                return new NativeWindowDialog(dialog);
+            }, CancellationToken.None);
+            if (answer != WindowDialogResult.Primary || picker.SelectedItem is not RemoteControlNetworkInterface selected) return;
+            epoch.RequireCurrent();
+            await _fileTransferWorkspace.StartPassiveReceptionAsync(selected, epoch, new NativePairingApproval(this, filesOnly: true));
+        }
+        catch (Exception failure) { ViewModel.ApplyLiveFileTransfer(await _fileTransferWorkspace.BuildReadOnlySnapshotAsync(), failure.Message); }
+        finally
+        {
+            FileReceiveButton.Content = RemoteControlText(_fileTransferWorkspace.HasPassiveReception ? "FileReceiveStop" : "FileReceiveStart");
+            FileReceiveButton.IsEnabled = !_hostShutdownInProgress;
+        }
+    }
 
     private void OnFileTransferDragOver(object sender, DragEventArgs args)
     {
@@ -49,7 +86,7 @@ public sealed partial class MainWindow
         FileTransferDisconnectButton.IsEnabled = false;
         try { await _fileTransferWorkspace.DisconnectAsync(); }
         catch (Exception failure) { ViewModel.ApplyLiveFileTransfer(await _fileTransferWorkspace.BuildReadOnlySnapshotAsync(), failure.Message); }
-        finally { _disconnectingFileTransfer = false; if (!_hostShutdownInProgress) FileTransferDisconnectButton.IsEnabled = true; }
+        finally { FileReceiveButton.Content = RemoteControlText(_fileTransferWorkspace.HasPassiveReception ? "FileReceiveStop" : "FileReceiveStart"); _disconnectingFileTransfer = false; if (!_hostShutdownInProgress) FileTransferDisconnectButton.IsEnabled = true; }
     }
 
     private void OnFileTransferChanged(FileTransferWorkspaceSnapshot snapshot, string status)

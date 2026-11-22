@@ -1967,6 +1967,15 @@
   <data name="LanPairingCompare" xml:space="preserve"><value>请确认这六位配对码与手机上显示的完全一致。</value></data>
   <data name="LanPairingSaveDetail" xml:space="preserve"><value>配对会在此电脑保存该设备身份。播放音频仍需通过账户验证，并单独批准播放请求。</value></data>
   <data name="LanPairingSave" xml:space="preserve"><value>一致，保存配对</value></data>
+  <data name="FileReceiveStartButton.Content" xml:space="preserve"><value>接收文件 / 配对设备</value></data>
+  <data name="FileReceiveStart" xml:space="preserve"><value>接收文件 / 配对设备</value></data>
+  <data name="FileReceiveStop" xml:space="preserve"><value>停止接收文件</value></data>
+  <data name="FileReceiveNetworkTitle" xml:space="preserve"><value>选择接收文件的局域网</value></data>
+  <data name="FileReceiveWaiting" xml:space="preserve"><value>已就绪，可在所选网络配对设备、接收文件。</value></data>
+  <data name="FileReceiveStopped" xml:space="preserve"><value>已停止局域网文件接收。</value></data>
+  <data name="FileReceiveNoNetwork" xml:space="preserve"><value>没有可用的局域网接口。</value></data>
+  <data name="FileReceiveIdentityDetails" xml:space="preserve"><value>查看设备身份详情</value></data>
+  <data name="FileReceivePairDetail" xml:space="preserve"><value>记住这台设备用于局域网文件传输。接收每个文件前仍会询问。</value></data>
   <data name="WebRtcPairingCompare" xml:space="preserve"><value>请核对两台设备上显示的六位数字。</value></data>
   <data name="WebRtcPairingRemember" xml:space="preserve"><value>号码一致，记住设备</value></data>
   <data name="WebRtcPairingOnce" xml:space="preserve"><value>号码一致，仅限本次</value></data>

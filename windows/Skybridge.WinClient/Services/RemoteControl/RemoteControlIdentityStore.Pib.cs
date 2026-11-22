@@ -6,26 +6,57 @@ namespace Skybridge.WinClient.Services.RemoteControl;
 
 public sealed partial class RemoteControlIdentityStore
 {
-    internal LanPibResponder CreatePibResponder(ILanPibApprovalPresenter approval, Action requireCurrent)
+    internal LanPibResponder CreatePibResponder(ILanPibApprovalPresenter approval, Action requireCurrent, bool filesOnly = false)
     {
         lock (_gate)
         {
             ThrowIfDisposed(); requireCurrent();
             var material = PublicMaterial;
             return new(new(material.DeviceId, material.DeviceName, material.ProtocolPublicKey.ToArray().ToImmutableArray()),
-                SignLanBootstrap, VerifyPibSignature, PreflightPibIdentity,
+                SignLanBootstrap, VerifyPibSignature, peer => PreflightPibIdentity(peer, filesOnly),
                 async (peer, requireCommit, token) =>
                 {
+                    if (filesOnly) { RememberLanFilePeer(peer, requireCommit, token); return; }
                     await ImportApprovedPibPeerAsync(peer, requireCommit, token).ConfigureAwait(false);
                 }, approval, requireCurrent);
         }
     }
-    private void PreflightPibIdentity(RemoteControlPairingMaterial material)
+    internal IReadOnlyCollection<RemoteControlTrustedPeer> FileTransferPeers
+    {
+        get
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                return _trusted.Concat(_filePaired).DistinctBy(p => p.DeviceId)
+                    .Select(p => new RemoteControlTrustedPeer(p.DeviceId, p.ProtocolPublicKeyFingerprint)).ToArray();
+            }
+        }
+    }
+
+    private void RememberLanFilePeer(RemoteControlPairingMaterial peer, Action requireCommit, CancellationToken token)
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed(); requireCommit(); token.ThrowIfCancellationRequested();
+            if (!peer.IsProtocolIdentityOnly) throw new InvalidDataException("PIB authorizes only its verified signing identity.");
+            CheckKnownSigner(peer.DeviceId, peer.ProtocolPublicKeyFingerprint);
+            if (!CheckImport(peer, PublicMaterial, _filePaired)) return;
+            if (_filePaired.Count >= MaximumTrustedPeers) throw new InvalidOperationException("The paired file device limit is reached.");
+            var replacement = new List<RemoteControlPairingMaterial>(_filePaired) { peer };
+            Persist(_trusted, token, requireCommit, filePeers: replacement);
+            _filePaired.Add(peer);
+        }
+    }
+
+    private void PreflightPibIdentity(RemoteControlPairingMaterial material, bool filesOnly)
     {
         lock (_gate)
         {
             ThrowIfDisposed();
-            if (CheckImport(material) && _trusted.Count >= MaximumTrustedPeers)
+            CheckKnownSigner(material.DeviceId, material.ProtocolPublicKeyFingerprint);
+            var members = filesOnly ? _filePaired : _trusted;
+            if (CheckImport(material, PublicMaterial, members) && members.Count >= MaximumTrustedPeers)
                 throw new InvalidOperationException("The trusted peer limit is reached.");
         }
     }

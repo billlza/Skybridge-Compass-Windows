@@ -2012,6 +2012,15 @@
   <data name="LanPairingCompare" xml:space="preserve"><value>Confirm that the six-digit code matches the code on your phone.</value></data>
   <data name="LanPairingSaveDetail" xml:space="preserve"><value>Pairing saves this device identity on this computer. Audio playback still requires account verification and a separate playback approval.</value></data>
   <data name="LanPairingSave" xml:space="preserve"><value>Match and save</value></data>
+  <data name="FileReceiveStartButton.Content" xml:space="preserve"><value>Receive files / pair a device</value></data>
+  <data name="FileReceiveStart" xml:space="preserve"><value>Receive files / pair a device</value></data>
+  <data name="FileReceiveStop" xml:space="preserve"><value>Stop receiving files</value></data>
+  <data name="FileReceiveNetworkTitle" xml:space="preserve"><value>Choose the network for receiving files</value></data>
+  <data name="FileReceiveWaiting" xml:space="preserve"><value>Ready to pair and receive files on the selected network.</value></data>
+  <data name="FileReceiveStopped" xml:space="preserve"><value>LAN file reception stopped.</value></data>
+  <data name="FileReceiveNoNetwork" xml:space="preserve"><value>No local network interface is available.</value></data>
+  <data name="FileReceiveIdentityDetails" xml:space="preserve"><value>Device identity details</value></data>
+  <data name="FileReceivePairDetail" xml:space="preserve"><value>Remember this device for LAN file transfers. You will be asked before each incoming file.</value></data>
   <data name="WebRtcPairingCompare" xml:space="preserve"><value>Compare these six digits on both devices.</value></data>
   <data name="WebRtcPairingRemember" xml:space="preserve"><value>Match and remember</value></data>
   <data name="WebRtcPairingOnce" xml:space="preserve"><value>Match for this session</value></data>

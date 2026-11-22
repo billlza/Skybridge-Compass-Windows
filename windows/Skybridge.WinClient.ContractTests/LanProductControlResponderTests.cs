@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Net;
 using Skybridge.WinClient.Services.Audio;
+using Skybridge.WinClient.Services.FileTransfer;
 using Skybridge.WinClient.Services.RemoteControl;
 using System.Net.Sockets;
 using Skybridge.WinClient.Services;
@@ -11,6 +12,7 @@ internal static class LanProductControlResponderTests
 {
     internal static readonly (string Name, Func<Task> Run)[] Cases =
     [
+        ("file-only MAIN advertises ordinary files and keeps unsolicited audio unavailable", FileOnlyAdmission),
         ("MAIN admission survives the first heartbeat interval while awaiting peer approval", DelayedAdmission),
         ("incoming MAIN requires Finished and ordered identity approval before audio binding", () => IncomingAdmission(false)),
         ("bootstrap-enabled MAIN preserves Finished ordered admission and encrypted audio handoff", () => IncomingAdmission(true)),
@@ -131,7 +133,7 @@ internal static class LanProductControlResponderTests
         internal RemoteControlTrustedPeer[] PublishedTrusted = [];
         internal ProductSessionKeys? Keys;
         internal WebRtcAppSecureSessionKeys? AppKeys;
-        private Incoming(TcpClient client, TcpClient accepted, bool bootstrap)
+        private Incoming(TcpClient client, TcpClient accepted, bool bootstrap, ushort? filePort = null)
         {
             Client = client; Remote = new(client, 1024 * 1024, 1024 * 1024);
             Accept = Admit();
@@ -150,16 +152,16 @@ internal static class LanProductControlResponderTests
                     _ => throw new InvalidOperationException("MessageA must not enter PIB preflight."),
                     (_, _, _) => throw new InvalidOperationException("MessageA must not enter PIB commit."), new UnusedApproval(), () => { });
                 var result = await LanProductControlResponder.AcceptWithBootstrapAsync(accepted, Account, Pairing,
-                    () => { TrustReads++; return PublishedTrusted; }, Create, null, Deadline.Token, refresh, pairing);
+                    () => { TrustReads++; return PublishedTrusted; }, Create, filePort, Deadline.Token, refresh, pairing, advertiseGeneralFiles: filePort.HasValue);
                 return result is LanIncomingControlResult.Main main ? main.Session : throw new InvalidOperationException("MessageA was treated as SKR.");
             }
         }
-        internal static async Task<Incoming> Open(bool bootstrap = false)
+        internal static async Task<Incoming> Open(bool bootstrap = false, ushort? filePort = null)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
             var client = new TcpClient();
             await client.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
-            return new(client, await listener.AcceptTcpClientAsync(), bootstrap);
+            return new(client, await listener.AcceptTcpClientAsync(), bootstrap, filePort);
         }
         internal async Task BeginHandshake(bool padded = false)
         {
@@ -214,6 +216,85 @@ internal static class LanProductControlResponderTests
     {
         public Task<bool> ShowAsync(LanPibApprovalRequest request, CancellationToken token) =>
             throw new InvalidOperationException("MessageA must not enter PIB approval.");
+    }
+
+    internal static async Task NativePassiveFileReadback()
+    {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041)) throw new PlatformNotSupportedException("The product ordinary file receiver requires Windows.");
+        var dir = Directory.CreateTempSubdirectory("file-only-main-");
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            var ct = timeout.Token;
+            var destination = Directory.CreateDirectory(Path.Combine(dir.FullName, "received"));
+            LanProductControlSession? established = null;
+            bool current = true;
+            int approvals = 0;
+            var done = new TaskCompletionSource<ClassicFileTransferResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await using var receive = new ClassicFileTransferListener(id =>
+            {
+                if (established == null || RemoteControlHandshakeBinding.CanonicalDeviceId(id) != established.PeerDeviceId)
+                    throw new InvalidDataException("Wrong file owner.");
+                return established;
+            }, destination.FullName, (meta, _, _) =>
+            {
+                approvals++;
+                return Task.FromResult(meta.FileName == "ordinary.dat");
+            }, new Progress<ClassicFileTransferProgress>(), (_, result, error) =>
+            {
+                if (error != null) done.TrySetException(error);
+                else if (result != null) done.TrySetResult(result);
+            }, ct, IPAddress.Loopback, () => { if (!current) throw new InvalidOperationException("The account ended."); });
+            await using var f = await Incoming.Open(bootstrap: true, filePort: receive.Port);
+            await f.BeginHandshake(); await f.Finish();
+            var announced = LanProductControlMessages.Payload<LanProductIdentity>(await f.Read());
+            Require(announced.FileTransferPort == receive.Port && announced.Capabilities is ["file_transfer"] && announced.RemoteControlPort == null,
+                "Passive MAIN announced another service or port.");
+            var ping = LanProductControlMessages.Payload<LanProductPing>(await f.Read());
+            var sender = Identity(PeerId, PeerPublicKey);
+            await f.Send(LanControlMessageKind.Identity, sender);
+            await f.Send(LanControlMessageKind.Pong, ping);
+            established = await f.Accept;
+            var bytes = RandomNumberGenerator.GetBytes(177777);
+            var source = Path.Combine(dir.FullName, "ordinary.dat");
+            await File.WriteAllBytesAsync(source, bytes, ct);
+            string transfer = Guid.NewGuid().ToString("D");
+            var key = ClassicFileTransferWire.DeriveTransferKey(f.Keys!, transfer);
+            try
+            {
+                using var socket = new TcpClient();
+                await socket.ConnectAsync(IPAddress.Loopback, announced.FileTransferPort ?? throw new InvalidDataException("Missing file port."), ct);
+                await using var prepared = await ClassicFileTransferSender.PrepareAsync(source, transfer, sender, key, ct);
+                var receipt = await ClassicFileTransferSender.SendAsync(socket.GetStream(), prepared, key, null, ct);
+                var saved = await done.Task.WaitAsync(ct);
+                Require(approvals == 1 && receipt.FileHash == saved.FileHash && saved.Bytes == bytes.Length &&
+                    (await File.ReadAllBytesAsync(Path.Combine(destination.FullName, "ordinary.dat"), ct)).SequenceEqual(bytes),
+                    "The scoped Windows ordinary receiver did not approve, read back and acknowledge the same bytes.");
+            }
+            finally { CryptographicOperations.ZeroMemory(key); current = false; }
+        }
+        finally { dir.Delete(true); }
+    }
+
+    private static async Task FileOnlyAdmission()
+    {
+        await using var f = await Incoming.Open(bootstrap: true, filePort: 42123);
+        await f.BeginHandshake(); await f.Finish();
+        var local = LanProductControlMessages.Payload<LanProductIdentity>(await f.Read());
+        Require(local.FileTransferPort == 42123 && local.Capabilities is ["file_transfer"] && local.RemoteControlPort == null,
+            "File MAIN published an audio or remote control capability.");
+        var ping = LanProductControlMessages.Payload<LanProductPing>(await f.Read());
+        await f.Send(LanControlMessageKind.Identity, Identity(PeerId, PeerPublicKey));
+        await f.Send(LanControlMessageKind.Pong, ping);
+        var session = await f.Accept;
+        var id = Guid.NewGuid();
+        await f.SendRaw(AudioStreamingLanEnvelope.Encode(new(id, new AudioStreamingBody.CaptureOffer(
+            new(48000, 2, AudioStreamingEncoding.Float32, 32, 3)))));
+        var barrier = new LanProductPing(ping.Id ^ 2);
+        await f.Send(LanControlMessageKind.Ping, barrier);
+        Require(LanProductControlMessages.Payload<LanProductPing>(await f.Read()).Id == barrier.Id &&
+            session.UnavailableAudioFrames == 1 && session.IsReady,
+            "The file-only receiver admitted unsolicited audio or stopped responding to its control peer.");
     }
 
     private static async Task IncomingAdmission(bool bootstrap)

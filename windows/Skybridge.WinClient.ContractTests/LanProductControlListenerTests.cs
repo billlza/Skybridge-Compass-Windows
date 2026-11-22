@@ -193,6 +193,15 @@ internal static class LanProductControlListenerTests
             ["platform"] = "windows", ["pubKeyFP"] = new string('a', 64) };
         var options = new WindowsRemoteControlAdvertisementOptions("Fixture", "fixture.local", IPAddress.Parse("192.0.2.10"),
             ((IPEndPoint)socket.LocalEndpoint).Port, 1, properties, WindowsProductAdvertisementService.MainControl);
+        using var fileSocket = new TcpListener(IPAddress.Any, 0); fileSocket.Start();
+        var fileOptions = new WindowsRemoteControlAdvertisementOptions("Fixture", "fixture.local", IPAddress.Parse("192.0.2.10"),
+            ((IPEndPoint)fileSocket.LocalEndpoint).Port, 1, properties, WindowsProductAdvertisementService.FileTransfer);
+        var fileBackend = new Backend(); await using var fileAdvertisement = new WindowsRemoteControlAdvertisement(fileBackend);
+        await fileAdvertisement.StartAsync(fileSocket, fileOptions);
+        Require(fileBackend.Options?.ServiceName == "Fixture._skybridge-xfer._tcp.local" &&
+            fileBackend.Options.Port == ((IPEndPoint)fileSocket.LocalEndpoint).Port, "The ordinary receiver was not discoverable on its actual file socket.");
+        await fileAdvertisement.StopAsync();
+        Require(fileBackend.Removed == 1 && !fileAdvertisement.IsRegistered, "The ordinary file service outlived its socket.");
         var backend = new Backend(); await using var advertisement = new WindowsRemoteControlAdvertisement(backend);
         await advertisement.StartAsync(socket, options);
         Require(advertisement.IsRegistered && backend.Options?.ServiceName == "Fixture._skybridge._tcp.local",

@@ -9,24 +9,27 @@ namespace Skybridge.WinClient.Services.FileTransfer;
 [SupportedOSPlatform("windows10.0.19041")]
 internal sealed class ClassicFileTransferListener : IAsyncDisposable
 {
-    private readonly WindowsDeviceWorkspace _workspace;
+    private readonly Func<string, LanProductControlSession> _resolveSession;
     private readonly string _destination;
     private readonly Func<ClassicFileMetadata, string, CancellationToken, Task<bool>> _approve;
     private readonly IProgress<ClassicFileTransferProgress> _progress;
     private readonly Action<ClassicFileMetadata?, ClassicFileTransferResult?, Exception?> _completed;
-    private readonly TcpListener _listener = new(IPAddress.IPv6Any, 0);
+    private readonly TcpListener _listener;
+    private readonly Action? _requireCurrent;
     private readonly CancellationTokenSource _lifetime;
     private readonly Task _run;
 
-    internal ClassicFileTransferListener(WindowsDeviceWorkspace workspace, string destination,
+    internal ClassicFileTransferListener(Func<string, LanProductControlSession> resolveSession, string destination,
         Func<ClassicFileMetadata, string, CancellationToken, Task<bool>> approve, IProgress<ClassicFileTransferProgress> progress,
-        Action<ClassicFileMetadata?, ClassicFileTransferResult?, Exception?> completed, CancellationToken cancellationToken)
+        Action<ClassicFileMetadata?, ClassicFileTransferResult?, Exception?> completed, CancellationToken cancellationToken, IPAddress? localAddress = null, Action? requireCurrent = null)
     {
-        _workspace = workspace; _destination = destination; _approve = approve; _progress = progress; _completed = completed;
+        _resolveSession = resolveSession; _destination = destination; _approve = approve; _progress = progress; _completed = completed;
+        _listener = new(localAddress ?? IPAddress.IPv6Any, 0);
+        _requireCurrent = requireCurrent;
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
-            _listener.Server.DualMode = true;
+            if (localAddress is null) _listener.Server.DualMode = true;
             _listener.Start(4);
             Port = checked((ushort)((IPEndPoint)_listener.LocalEndpoint).Port);
             _run = RunAsync();
@@ -35,6 +38,7 @@ internal sealed class ClassicFileTransferListener : IAsyncDisposable
     }
 
     internal ushort Port { get; }
+    internal TcpListener BoundListener => _listener;
     internal Task Completion => _run;
 
     private async Task RunAsync()
@@ -77,8 +81,12 @@ internal sealed class ClassicFileTransferListener : IAsyncDisposable
                 ClassicFileTransferWire.ValidateMetadata(metadata);
                 var address = (client.Client.RemoteEndPoint as IPEndPoint)?.Address
                     ?? throw new IOException("The incoming file connection has no IP endpoint.");
-                var session = _workspace.RequireIncomingControlSession(metadata.SenderDeviceId
+                var session = _resolveSession(metadata.SenderDeviceId
                     ?? throw new InvalidDataException("The incoming file has no authenticated sender identity."));
+                _requireCurrent?.Invoke();
+                if (_requireCurrent != null && (session.LocalIdentity.FileTransferPort != Port ||
+                    session.LocalIdentity.Capabilities?.Contains("file_transfer", StringComparer.Ordinal) != true))
+                    throw new InvalidDataException("The sender has no ordinary file session on this receiver.");
                 var key = session.AuthorizeIncomingTransfer(metadata, address);
                 using var operation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, session.Lifetime);
                 try
@@ -94,7 +102,7 @@ internal sealed class ClassicFileTransferListener : IAsyncDisposable
                     }
                     using var power = WindowsPowerKeepAwake.Arm();
                     var result = await ClassicFileTransferReceiver.ReceiveAsync(stream, metadata, key,
-                        _destination, _progress, operation.Token).ConfigureAwait(false);
+                        _destination, _progress, operation.Token, _requireCurrent).ConfigureAwait(false);
                     _completed(metadata, result, null);
                 }
                 finally { CryptographicOperations.ZeroMemory(key); }

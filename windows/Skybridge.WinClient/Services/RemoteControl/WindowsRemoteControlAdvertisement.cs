@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 
 namespace Skybridge.WinClient.Services.RemoteControl;
 
-public enum WindowsProductAdvertisementService { RemoteDesktop, MainControl }
+public enum WindowsProductAdvertisementService { RemoteDesktop, MainControl, FileTransfer }
 
 public sealed class WindowsRemoteControlAdvertisementOptions
 {
@@ -136,8 +136,14 @@ public sealed class WindowsRemoteControlAdvertisementOptions
 
     public string InstanceName { get; }
     public WindowsProductAdvertisementService Service { get; }
-    public string ServiceName => $"{InstanceName}.{(Service == WindowsProductAdvertisementService.MainControl ?
-        SkyBridgeProtocolConstants.TcpControlDnsSdService : SkyBridgeProtocolConstants.RemoteDesktopDnsSdService)}.local";
+    public string ServiceName => $"{InstanceName}.{ServiceType}.local";
+    private string ServiceType => Service switch
+    {
+        WindowsProductAdvertisementService.MainControl => SkyBridgeProtocolConstants.TcpControlDnsSdService,
+        WindowsProductAdvertisementService.FileTransfer => SkyBridgeProtocolConstants.FileTransferDnsSdService,
+        WindowsProductAdvertisementService.RemoteDesktop => SkyBridgeProtocolConstants.RemoteDesktopDnsSdService,
+        _ => throw new InvalidDataException("Unknown DNS-SD product service.")
+    };
     public string HostName { get; }
     public IPAddress LocalAddress { get; }
     public int Port { get; }

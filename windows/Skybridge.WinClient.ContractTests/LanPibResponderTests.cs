@@ -386,6 +386,48 @@ internal static class LanPibResponderTests
         Require(response.ProtocolIdentityFingerprint == Fingerprint(f.LocalKey), "Newly approved authority was invisible to the same responder.");
     }
 
+    private static async Task NativeFileScope()
+    {
+        var directory = Directory.CreateTempSubdirectory("skybridge-files-pib-");
+        try
+        {
+            using var signer = MLDsa.GenerateKey(MLDsaAlgorithm.MLDsa65);
+            var key = signer.ExportMLDsaPublicKey().ToImmutableArray();
+            var fp = Fingerprint(key);
+            using (var store = await RemoteControlIdentityStore.LoadOrCreateAsync(directory.FullName, "Files"))
+            {
+                foreach (var allow in new[] { false, true })
+                {
+                    var receiver = store.CreatePibResponder(new Approval((r, _) =>
+                        Task.FromResult(r.SasCode.Length == 6 && allow)), () => { }, filesOnly: true);
+                    var request = new LanPibRequest(3, Guid.NewGuid().ToString("D"), PeerId, store.PublicMaterial.DeviceId,
+                        ["ML-DSA-65"], "ML-DSA-65", key, fp, [], Bytes(3, 24), LanProductControlMessages.Timestamp(DateTimeOffset.UtcNow));
+                    request = request with { RequesterSignature = signer.SignData(LanPibCanonical.RequestPreimage(request)).ToImmutableArray() };
+                    var reply = receiver.CreateCandidate(request, default);
+                    var confirm = Fixture.MakeConfirm(request, reply, LanProductControlMessages.Timestamp(DateTimeOffset.UtcNow));
+                    confirm = confirm with { RequesterSignature = signer.SignData(LanPibCanonical.ConfirmPreimage(confirm)).ToImmutableArray() };
+                    if (!allow) await Reject(() => receiver.ConfirmAsync(confirm, default), "userRejected");
+                    else
+                    {
+                        var ack = await receiver.ConfirmAsync(confirm, default);
+                        using var verify = MLDsa.ImportMLDsaPublicKey(MLDsaAlgorithm.MLDsa65, reply.ProtocolIdentityPublicKey.AsSpan());
+                        Require(ack.Accepted && verify.VerifyData(LanPibCanonical.FinalAckPreimage(ack), ack.ResponderSignature.AsSpan()),
+                            "A file-pairing final ACK did not carry the real responder signature.");
+                    }
+                    Require(store.FileTransferPeers.Any(p => p.ProtocolPublicKeyFingerprint == fp) == allow &&
+                        store.TrustedPeers.Count == 0 && store.TrustedMaterials.Count == 0,
+                        "PIB admitted a declined file peer or granted unrelated controller authority.");
+                }
+            }
+            using var reopened = await RemoteControlIdentityStore.LoadOrCreateAsync(directory.FullName, "Files");
+            Require(reopened.FileTransferPeers.Single().ProtocolPublicKeyFingerprint == fp && reopened.TrustedPeers.Count == 0 &&
+                reopened.FindWebRtcIdentity(PeerId, fp).Compared == null,
+                "File-only pairing did not retain its permission boundary across restart.");
+            Console.WriteLine("PASS native signed LAN file-only PIB rejects mismatch and reopens without controller authority");
+        }
+        finally { directory.Delete(true); }
+    }
+
     internal static int NativeSignaturesVerified { get; private set; }
     internal static async Task NativeRoundTripWhenSupported()
     {
@@ -394,6 +436,7 @@ internal static class LanPibResponderTests
             return; // Native identity storage requires Windows DPAPI; no substitute protector.
         }
         if (!MLDsa.IsSupported || !MLKem.IsSupported) throw new PlatformNotSupportedException("Windows PIB acceptance requires native PQC.");
+        await NativeFileScope();
         var directory = Directory.CreateTempSubdirectory("skybridge-pib-native-");
         try
         {

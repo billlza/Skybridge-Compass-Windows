@@ -136,6 +136,7 @@
     <Compile Include="..\Skybridge.WinClient\Services\FileTransfer\ClassicFileTransferOperation.cs" Link="Services\FileTransfer\ClassicFileTransferOperation.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\FileTransfer\ClassicFileTransferSender.cs" Link="Services\FileTransfer\ClassicFileTransferSender.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\FileTransfer\ClassicFileTransferReceiver.cs" Link="Services\FileTransfer\ClassicFileTransferReceiver.cs" />
+    <Compile Include="..\Skybridge.WinClient\Services\FileTransfer\ClassicFileTransferListener.cs" Link="Services\FileTransfer\ClassicFileTransferListener.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\FileTransfer\FileTransferFolderArchive.cs" Link="Services\FileTransfer\FileTransferFolderArchive.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\ProductForwardSecretContribution.cs" Link="Services\ProductForwardSecretContribution.cs" />
     <Compile Include="..\Skybridge.WinClient\Services\TopBarNetworkStatusClient.cs" Link="Services\TopBarNetworkStatusClient.cs" />
